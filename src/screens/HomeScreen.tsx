@@ -15,7 +15,6 @@ interface HomeScreenProps {
   activePreset: DemoScenarioPreset | null;
   onApplyPreset: (preset: DemoScenarioPreset) => void;
   onEnableLiveGps: () => void;
-  onOpenAdmin: () => void;
   deliveries: Delivery[];
   shiftMetrics: any;
 }
@@ -26,7 +25,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   activePreset,
   onApplyPreset,
   onEnableLiveGps,
-  onOpenAdmin,
   deliveries,
   shiftMetrics,
 }) => {
@@ -43,7 +41,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           activePreset={activePreset}
           onOpenScenarioModal={() => setIsScenarioModalVisible(true)}
           onToggleLiveGps={onEnableLiveGps}
-          onOpenAdmin={onOpenAdmin}
         />
 
         <View style={styles.content}>

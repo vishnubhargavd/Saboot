@@ -8,11 +8,10 @@ import { useLocationTracking } from './hooks/useLocationTracking';
 import { HomeScreen } from './screens/HomeScreen';
 import { DeliveryDetailScreen } from './screens/DeliveryDetailScreen';
 import { ResultScreen } from './screens/ResultScreen';
-import { AdminPanel } from './components/AdminPanel';
 import { Delivery } from './types/delivery';
 import { VerificationResult } from './types/policy';
 
-type ScreenState = 'HOME' | 'DELIVERY_DETAIL' | 'RESULT' | 'ADMIN';
+type ScreenState = 'HOME' | 'DELIVERY_DETAIL' | 'RESULT';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('HOME');
@@ -23,8 +22,6 @@ export default function App() {
     deliveries,
     shiftMetrics,
     selectDelivery,
-    updateDelivery,
-    addDelivery,
     recordAttestationResult,
   } = useDelivery();
 
@@ -77,7 +74,6 @@ export default function App() {
             activePreset={activePreset}
             onApplyPreset={applyDemoPreset}
             onEnableLiveGps={enableLiveGps}
-            onOpenAdmin={() => setCurrentScreen('ADMIN')}
           />
         )}
 
@@ -99,15 +95,6 @@ export default function App() {
             result={latestResult}
             delivery={selectedDelivery}
             onReturnHome={handleReturnHome}
-          />
-        )}
-
-        {currentScreen === 'ADMIN' && (
-          <AdminPanel
-            deliveries={deliveries}
-            onUpdateDelivery={updateDelivery}
-            onCreateDelivery={addDelivery}
-            onClose={() => setCurrentScreen('HOME')}
           />
         )}
       </View>

@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Saboot — Zero-Trust Delivery Operations Console</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="admin-app">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+      <div class="nav-left">
+        <div class="brand-badge">🛡️ SABOOT</div>
+        <div class="console-title">OPERATIONS & DISPATCH CONSOLE</div>
+        <div class="live-pill"><span class="pulse-dot"></span> LIVE TELEMETRY</div>
+      </div>
+      <div class="nav-right">
+        <div class="active-drivers-badge">🚚 3 DRIVERS ACTIVE</div>
+        <button class="btn-create-order" id="btnOpenCreateModal">+ DISPATCH NEW ORDER</button>
+      </div>
+    </header>
+
+    <!-- Main Dashboard Grid -->
+    <div class="dashboard-grid">
+      <!-- Left Column: KPI Stats & Dispatch Queue -->
+      <aside class="sidebar">
+        <!-- KPI Metrics -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <span class="kpi-label">TOTAL STOPS</span>
+            <strong class="kpi-value" id="kpiTotal">4</strong>
+            <span class="kpi-sub">Today's Route</span>
+          </div>
+          <div class="kpi-card kpi-verified">
+            <span class="kpi-label">VERIFIED</span>
+            <strong class="kpi-value" id="kpiVerified">1</strong>
+            <span class="kpi-sub">Genuine Proof</span>
+          </div>
+          <div class="kpi-card kpi-rejected">
+            <span class="kpi-label">REJECTED</span>
+            <strong class="kpi-value" id="kpiRejected">1</strong>
+            <span class="kpi-sub">Falsified/Failed</span>
+          </div>
+          <div class="kpi-card kpi-review">
+            <span class="kpi-label">REVIEW</span>
+            <strong class="kpi-value" id="kpiReview">1</strong>
+            <span class="kpi-sub">Ambiguous Ops</span>
+          </div>
+        </div>
+
+        <!-- Deliveries Queue Header -->
+        <div class="queue-header">
+          <h2>ACTIVE ROUTE ORDERS</h2>
+          <span class="queue-count" id="queueCount">4 Packages</span>
+        </div>
+
+        <!-- Order List -->
+        <div class="order-list" id="orderList">
+          <!-- Dynamically populated -->
+        </div>
+      </aside>
+
+      <!-- Center: Live Map & Driver Telemetry -->
+      <main class="map-view-panel">
+        <div class="map-toolbar">
+          <div class="selected-target-info">
+            <span class="target-eyebrow">MONITORING STOP</span>
+            <strong id="targetName">Vishnu Bhargav (Sobha Silicon Oasis)</strong>
+          </div>
+          <div class="geofence-status-banner" id="geofenceStatusBanner">
+            <span class="status-dot"></span>
+            <span id="geofenceStatusText">INSIDE 50M GEOFENCE • 38M TO DOOR</span>
+          </div>
+        </div>
+
+        <div id="adminMap" class="admin-map"></div>
+
+        <!-- Bottom Telemetry Radar Feed -->
+        <div class="telemetry-bar">
+          <div class="telemetry-cell">
+            <span class="t-label">CURRENT DRIVER</span>
+            <strong id="telemetryDriver">DRV-BLR-09 (Unit 24)</strong>
+          </div>
+          <div class="telemetry-cell">
+            <span class="t-label">HAVERSINE DISTANCE</span>
+            <strong id="telemetryDistance">38 meters (≤50m OK)</strong>
+          </div>
+          <div class="telemetry-cell">
+            <span class="t-label">DWELL ACCUMULATED</span>
+            <strong id="telemetryDwell">158s / 150s Target</strong>
+          </div>
+          <div class="telemetry-cell">
+            <span class="t-label">CALL EVIDENCE</span>
+            <strong id="telemetryCall">+91 90191 44983 (24s)</strong>
+          </div>
+        </div>
+      </main>
+
+      <!-- Right Column: Zero-Trust Decision Inspector & Driver Assignment -->
+      <aside class="inspector-panel">
+        <div class="inspector-header">
+          <h2>ZERO-TRUST DECISION INSPECTOR</h2>
+          <span class="engine-tag">CEDAR / LAMBDA EQUIV</span>
+        </div>
+
+        <!-- Selected Order Details Card -->
+        <div class="inspector-card" id="inspectorCard">
+          <div class="inspector-decision-badge" id="inspectorDecisionBadge">
+            <span class="decision-icon">🛡️</span>
+            <div>
+              <strong id="inspectorDecisionTitle">ATTEMPT VERIFIED</strong>
+              <span id="inspectorDecisionSub">All physical & contact criteria met</span>
+            </div>
+          </div>
+
+          <div class="order-config-section">
+            <label class="section-title">ASSIGNED DRIVER</label>
+            <select id="selectDriver" class="input-select">
+              <option value="DRV-BLR-09">Ramesh Kumar (Unit 24 - DRV-BLR-09)</option>
+              <option value="DRV-BLR-12">Sunil Rao (Unit 12 - DRV-BLR-12)</option>
+              <option value="DRV-BLR-15">Praveen Gowda (Unit 15 - DRV-BLR-15)</option>
+            </select>
+          </div>
+
+          <div class="order-config-section">
+            <label class="section-title">RESIDENCE CATEGORY (SETS DWELL THRESHOLD)</label>
+            <div class="residence-toggle-group">
+              <button class="btn-cat" data-cat="individual_house">House (90s)</button>
+              <button class="btn-cat" data-cat="apartment">Apartment (120s)</button>
+              <button class="btn-cat active" data-cat="gated_society">Gated (150s)</button>
+            </div>
+          </div>
+
+          <!-- Evaluated Server Facts Matrix -->
+          <div class="facts-matrix">
+            <label class="section-title">EVALUATED SERVER FACTS</label>
+            <div class="fact-row" id="factDistance">
+              <span class="fact-name">1. Geofence Proximity (≤50m)</span>
+              <span class="fact-val pass">38m (PASS)</span>
+            </div>
+            <div class="fact-row" id="factDwell">
+              <span class="fact-name">2. Residence Dwell Time</span>
+              <span class="fact-val pass">158s / 150s (PASS)</span>
+            </div>
+            <div class="fact-row" id="factCall">
+              <span class="fact-name">3. Customer Telephony Call</span>
+              <span class="fact-val pass">24s Logged (PASS)</span>
+            </div>
+            <div class="fact-row" id="factAccuracy">
+              <span class="fact-name">4. GPS Signal Accuracy</span>
+              <span class="fact-val pass">±6m (PASS)</span>
+            </div>
+          </div>
+
+          <!-- Cryptographic Audit Record -->
+          <div class="audit-trail-box">
+            <div class="audit-header">IMMUTABLE AUDIT TRAIL</div>
+            <div class="audit-item">
+              <span>AUDIT ID:</span>
+              <strong id="auditId">AUD-7K99-M42A</strong>
+            </div>
+            <div class="audit-item">
+              <span>HASH:</span>
+              <strong id="auditHash">sha256:8f4c...394e1</strong>
+            </div>
+            <div class="audit-item">
+              <span>TIMESTAMP:</span>
+              <strong id="auditTime">12:15:20 PM</strong>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Dispatch New Order Modal -->
+    <div class="modal-backdrop" id="createModal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>DISPATCH NEW DELIVERY ORDER</h3>
+          <button class="btn-close-modal" id="btnCloseCreateModal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>CUSTOMER NAME</label>
+            <input type="text" id="inputCustName" value="Vishnu Bhargav" placeholder="Customer Name" />
+          </div>
+          <div class="form-group">
+            <label>CUSTOMER PHONE</label>
+            <input type="text" id="inputCustPhone" value="+91 90191 44983" placeholder="+91 90191 44983" />
+          </div>
+          <div class="form-group">
+            <label>STREET ADDRESS</label>
+            <input type="text" id="inputStreet" value="Tower 4, Flat 902, Sobha Silicon Oasis" placeholder="Street Address" />
+          </div>
+          <div class="form-group">
+            <label>RESIDENCE CATEGORY</label>
+            <select id="inputCategory" class="input-select">
+              <option value="gated_society">Gated Society (150s Required Dwell)</option>
+              <option value="apartment">Apartment Building (120s Required Dwell)</option>
+              <option value="individual_house">Individual House (90s Required Dwell)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>ASSIGN DRIVER</label>
+            <select id="inputDriver" class="input-select">
+              <option value="DRV-BLR-09">Ramesh Kumar (Unit 24 - DRV-BLR-09)</option>
+              <option value="DRV-BLR-12">Sunil Rao (Unit 12 - DRV-BLR-12)</option>
+              <option value="DRV-BLR-15">Praveen Gowda (Unit 15 - DRV-BLR-15)</option>
+            </select>
+          </div>
+          <button class="btn-submit-order" id="btnSubmitNewOrder">DISPATCH & SAVE ORDER</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

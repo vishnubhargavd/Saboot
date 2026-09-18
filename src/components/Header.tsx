@@ -9,7 +9,6 @@ interface HeaderProps {
   activePreset: DemoScenarioPreset | null;
   onOpenScenarioModal: () => void;
   onToggleLiveGps: () => void;
-  onOpenAdmin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,7 +16,6 @@ export const Header: React.FC<HeaderProps> = ({
   activePreset,
   onOpenScenarioModal,
   onToggleLiveGps,
-  onOpenAdmin,
 }) => {
   return (
     <View style={styles.container}>
@@ -31,25 +29,16 @@ export const Header: React.FC<HeaderProps> = ({
           </View>
         </View>
 
-        <View style={styles.headerRightActions}>
-          {onOpenAdmin && (
-            <TouchableOpacity style={styles.adminButton} onPress={onOpenAdmin} activeOpacity={0.8}>
-              <Ionicons name="settings-outline" size={14} color="#FFFFFF" />
-              <Text style={styles.adminButtonText}>ADMIN</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            style={styles.scenarioButton}
-            onPress={onOpenScenarioModal}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="layers-outline" size={14} color={THEME.colors.slate} />
-            <Text style={styles.scenarioButtonText}>
-              {isSimulationMode && activePreset ? activePreset.tag : 'SCENARIOS'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.scenarioButton}
+          onPress={onOpenScenarioModal}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="layers-outline" size={14} color={THEME.colors.slate} />
+          <Text style={styles.scenarioButtonText}>
+            {isSimulationMode && activePreset ? activePreset.tag : 'SCENARIOS'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* GPS Mode Bar */}
@@ -122,26 +111,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: THEME.colors.slate,
     letterSpacing: 1,
-  },
-  headerRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  adminButton: {
-    backgroundColor: THEME.colors.slate,
-    height: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    borderRadius: 2,
-  },
-  adminButtonText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.8,
   },
   scenarioButton: {
     backgroundColor: '#EEF2F3',
