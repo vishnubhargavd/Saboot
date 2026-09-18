@@ -12,6 +12,15 @@ interface ResultCardProps {
 export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) => {
   const getDecisionTag = () => {
     switch (result.decision) {
+      case 'DELIVERED':
+        return {
+          title: 'DELIVERY COMPLETED & CONFIRMED',
+          subtitle: 'Package successfully handed over at customer doorstep',
+          bg: '#ECFDF5',
+          border: '#A7F3D0',
+          color: '#15803D',
+          icon: 'checkmark-circle-sharp',
+        };
       case 'VERIFIED':
         return {
           title: 'ATTEMPT VERIFIED',
@@ -33,8 +42,10 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
       case 'REVIEW':
       default:
         return {
-          title: 'SENT TO DISPATCH REVIEW',
-          subtitle: 'Telemetry ambiguity requires supervisor inspection',
+          title: result.requiresAdminApproval ? 'SENT TO ADMIN APPROVAL' : 'SENT TO DISPATCH REVIEW',
+          subtitle: result.requiresAdminApproval
+            ? 'Customer absence video proof attached — pending admin confirmation'
+            : 'Telemetry ambiguity requires supervisor inspection',
           bg: '#FFFBEB',
           border: '#FDE68A',
           color: '#B45309',
@@ -63,6 +74,42 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
           <Text style={styles.primaryReason}>{result.primaryReason}</Text>
           <Text style={styles.detailedText}>{result.detailedExplanation}</Text>
         </View>
+
+        {/* Customer Transparency Video Evidence (when customer_unavailable proof is attached) */}
+        {(result.videoProofUri || result.requiresAdminApproval || result.facts.videoEvidence) && (
+          <View style={styles.evidenceCard}>
+            <View style={styles.evidenceHeader}>
+              <Ionicons name="videocam" size={20} color={THEME.colors.signal} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.evidenceTitle}>CUSTOMER TRANSPARENCY EVIDENCE</Text>
+                <Text style={styles.evidenceSub}>
+                  Doorstep footage recorded for customer verification & ops audit
+                </Text>
+              </View>
+              {result.requiresAdminApproval && (
+                <View style={styles.pendingAdminBadge}>
+                  <Text style={styles.pendingAdminText}>AWAITING ADMIN APPROVAL</Text>
+                </View>
+              )}
+            </View>
+
+            {/* Simulated Video Player Preview */}
+            <View style={styles.videoPlayerPreview}>
+              <View style={styles.videoThumbnailOverlay}>
+                <Ionicons name="play-circle" size={48} color="#FFFFFF" />
+                <Text style={styles.videoDurationText}>00:06 • HD 1080p</Text>
+              </View>
+              <View style={styles.videoMetaBar}>
+                <Text style={styles.videoFileName}>doorstep_absence_proof.mp4</Text>
+                <Text style={styles.videoStatusTag}>UPLOADED & ENCRYPTED ✓</Text>
+              </View>
+            </View>
+
+            <Text style={styles.customerNoticeText}>
+              ℹ️ This video evidence was dispatched directly to the customer transparency portal and flagged for operations supervisor approval.
+            </Text>
+          </View>
+        )}
 
         {/* Evaluated Server Facts */}
         <View style={styles.sectionCard}>
@@ -266,5 +313,91 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 1,
+  },
+  evidenceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 4,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: '#FED7AA',
+  },
+  evidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+  },
+  evidenceTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: THEME.colors.foreground,
+    letterSpacing: 0.5,
+  },
+  evidenceSub: {
+    fontSize: 10,
+    color: THEME.colors.muted,
+    marginTop: 1,
+  },
+  pendingAdminBadge: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 2,
+  },
+  pendingAdminText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#92400E',
+    letterSpacing: 0.5,
+  },
+  videoPlayerPreview: {
+    backgroundColor: '#0F172A',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  videoThumbnailOverlay: {
+    height: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1E293B',
+  },
+  videoDurationText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94A3B8',
+    marginTop: 4,
+    fontFamily: THEME.typography.fontFamily.mono,
+  },
+  videoMetaBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#0F172A',
+  },
+  videoFileName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#E2E8F0',
+    fontFamily: THEME.typography.fontFamily.mono,
+  },
+  videoStatusTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#34D399',
+    letterSpacing: 0.5,
+  },
+  customerNoticeText: {
+    fontSize: 11,
+    color: THEME.colors.slate,
+    lineHeight: 15,
+    fontStyle: 'italic',
   },
 });

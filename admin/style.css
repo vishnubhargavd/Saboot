@@ -107,6 +107,55 @@ body {
   100% { opacity: 1; }
 }
 
+.nav-center {
+  flex: 1;
+  max-width: 460px;
+  margin: 0 20px;
+}
+
+.nav-search-box {
+  display: flex;
+  align-items: center;
+  background: #F1F5F9;
+  border: 1px solid var(--border-line);
+  border-radius: 4px;
+  padding: 3px 6px 3px 10px;
+  gap: 8px;
+}
+
+.search-lens {
+  font-size: 13px;
+  opacity: 0.6;
+}
+
+.nav-search-box input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  outline: none;
+}
+
+.btn-track-submit {
+  background: var(--text-main);
+  color: #FFFFFF;
+  border: none;
+  padding: 6px 10px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+}
+
+.btn-track-submit:hover {
+  opacity: 0.85;
+}
+
 .nav-right {
   display: flex;
   align-items: center;
@@ -263,9 +312,22 @@ body {
 }
 
 .status-badge.verified { background: #ECFDF5; color: #065F46; }
+.status-badge.delivered { background: #ECFDF5; color: #065F46; }
 .status-badge.rejected { background: #FEF2F2; color: #991B1B; }
 .status-badge.review { background: #FFFBEB; color: #92400E; }
 .status-badge.assigned { background: #F1F5F9; color: #475569; }
+
+.card-video-pill {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--signal-orange);
+  background: #FFF5F2;
+  border: 1px solid #FED7AA;
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-top: 6px;
+}
 
 .order-name {
   font-size: 14px;
@@ -631,4 +693,181 @@ body {
   border-radius: 4px;
   cursor: pointer;
   margin-top: 8px;
+}
+
+/* Customer Unavailable Video Approval Card in Admin Console */
+.video-approval-card {
+  background: #FFF8F6;
+  border: 1.5px solid #FED7AA;
+  border-radius: 6px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.video-approval-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.video-icon {
+  font-size: 18px;
+}
+
+.video-approval-header strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--signal-orange);
+  letter-spacing: 0.5px;
+}
+
+.video-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.admin-video-player {
+  background: #0F172A;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #334155;
+}
+
+.admin-video-preview {
+  height: 110px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #1E293B;
+  position: relative;
+  cursor: pointer;
+}
+
+.play-btn-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid #FFFFFF;
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  padding-left: 3px;
+  transition: transform 0.15s;
+}
+
+.play-btn-circle:hover {
+  transform: scale(1.08);
+}
+
+.video-length-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94A3B8;
+  margin-top: 6px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.video-proof-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #0F172A;
+  font-size: 10px;
+}
+
+.video-proof-details span {
+  color: #94A3B8;
+}
+
+.video-proof-details strong {
+  color: #F8FAFC;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.encrypted-badge {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34D399;
+  font-size: 8px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.approval-prompt {
+  font-size: 11px;
+  color: var(--text-slate);
+  line-height: 15px;
+}
+
+.approval-btn-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.btn-approve-claim {
+  background: #15803D;
+  color: #FFFFFF;
+  border: none;
+  padding: 10px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-approve-claim:hover {
+  opacity: 0.9;
+}
+
+.btn-reject-claim {
+  background: #DC2626;
+  color: #FFFFFF;
+  border: none;
+  padding: 10px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-reject-claim:hover {
+  opacity: 0.9;
+}
+
+/* Toast Notifications */
+.admin-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #1E293B;
+  color: #FFFFFF;
+  padding: 12px 18px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
+  z-index: 2000;
+  border-left: 4px solid var(--signal-orange);
+}
+
+.admin-toast.show {
+  opacity: 1;
+  transform: translateY(0);
 }

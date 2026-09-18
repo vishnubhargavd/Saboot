@@ -1,4 +1,4 @@
-// Saboot Admin Operations Console Logic
+// Saboot Admin Operations Console Logic with Google Maps JS API & Live Task Tracking
 
 const INITIAL_ORDERS = [
   {
@@ -45,15 +45,18 @@ const INITIAL_ORDERS = [
     packageDescription: 'Kitchenware — Espresso Machine',
     driver: 'DRV-BLR-12 (Unit 12)',
     status: 'REVIEW',
-    distanceMeters: 45,
-    dwellSeconds: 152,
+    distanceMeters: 32,
+    dwellSeconds: 154,
     requiredDwellSeconds: 120,
     callAttempted: true,
-    callDuration: 3,
-    gpsAccuracy: 68,
+    callDuration: 28,
+    gpsAccuracy: 12,
     auditId: 'AUD-9M32-P18Q',
     decision: 'REVIEW',
-    decisionReason: 'Sent to Ops Review: Degraded GPS uncertainty (±68m) and short call duration (3s) requires confirmation.'
+    decisionReason: 'Customer Unavailable claim: 6s doorstep footage uploaded. Awaiting supervisor approval to confirm customer absence.',
+    requiresAdminApproval: true,
+    adminApprovalStatus: 'PENDING',
+    videoProofUri: 'doorstep_absence_clip_1003.mp4',
   },
   {
     id: 'DEL-1004',
@@ -62,102 +65,227 @@ const INITIAL_ORDERS = [
     address: { street: '14th Main, 7th Sector, HSR Layout', city: 'Bengaluru', residenceCategory: 'gated_society', lat: 12.9116, lng: 77.6389 },
     packageDescription: 'Medicine / Perishables — Cold Storage Pack',
     driver: 'DRV-BLR-15 (Unit 15)',
-    status: 'ASSIGNED',
-    distanceMeters: 48,
-    dwellSeconds: 110,
+    status: 'DELIVERED',
+    distanceMeters: 14,
+    dwellSeconds: 140,
     requiredDwellSeconds: 150,
     callAttempted: true,
     callDuration: 18,
-    gpsAccuracy: 10,
+    gpsAccuracy: 7,
     auditId: 'AUD-4L19-V88Z',
-    decision: 'REVIEW',
-    decisionReason: 'Driver departed after 110s (below mandatory 150s gated society dwell window).'
+    decision: 'DELIVERED',
+    decisionReason: 'Delivery completed & verified. Customer handoff confirmed at door.'
   }
 ];
 
 let orders = [...INITIAL_ORDERS];
 let selectedOrderId = orders[0].id;
-let map, geofenceCircle, routePolyline, customerMarker, truckMarker;
+let filterQuery = '';
 
-// Initialize Leaflet Map
+// Map instances
+let gMap, gGeofenceCircle, gRoutePolyline, gCustomerMarker, gTruckMarker;
+let isGoogleMapsActive = false;
+let lMap, lGeofenceCircle, lRoutePolyline, lCustomerMarker, lTruckMarker;
+
+// Initialize Map with Google Maps JavaScript API (fallback to Leaflet if blocked)
 function initMap() {
   const defaultOrder = orders[0];
-  map = L.map('adminMap', { zoomControl: true }).setView([defaultOrder.address.lat, defaultOrder.address.lng], 16);
+
+  try {
+    if (typeof google !== 'undefined' && google.maps) {
+      isGoogleMapsActive = true;
+      const destLatLng = { lat: defaultOrder.address.lat, lng: defaultOrder.address.lng };
+
+      gMap = new google.maps.Map(document.getElementById('adminMap'), {
+        center: destLatLng,
+        zoom: 16,
+        disableDefaultUI: false,
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        styles: [
+          { elementType: "geometry", stylers: [{ color: "#f8fafc" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#ffffff" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+          { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#e2e8f0" }] },
+          { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#cbd5e1" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#bfdbfe" }] },
+          { featureType: "poi", elementType: "geometry", stylers: [{ color: "#f1f5f9" }] }
+        ]
+      });
+
+      renderSelectedOrderMap(defaultOrder);
+      return;
+    }
+  } catch (err) {
+    console.warn('Google Maps JS API notice, falling back to Leaflet:', err);
+  }
+
+  initLeafletFallback(defaultOrder);
+}
+
+function initLeafletFallback(defaultOrder) {
+  if (lMap) return;
+  lMap = L.map('adminMap', { zoomControl: true }).setView([defaultOrder.address.lat, defaultOrder.address.lng], 16);
 
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    opacity: 0.9
-  }).addTo(map);
+    opacity: 0.95
+  }).addTo(lMap);
 
   renderSelectedOrderMap(defaultOrder);
 }
 
+// Render Order on Map (Google Maps or Fallback)
 function renderSelectedOrderMap(order) {
-  if (geofenceCircle) map.removeLayer(geofenceCircle);
-  if (routePolyline) map.removeLayer(routePolyline);
-  if (customerMarker) map.removeLayer(customerMarker);
-  if (truckMarker) map.removeLayer(truckMarker);
+  const destLat = order.address.lat;
+  const destLng = order.address.lng;
+  const driverOffsetLat = order.distanceMeters > 500 ? destLat + 0.022 : destLat + 0.0003;
+  const driverOffsetLng = order.distanceMeters > 500 ? destLng + 0.022 : destLng + 0.0003;
 
-  const dest = [order.address.lat, order.address.lng];
-  const driverOffsetLat = order.distanceMeters > 500 ? dest[0] + 0.025 : dest[0] + 0.0003;
-  const driverOffsetLng = order.distanceMeters > 500 ? dest[1] + 0.025 : dest[1] + 0.0003;
-  const driverPos = [driverOffsetLat, driverOffsetLng];
+  if (isGoogleMapsActive && gMap) {
+    const dest = new google.maps.LatLng(destLat, destLng);
+    const driverPos = new google.maps.LatLng(driverOffsetLat, driverOffsetLng);
 
-  // 50m Geofence Circle
-  geofenceCircle = L.circle(dest, {
-    color: '#D94A27',
-    fillColor: '#D94A27',
-    fillOpacity: order.distanceMeters <= 50 ? 0.15 : 0.05,
-    weight: 2.5,
-    dashArray: '5, 5',
-    radius: 50
-  }).addTo(map);
+    if (gGeofenceCircle) gGeofenceCircle.setMap(null);
+    if (gRoutePolyline) gRoutePolyline.setMap(null);
+    if (gCustomerMarker) gCustomerMarker.setMap(null);
+    if (gTruckMarker) gTruckMarker.setMap(null);
 
-  // Route Polyline
-  routePolyline = L.polyline([driverPos, dest], {
-    color: '#D94A27',
-    weight: 3,
-    dashArray: '4, 6',
-    opacity: 0.8
-  }).addTo(map);
+    // 50m Geofence Circle
+    gGeofenceCircle = new google.maps.Circle({
+      strokeColor: '#D94A27',
+      strokeOpacity: 0.85,
+      strokeWeight: 2,
+      fillColor: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
+      fillOpacity: order.distanceMeters <= 50 ? 0.18 : 0.08,
+      map: gMap,
+      center: dest,
+      radius: 50
+    });
 
-  // Markers
-  const custIcon = L.divIcon({
-    className: 'custom-pin',
-    html: '<div style="background:#D94A27; color:#fff; width:34px; height:34px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; border:3px solid #fff; box-shadow:0 4px 10px rgba(0,0,0,0.3);"><span style="transform:rotate(45deg); font-size:14px;">📍</span></div>',
-    iconSize: [34, 34],
-    iconAnchor: [17, 34]
-  });
-  customerMarker = L.marker(dest, { icon: custIcon }).addTo(map);
+    // Dashed Route Polyline
+    gRoutePolyline = new google.maps.Polyline({
+      path: [driverPos, dest],
+      geodesic: true,
+      strokeColor: '#D94A27',
+      strokeOpacity: 0.8,
+      strokeWeight: 3,
+      map: gMap
+    });
 
-  const truckIcon = L.divIcon({
-    className: 'truck-pin',
-    html: '<div style="background:#334454; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid #fff; font-size:16px; box-shadow:0 4px 10px rgba(0,0,0,0.3);">🚚</div>',
-    iconSize: [36, 36],
-    iconAnchor: [18, 18]
-  });
-  truckMarker = L.marker(driverPos, { icon: truckIcon }).addTo(map);
+    // Customer Pin Marker
+    gCustomerMarker = new google.maps.Marker({
+      position: dest,
+      map: gMap,
+      title: order.customer.name,
+      icon: {
+        url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="#D94A27" stroke="#FFFFFF" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5" fill="#FFFFFF"/></svg>'),
+        scaledSize: new google.maps.Size(34, 34),
+        anchor: new google.maps.Point(17, 34)
+      }
+    });
 
-  map.fitBounds(L.latLngBounds([dest, driverPos]), { padding: [50, 50], maxZoom: 17 });
+    // Live Driver Truck Marker
+    gTruckMarker = new google.maps.Marker({
+      position: driverPos,
+      map: gMap,
+      title: order.driver,
+      icon: {
+        url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="17" fill="#1E293B" stroke="#FFFFFF" stroke-width="3"/><text x="19" y="24" font-size="18" text-anchor="middle" fill="#FFFFFF">🚚</text></svg>'),
+        scaledSize: new google.maps.Size(38, 38),
+        anchor: new google.maps.Point(19, 19)
+      }
+    });
+
+    const bounds = new google.maps.LatLngBounds();
+    bounds.extend(dest);
+    bounds.extend(driverPos);
+    gMap.fitBounds(bounds, 50);
+  } else if (lMap) {
+    if (lGeofenceCircle) lMap.removeLayer(lGeofenceCircle);
+    if (lRoutePolyline) lMap.removeLayer(lRoutePolyline);
+    if (lCustomerMarker) lMap.removeLayer(lCustomerMarker);
+    if (lTruckMarker) lMap.removeLayer(lTruckMarker);
+
+    const dest = [destLat, destLng];
+    const driverPos = [driverOffsetLat, driverOffsetLng];
+
+    lGeofenceCircle = L.circle(dest, {
+      color: '#D94A27',
+      fillColor: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
+      fillOpacity: order.distanceMeters <= 50 ? 0.18 : 0.08,
+      weight: 2.5,
+      dashArray: '5, 5',
+      radius: 50
+    }).addTo(lMap);
+
+    lRoutePolyline = L.polyline([driverPos, dest], {
+      color: '#D94A27',
+      weight: 3,
+      dashArray: '4, 6',
+      opacity: 0.8
+    }).addTo(lMap);
+
+    const custIcon = L.divIcon({
+      className: 'custom-pin',
+      html: '<div style="background:#D94A27; color:#fff; width:34px; height:34px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; border:3px solid #fff; box-shadow:0 4px 10px rgba(0,0,0,0.3);"><span style="transform:rotate(45deg); font-size:14px;">📍</span></div>',
+      iconSize: [34, 34],
+      iconAnchor: [17, 34]
+    });
+    lCustomerMarker = L.marker(dest, { icon: custIcon }).addTo(lMap);
+
+    const truckIcon = L.divIcon({
+      className: 'truck-pin',
+      html: '<div style="background:#334454; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid #fff; font-size:16px; box-shadow:0 4px 10px rgba(0,0,0,0.3);">🚚</div>',
+      iconSize: [36, 36],
+      iconAnchor: [18, 18]
+    });
+    lTruckMarker = L.marker(driverPos, { icon: truckIcon }).addTo(lMap);
+
+    lMap.fitBounds(L.latLngBounds([dest, driverPos]), { padding: [50, 50], maxZoom: 17 });
+  }
 }
 
-// Render Order List & Sidebar
+// Render Order List & Filter
 function renderOrderList() {
   const container = document.getElementById('orderList');
   container.innerHTML = '';
 
-  orders.forEach((order) => {
+  const filtered = orders.filter((order) => {
+    if (!filterQuery.trim()) return true;
+    const q = filterQuery.toLowerCase().trim();
+    return (
+      order.id.toLowerCase().includes(q) ||
+      order.trackingNumber.toLowerCase().includes(q) ||
+      order.customer.name.toLowerCase().includes(q) ||
+      order.customer.phone.includes(q)
+    );
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 24px 16px; text-align: center; color: #64748B; font-size: 12px;">
+        No task found matching "<strong>${filterQuery}</strong>"
+      </div>
+    `;
+    return;
+  }
+
+  filtered.forEach((order) => {
     const isSelected = order.id === selectedOrderId;
     const card = document.createElement('div');
     card.className = `order-card ${isSelected ? 'active' : ''}`;
     card.onclick = () => selectOrder(order.id);
 
     const badgeClass = order.status.toLowerCase();
+    const isPendingApproval = order.requiresAdminApproval && order.adminApprovalStatus === 'PENDING';
 
     card.innerHTML = `
       <div class="order-top">
         <span class="order-tracking">${order.trackingNumber}</span>
-        <span class="status-badge ${badgeClass}">${order.status}</span>
+        <span class="status-badge ${badgeClass}">${isPendingApproval ? 'PENDING APPROVAL' : order.status}</span>
       </div>
       <div class="order-name">${order.customer.name}</div>
       <div class="order-address">${order.address.street}</div>
@@ -165,6 +293,7 @@ function renderOrderList() {
         <span>${order.address.residenceCategory.toUpperCase()} (${order.requiredDwellSeconds}s)</span>
         <span>${order.driver.split(' ')[0]}</span>
       </div>
+      ${isPendingApproval ? '<div class="card-video-pill">📹 Video Proof Attached</div>' : ''}
     `;
     container.appendChild(card);
   });
@@ -175,11 +304,12 @@ function renderOrderList() {
 function updateKPICounters() {
   document.getElementById('kpiTotal').innerText = orders.length;
   document.getElementById('queueCount').innerText = `${orders.length} Packages`;
-  document.getElementById('kpiVerified').innerText = orders.filter((o) => o.status === 'VERIFIED').length;
+  document.getElementById('kpiVerified').innerText = orders.filter((o) => o.status === 'VERIFIED' || o.status === 'DELIVERED').length;
   document.getElementById('kpiRejected').innerText = orders.filter((o) => o.status === 'REJECTED').length;
-  document.getElementById('kpiReview').innerText = orders.filter((o) => o.status === 'REVIEW').length;
+  document.getElementById('kpiReview').innerText = orders.filter((o) => o.status === 'REVIEW' || o.requiresAdminApproval).length;
 }
 
+// Select an Order & Update Live Map / Telemetry
 function selectOrder(orderId) {
   selectedOrderId = orderId;
   const order = orders.find((o) => o.id === orderId) || orders[0];
@@ -204,12 +334,18 @@ function selectOrder(orderId) {
   document.getElementById('telemetryDwell').innerText = `${order.dwellSeconds}s / ${order.requiredDwellSeconds}s Target`;
   document.getElementById('telemetryCall').innerText = order.callAttempted ? `${order.customer.phone} (${order.callDuration}s)` : 'No Call Logged';
 
-  // Update Inspector Card
+  // Update Decision Badge
   const badge = document.getElementById('inspectorDecisionBadge');
   const title = document.getElementById('inspectorDecisionTitle');
   const sub = document.getElementById('inspectorDecisionSub');
 
-  if (order.status === 'VERIFIED') {
+  if (order.status === 'DELIVERED') {
+    badge.style.background = '#ECFDF5';
+    badge.style.borderColor = '#A7F3D0';
+    title.style.color = '#065F46';
+    title.innerText = 'DELIVERY COMPLETED';
+    sub.innerText = order.decisionReason;
+  } else if (order.status === 'VERIFIED') {
     badge.style.background = '#ECFDF5';
     badge.style.borderColor = '#A7F3D0';
     title.style.color = '#065F46';
@@ -225,8 +361,17 @@ function selectOrder(orderId) {
     badge.style.background = '#FFFBEB';
     badge.style.borderColor = '#FDE68A';
     title.style.color = '#92400E';
-    title.innerText = 'SENT TO OPS REVIEW';
+    title.innerText = order.requiresAdminApproval ? 'AWAITING ADMIN APPROVAL' : 'SENT TO OPS REVIEW';
     sub.innerText = order.decisionReason;
+  }
+
+  // Handle Video Proof & Admin Approval Section
+  const videoSection = document.getElementById('videoApprovalSection');
+  if (order.requiresAdminApproval && order.adminApprovalStatus === 'PENDING') {
+    videoSection.style.display = 'block';
+    document.getElementById('videoFileName').innerText = order.videoProofUri || 'doorstep_absence_clip.mp4';
+  } else {
+    videoSection.style.display = 'none';
   }
 
   // Facts Matrix
@@ -254,6 +399,91 @@ function selectOrder(orderId) {
   document.querySelectorAll('.btn-cat').forEach((btn) => {
     btn.className = `btn-cat ${btn.dataset.cat === order.address.residenceCategory ? 'active' : ''}`;
   });
+}
+
+// Track Task by Order ID / Tracking Number
+function trackTaskByQuery(query) {
+  if (!query || !query.trim()) return;
+  const q = query.toLowerCase().trim();
+
+  const matched = orders.find(
+    (o) =>
+      o.id.toLowerCase() === q ||
+      o.trackingNumber.toLowerCase() === q ||
+      o.id.toLowerCase().includes(q) ||
+      o.trackingNumber.toLowerCase().includes(q)
+  );
+
+  if (matched) {
+    selectOrder(matched.id);
+    showNotification(`🎯 LIVE TRACKING: Selected Order ${matched.id} (${matched.trackingNumber})`);
+  } else {
+    showNotification(`⚠️ No task found matching "${query}"`);
+  }
+}
+
+// Supervisor Approval Actions
+document.getElementById('btnApproveClaim').onclick = () => {
+  const order = orders.find((o) => o.id === selectedOrderId);
+  if (!order) return;
+
+  order.status = 'VERIFIED';
+  order.adminApprovalStatus = 'APPROVED';
+  order.decision = 'VERIFIED';
+  order.decisionReason = 'Customer Unavailable claim verified and approved by operations supervisor.';
+
+  selectOrder(selectedOrderId);
+  updateKPICounters();
+  showNotification(`✓ Claim APPROVED: Verified customer absence for ${order.id}`);
+};
+
+document.getElementById('btnRejectClaim').onclick = () => {
+  const order = orders.find((o) => o.id === selectedOrderId);
+  if (!order) return;
+
+  order.status = 'REJECTED';
+  order.adminApprovalStatus = 'REJECTED';
+  order.decision = 'REJECTED';
+  order.decisionReason = 'Claim rejected by operations supervisor: Doorstep footage does not substantiate absence.';
+
+  selectOrder(selectedOrderId);
+  updateKPICounters();
+  showNotification(`✕ Claim REJECTED: False claim flagged for ${order.id}`);
+};
+
+// Track Task input listeners
+const trackInput = document.getElementById('adminTrackInput');
+const btnTrack = document.getElementById('btnAdminTrack');
+
+trackInput.addEventListener('input', (e) => {
+  filterQuery = e.target.value;
+  renderOrderList();
+});
+
+trackInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    trackTaskByQuery(trackInput.value);
+  }
+});
+
+btnTrack.addEventListener('click', () => {
+  trackTaskByQuery(trackInput.value);
+});
+
+// Toast Notification
+function showNotification(msg) {
+  let toast = document.getElementById('adminToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'adminToast';
+    toast.className = 'admin-toast';
+    document.body.appendChild(toast);
+  }
+  toast.innerText = msg;
+  toast.classList.add('show');
+  setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3000);
 }
 
 // Event Listeners for Residence Category and Driver Assignment

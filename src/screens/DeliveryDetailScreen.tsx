@@ -33,10 +33,11 @@ interface DeliveryDetailScreenProps {
   activePreset: DemoScenarioPreset | null;
   onBack: () => void;
   onVerificationComplete: (result: VerificationResult) => void;
+  onCompleteDelivery?: (handoffType: 'direct' | 'doorstep' | 'security', notes?: string) => void;
 }
 
 const FAILURE_REASONS: { id: FailureReason; label: string; desc: string }[] = [
-  { id: 'customer_unavailable', label: 'Customer Unavailable', desc: 'Door unanswered after calling & waiting' },
+  { id: 'customer_unavailable', label: 'Customer Unavailable', desc: 'Door unanswered after calling & waiting (Video Proof Required)' },
   { id: 'gate_locked_security_refusal', label: 'Security Gate Refusal', desc: 'Society security refused entry' },
   { id: 'incorrect_address', label: 'Incorrect Address', desc: 'Unit or flat not found' },
   { id: 'customer_rejected_delivery', label: 'Customer Refused Delivery', desc: 'Customer rejected package at door' },
@@ -53,8 +54,19 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   activePreset,
   onBack,
   onVerificationComplete,
+  onCompleteDelivery,
 }) => {
   const [isSubmitModalVisible, setIsSubmitModalVisible] = useState(false);
+  const [isCompleteModalVisible, setIsCompleteModalVisible] = useState(false);
+  const [selectedHandoff, setSelectedHandoff] = useState<'direct' | 'doorstep' | 'security'>('direct');
+  const [handoffNotes, setHandoffNotes] = useState('');
+  const [isCompleting, setIsCompleting] = useState(false);
+
+  // Video proof for customer unavailable scenario
+  const [videoProofUri, setVideoProofUri] = useState<string | null>(null);
+  const [isRecordingVideoProof, setIsRecordingVideoProof] = useState(false);
+  const [recordingProgress, setRecordingProgress] = useState(0);
+
   const [isCallOutcomeModalVisible, setIsCallOutcomeModalVisible] = useState(false);
   const [isVerifyingCallLog, setIsVerifyingCallLog] = useState(false);
   const [selectedCallOutcome, setSelectedCallOutcome] = useState<'answered' | 'no_answer' | 'busy' | 'canceled'>('answered');
@@ -209,6 +221,92 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
     }, 400);
   };
 
+  // Record simulated 6-second video proof of customer absence
+  const handleRecordVideoProof = () => {
+    setIsRecordingVideoProof(true);
+    setRecordingProgress(1);
+    let step = 1;
+    const interval = setInterval(() => {
+      step += 1;
+      setRecordingProgress(step);
+      if (step >= 4) {
+        clearInterval(interval);
+        setIsRecordingVideoProof(false);
+        const clipUri = `file:///evidence/doorstep_absence_${Date.now().toString(36)}.mp4`;
+        setVideoProofUri(clipUri);
+        recordVideoClip(clipUri, 6);
+      }
+    }, 500);
+  };
+
+  // Confirm and record successful delivery completion
+  const handleConfirmCompleteDelivery = () => {
+    setIsCompleting(true);
+    setTimeout(() => {
+      setIsCompleting(false);
+      setIsCompleteModalVisible(false);
+
+      if (onCompleteDelivery) {
+        onCompleteDelivery(selectedHandoff, handoffNotes);
+      } else {
+        const nowIso = new Date().toISOString();
+        const auditId = `AUD-DELIV-${Date.now().toString(36).toUpperCase()}`;
+        const completionResult: VerificationResult = {
+          decision: 'DELIVERED',
+          deliveryId: delivery.id,
+          timestamp: nowIso,
+          facts: {
+            deliveryId: delivery.id,
+            residenceCategory: delivery.address.residenceCategory,
+            distanceMeters: distanceMeters || 0,
+            requiredDistanceMeters: 50,
+            dwellSeconds: dwellSeconds,
+            requiredDwellSeconds: requiredDwellSeconds,
+            callAttempted: callEvidence.attempted,
+            callDurationSeconds: callEvidence.durationSeconds,
+            videoConsentRequested: false,
+            videoConsentGiven: false,
+            videoEvidence: false,
+            gpsAccuracyMeters: currentLocation?.accuracy || 6,
+            anomalyFlags: [],
+          },
+          ruleChecks: [
+            {
+              id: 'RULE_HANDOFF_VERIFIED',
+              name: 'Customer Handoff Verification',
+              category: 'PROXIMITY',
+              passed: true,
+              actualValue:
+                selectedHandoff === 'direct'
+                  ? 'Handed to Customer'
+                  : selectedHandoff === 'doorstep'
+                  ? 'Left at Door'
+                  : 'Security Desk',
+              expectedValue: 'Delivery Confirmation',
+              isHardRequirement: true,
+              explanation: `Package successfully delivered and confirmed via ${selectedHandoff.toUpperCase()} handoff.`,
+            },
+            {
+              id: 'RULE_GEOFENCE_CONFIRMATION',
+              name: 'Delivery Point Geofence Lock',
+              category: 'PROXIMITY',
+              passed: true,
+              actualValue: isInsideGeofence ? 'Inside 50m Geofence' : `${distanceMeters || 0}m Distance`,
+              expectedValue: '≤ 50m Geofence',
+              isHardRequirement: true,
+              explanation: 'Driver confirmed handoff at destination coordinates.',
+            },
+          ],
+          primaryReason: 'Package successfully handed over and delivery marked as COMPLETE',
+          detailedExplanation: `Delivery confirmed for ${delivery.customer.name} at ${delivery.address.street}. Handoff method: ${selectedHandoff}.`,
+          auditRecordId: auditId,
+          evaluationEngine: 'Saboot-ZeroTrust-DeliveryFulfillment-Engine-v1.0',
+        };
+        onVerificationComplete(completionResult);
+      }
+    }, 450);
+  };
+
   const handleSubmit = async () => {
     setIsSubmitModalVisible(false);
     const result = await submitAttempt();
@@ -338,14 +436,30 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             </View>
           </TouchableOpacity>
 
-          {/* Submit Delivery Attempt Action Button */}
+          {/* Primary Action: Complete Delivery Button */}
+          <TouchableOpacity
+            style={styles.completeDeliveryBtn}
+            onPress={() => setIsCompleteModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <View style={styles.completeIconBubble}>
+              <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.completeDeliveryBtnText}>COMPLETE DELIVERY</Text>
+              <Text style={styles.completeDeliveryBtnSub}>Mark stop fulfilled & verify customer handoff</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          {/* Secondary Action: Issue / Failed Attempt Button */}
           <TouchableOpacity
             style={styles.attestButton}
             onPress={() => setIsSubmitModalVisible(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
-            <Text style={styles.attestButtonText}>SUBMIT ATTEMPT FOR VERIFICATION</Text>
+            <Ionicons name="alert-circle-outline" size={17} color={THEME.colors.slate} />
+            <Text style={styles.attestButtonText}>UNABLE TO DELIVER? REPORT ISSUE</Text>
           </TouchableOpacity>
 
           {/* Sheet Footer matching design */}
@@ -577,9 +691,60 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               })}
             </ScrollView>
 
+            {/* Video Proof Section for Customer Unavailable */}
+            {failureReason === 'customer_unavailable' && (
+              <View style={styles.videoProofContainer}>
+                <View style={styles.videoProofHeader}>
+                  <Ionicons name="videocam" size={16} color={THEME.colors.signal} />
+                  <Text style={styles.videoProofTitle}>CUSTOMER ABSENCE VIDEO EVIDENCE</Text>
+                </View>
+                <Text style={styles.videoProofDesc}>
+                  Record 6s footage of empty doorstep & door knocking. Forwarded to customer transparency portal and dispatch supervisor for approval.
+                </Text>
+
+                {videoProofUri ? (
+                  <View style={styles.videoProofReadyBox}>
+                    <Ionicons name="checkmark-circle" size={22} color={THEME.colors.green} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.videoProofReadyTitle}>Doorstep Proof Attached ✓</Text>
+                      <Text style={styles.videoProofReadySub}>6s clip recorded • Awaiting Admin Approval</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={handleRecordVideoProof}
+                      style={styles.retakeBtn}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.retakeBtnText}>RETAKE</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.recordProofBtn}
+                    onPress={handleRecordVideoProof}
+                    disabled={isRecordingVideoProof}
+                    activeOpacity={0.8}
+                  >
+                    {isRecordingVideoProof ? (
+                      <>
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                        <Text style={styles.recordProofBtnText}>
+                          RECORDING DOORSTEP PROOF ({recordingProgress * 2}s / 6s)...
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <Ionicons name="videocam" size={18} color="#FFFFFF" />
+                        <Text style={styles.recordProofBtnText}>RECORD 6s DOORSTEP PROOF CLIP</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
             <TextInput
               style={styles.textInput}
-              placeholder="Driver remarks (e.g. security refusal)..."
+              placeholder="Driver remarks (e.g. door unanswered)..."
               placeholderTextColor={THEME.colors.muted}
               value={failureNotes}
               onChangeText={setFailureNotes}
@@ -591,6 +756,143 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               activeOpacity={0.8}
             >
               <Text style={styles.confirmSubmitText}>TRANSMIT TELEMETRY TO BACKEND</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelCallBtn}
+              onPress={() => setIsSubmitModalVisible(false)}
+            >
+              <Text style={styles.cancelCallBtnText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Complete Delivery Modal */}
+      <Modal
+        visible={isCompleteModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsCompleteModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalHeaderTitle}>CONFIRM SUCCESSFUL DELIVERY</Text>
+              <Text style={styles.modalHeaderSub}>
+                Package for {delivery.customer.name} ({delivery.trackingNumber})
+              </Text>
+            </View>
+
+            {/* Geofence verification banner */}
+            <View style={styles.deliveryVerifyBanner}>
+              <Ionicons
+                name={isInsideGeofence ? 'shield-checkmark' : 'navigate-circle'}
+                size={18}
+                color={isInsideGeofence ? THEME.colors.green : THEME.colors.signal}
+              />
+              <Text style={styles.deliveryVerifyText}>
+                {isInsideGeofence
+                  ? `Location Verified: Inside 50m Geofence (${distanceMeters !== null ? distanceMeters : 12}m)`
+                  : `Driver Location: ${distanceMeters !== null ? `${distanceMeters}m from door` : 'At location'}`}
+              </Text>
+            </View>
+
+            <Text style={styles.modalSectionLabel}>SELECT HANDOFF METHOD</Text>
+            <View style={styles.handoffOptions}>
+              <TouchableOpacity
+                style={[
+                  styles.handoffBtn,
+                  selectedHandoff === 'direct' && styles.handoffBtnSelected,
+                ]}
+                onPress={() => setSelectedHandoff('direct')}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="person"
+                  size={20}
+                  color={selectedHandoff === 'direct' ? THEME.colors.green : THEME.colors.muted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.handoffTitle}>Handed Directly to Customer</Text>
+                  <Text style={styles.handoffSub}>Recipient in-person at doorstep</Text>
+                </View>
+                {selectedHandoff === 'direct' && (
+                  <Ionicons name="checkmark-circle" size={18} color={THEME.colors.green} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.handoffBtn,
+                  selectedHandoff === 'doorstep' && styles.handoffBtnSelected,
+                ]}
+                onPress={() => setSelectedHandoff('doorstep')}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="home"
+                  size={20}
+                  color={selectedHandoff === 'doorstep' ? THEME.colors.green : THEME.colors.muted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.handoffTitle}>Left at Doorstep / Safe Place</Text>
+                  <Text style={styles.handoffSub}>Placed securely outside entrance</Text>
+                </View>
+                {selectedHandoff === 'doorstep' && (
+                  <Ionicons name="checkmark-circle" size={18} color={THEME.colors.green} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.handoffBtn,
+                  selectedHandoff === 'security' && styles.handoffBtnSelected,
+                ]}
+                onPress={() => setSelectedHandoff('security')}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="shield"
+                  size={20}
+                  color={selectedHandoff === 'security' ? THEME.colors.green : THEME.colors.muted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.handoffTitle}>Left with Building Guard / Gate</Text>
+                  <Text style={styles.handoffSub}>Handed to society security</Text>
+                </View>
+                {selectedHandoff === 'security' && (
+                  <Ionicons name="checkmark-circle" size={18} color={THEME.colors.green} />
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.textInput}
+              placeholder="Handoff notes or recipient reference (optional)..."
+              placeholderTextColor={THEME.colors.muted}
+              value={handoffNotes}
+              onChangeText={setHandoffNotes}
+            />
+
+            <TouchableOpacity
+              style={styles.confirmCompleteBtn}
+              onPress={handleConfirmCompleteDelivery}
+              disabled={isCompleting}
+              activeOpacity={0.85}
+            >
+              {isCompleting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.confirmCompleteText}>CONFIRM DELIVERY COMPLETED</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelCallBtn}
+              onPress={() => setIsCompleteModalVisible(false)}
+            >
+              <Text style={styles.cancelCallBtnText}>CANCEL</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1031,5 +1333,180 @@ const styles = StyleSheet.create({
     color: THEME.colors.muted,
     textAlign: 'center',
     lineHeight: 15,
+  },
+  completeDeliveryBtn: {
+    width: '100%',
+    minHeight: 64,
+    backgroundColor: '#15803D',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 4,
+    marginTop: 10,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  completeIconBubble: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  completeDeliveryBtnText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+  },
+  completeDeliveryBtnSub: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: 1,
+  },
+  videoProofContainer: {
+    backgroundColor: '#FFF8F6',
+    borderWidth: 1.5,
+    borderColor: '#FED7AA',
+    borderRadius: 4,
+    padding: 12,
+    marginBottom: 12,
+  },
+  videoProofHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  videoProofTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: THEME.colors.signal,
+    letterSpacing: 0.5,
+  },
+  videoProofDesc: {
+    fontSize: 11,
+    color: THEME.colors.slate,
+    lineHeight: 15,
+    marginBottom: 10,
+  },
+  recordProofBtn: {
+    backgroundColor: THEME.colors.signal,
+    paddingVertical: 12,
+    borderRadius: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  recordProofBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
+  },
+  videoProofReadyBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 4,
+    padding: 10,
+    gap: 10,
+  },
+  videoProofReadyTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  videoProofReadySub: {
+    fontSize: 10,
+    color: '#15803D',
+    marginTop: 1,
+  },
+  retakeBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    borderRadius: 3,
+  },
+  retakeBtnText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  deliveryVerifyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 4,
+    marginBottom: 14,
+  },
+  deliveryVerifyText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  modalSectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: THEME.colors.muted,
+    marginBottom: 8,
+  },
+  handoffOptions: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  handoffBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 4,
+    padding: 12,
+    gap: 12,
+  },
+  handoffBtnSelected: {
+    borderColor: '#15803D',
+    backgroundColor: '#F0FDF4',
+  },
+  handoffTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.colors.foreground,
+  },
+  handoffSub: {
+    fontSize: 11,
+    color: THEME.colors.muted,
+    marginTop: 1,
+  },
+  confirmCompleteBtn: {
+    backgroundColor: '#15803D',
+    paddingVertical: 14,
+    borderRadius: 3,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  confirmCompleteText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
   },
 });

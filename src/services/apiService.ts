@@ -78,6 +78,9 @@ export async function submitDeliveryAttemptToBackend(
   }
 
   // 3. Build Server Facts Object (Immutable)
+  const isCustomerUnavailable = payload.failureReason === 'customer_unavailable';
+  const hasVideoProof = Boolean(payload.videoEvidence?.videoUri || payload.videoEvidence?.consentGiven);
+
   const facts: VerificationFacts = {
     deliveryId: payload.deliveryId,
     residenceCategory,
@@ -89,9 +92,11 @@ export async function submitDeliveryAttemptToBackend(
     callDurationSeconds: payload.callEvidence.durationSeconds,
     videoConsentRequested: payload.videoEvidence.consentRequested,
     videoConsentGiven: payload.videoEvidence.consentGiven,
-    videoEvidence: Boolean(payload.videoEvidence.videoUri || payload.videoEvidence.consentGiven),
+    videoEvidence: hasVideoProof,
+    videoUri: payload.videoEvidence?.videoUri,
     gpsAccuracyMeters: computedGpsAccuracy,
     anomalyFlags,
+    requiresAdminApproval: isCustomerUnavailable && hasVideoProof,
   };
 
   // 4. Deterministic Rule Evaluation
@@ -149,15 +154,15 @@ export async function submitDeliveryAttemptToBackend(
     },
     {
       id: 'RULE_VIDEO_CORROBORATION',
-      name: 'Consented Video Corroboration',
+      name: isCustomerUnavailable ? 'Customer Absence Video Proof' : 'Consented Video Corroboration',
       category: 'VIDEO',
       passed: facts.videoEvidence,
-      actualValue: facts.videoConsentGiven ? 'Consent Granted' : facts.videoConsentRequested ? 'Consent Pending/Timed Out' : 'Not Requested',
-      expectedValue: 'Optional Corroboration',
-      isHardRequirement: false,
-      explanation: facts.videoEvidence
-        ? 'Customer consented video evidence corroborates attempt.'
-        : 'No video evidence provided (non-blocking corroboration).',
+      actualValue: hasVideoProof ? 'Video Proof Attached (6s Doorstep)' : facts.videoConsentRequested ? 'Consent Pending' : 'Not Provided',
+      expectedValue: isCustomerUnavailable ? 'Required for Unavailable Claim' : 'Optional Corroboration',
+      isHardRequirement: isCustomerUnavailable,
+      explanation: hasVideoProof
+        ? 'Doorstep absence video proof captured. Dispatched to customer transparency portal and dispatch supervisor queue.'
+        : 'No video evidence provided to substantiate customer absence claim.',
     },
   ];
 
@@ -165,13 +170,21 @@ export async function submitDeliveryAttemptToBackend(
   let decision: 'VERIFIED' | 'REJECTED' | 'REVIEW';
   let primaryReason: string;
   let detailedExplanation: string;
+  let requiresAdminApproval = false;
+  let adminApprovalStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | undefined;
 
   const proximityPassed = ruleChecks.find((r) => r.id === 'RULE_PROXIMITY_50M')?.passed;
   const dwellPassed = ruleChecks.find((r) => r.id === 'RULE_CATEGORY_DWELL')?.passed;
   const callPassed = ruleChecks.find((r) => r.id === 'RULE_TELEPHONY_ATTEMPT')?.passed;
   const accuracyPassed = ruleChecks.find((r) => r.id === 'RULE_TELEMETRY_ACCURACY')?.passed;
 
-  if (proximityPassed && dwellPassed && callPassed && accuracyPassed) {
+  if (isCustomerUnavailable && hasVideoProof) {
+    decision = 'REVIEW';
+    requiresAdminApproval = true;
+    adminApprovalStatus = 'PENDING';
+    primaryReason = 'Customer Unavailable claim with video evidence pending admin approval';
+    detailedExplanation = `Driver uploaded doorstep video proof demonstrating customer was unreachable after calling (${facts.callDurationSeconds}s) and dwelling ${facts.dwellSeconds}s. Dispatched to customer view and supervisor queue for approval.`;
+  } else if (proximityPassed && dwellPassed && callPassed && accuracyPassed) {
     decision = 'VERIFIED';
     primaryReason = 'All mandatory physical and telephony attempt criteria verified';
     detailedExplanation = `Driver location (${facts.distanceMeters}m), residence dwell duration (${facts.dwellSeconds}s / ${facts.requiredDwellSeconds}s for ${DWELL_POLICY_CONFIG[residenceCategory].displayName}), and customer call attempt (${facts.callDurationSeconds}s) were independently validated.`;
@@ -211,5 +224,8 @@ export async function submitDeliveryAttemptToBackend(
     detailedExplanation,
     auditRecordId: auditId,
     evaluationEngine: 'Saboot-Deterministic-PolicyEngine-v1.0 (AWS Lambda/Cedar-equiv)',
+    requiresAdminApproval,
+    adminApprovalStatus,
+    videoProofUri: payload.videoEvidence?.videoUri,
   };
 }

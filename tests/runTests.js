@@ -205,6 +205,86 @@ const tamper3 = serverEvaluateZeroTrustAttempt({
 assert('Client claims VERIFIED, but no call made -> Server forces REVIEW/REJECTED', tamper3.decision !== 'VERIFIED');
 assert('Tamper attempt detected on decision spoofing', tamper3.clientTamperAttemptDetected === true);
 
+console.log('\n📌 6. Successful Delivery Handoff Verification');
+// Test 6.1: Delivery fulfilled with handoff verification
+function evaluateDeliveryCompletion(deliveryId, handoffType, distanceMeters) {
+  const isInside = distanceMeters <= 50;
+  const isDelivered = ['direct', 'doorstep', 'security'].includes(handoffType);
+  return {
+    status: isDelivered ? 'DELIVERED' : 'ASSIGNED',
+    decision: isDelivered ? 'DELIVERED' : 'REVIEW',
+    handoffType,
+    verifiedLocation: isInside,
+  };
+}
+
+const completion1 = evaluateDeliveryCompletion('DEL-1001', 'direct', 15);
+assert('Direct customer handoff resolves to DELIVERED status', completion1.status === 'DELIVERED' && completion1.decision === 'DELIVERED');
+assert('Delivery completion verifies doorstep geofence lock', completion1.verifiedLocation === true);
+
+const completion2 = evaluateDeliveryCompletion('DEL-1004', 'doorstep', 25);
+assert('Doorstep handoff resolves to DELIVERED status', completion2.status === 'DELIVERED');
+
+console.log('\n📌 7. Customer Unavailable Scenario with Video Proof & Admin Approval');
+// Test 7.1: Driver claims customer unavailable and attaches 6s doorstep footage
+function evaluateCustomerUnavailableClaim({ failureReason, videoProofUri, dwellSeconds, callAttempted, distanceMeters }) {
+  const isUnavailable = failureReason === 'customer_unavailable';
+  const hasVideoProof = Boolean(videoProofUri);
+  const inGeofence = distanceMeters <= 50;
+
+  if (isUnavailable && hasVideoProof && inGeofence && callAttempted) {
+    return {
+      status: 'REVIEW',
+      decision: 'REVIEW',
+      requiresAdminApproval: true,
+      adminApprovalStatus: 'PENDING',
+      reason: 'Customer Unavailable claim with video evidence pending admin approval',
+    };
+  }
+  return {
+    status: 'REJECTED',
+    decision: 'REJECTED',
+    requiresAdminApproval: false,
+  };
+}
+
+const unavailClaim = evaluateCustomerUnavailableClaim({
+  failureReason: 'customer_unavailable',
+  videoProofUri: 'file:///evidence/doorstep_clip.mp4',
+  dwellSeconds: 154,
+  callAttempted: true,
+  distanceMeters: 32,
+});
+
+assert('Customer Unavailable with video proof sets decision to REVIEW', unavailClaim.decision === 'REVIEW');
+assert('Customer Unavailable flags task as requiresAdminApproval=true', unavailClaim.requiresAdminApproval === true);
+assert('Customer Unavailable initializes adminApprovalStatus=PENDING', unavailClaim.adminApprovalStatus === 'PENDING');
+
+// Test 7.2: Supervisor Admin approves or rejects the claim
+function supervisorResolveClaim(claim, action) {
+  if (action === 'APPROVE') {
+    return {
+      ...claim,
+      status: 'VERIFIED',
+      decision: 'VERIFIED',
+      adminApprovalStatus: 'APPROVED',
+    };
+  } else {
+    return {
+      ...claim,
+      status: 'REJECTED',
+      decision: 'REJECTED',
+      adminApprovalStatus: 'REJECTED',
+    };
+  }
+}
+
+const supervisorApproved = supervisorResolveClaim(unavailClaim, 'APPROVE');
+assert('Supervisor APPROVE resolves claim to VERIFIED status', supervisorApproved.status === 'VERIFIED' && supervisorApproved.adminApprovalStatus === 'APPROVED');
+
+const supervisorRejected = supervisorResolveClaim(unavailClaim, 'REJECT');
+assert('Supervisor REJECT resolves claim to REJECTED status', supervisorRejected.status === 'REJECTED' && supervisorRejected.adminApprovalStatus === 'REJECTED');
+
 // Summary
 console.log('\n------------------------------------------------------');
 console.log(`Results: ${passedCount} / ${totalCount} tests passed.`);

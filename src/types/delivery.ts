@@ -9,7 +9,8 @@ export type DeliveryStatus =
   | 'ATTEMPT_SUBMITTED'
   | 'VERIFIED'
   | 'REJECTED'
-  | 'REVIEW';
+  | 'REVIEW'
+  | 'DELIVERED';
 
 export type FailureReason = 
   | 'customer_unavailable'
@@ -48,6 +49,11 @@ export interface Delivery {
   createdAt: string;
   assignedDriverId: string;
   notes?: string;
+  videoProofUri?: string;
+  requiresAdminApproval?: boolean;
+  adminApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  completedAt?: string;
+  handoffType?: 'direct' | 'doorstep' | 'security';
 }
 
 export interface ShiftMetrics {

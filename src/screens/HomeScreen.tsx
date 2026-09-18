@@ -1,34 +1,41 @@
 import React, { useState } from 'react';
-import { StyleSheet, View, Text, FlatList, StatusBar } from 'react-native';
+import { StyleSheet, View, Text, FlatList, StatusBar, TextInput, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { Delivery } from '../types/delivery';
-import { DemoScenarioPreset } from '../constants/demoData';
 import { Header } from '../components/Header';
 import { MetricCard } from '../components/MetricCard';
 import { DeliveryCard } from '../components/DeliveryCard';
-import { ScenarioModal } from '../components/ScenarioModal';
 
 interface HomeScreenProps {
   onSelectDelivery: (delivery: Delivery) => void;
-  isSimulationMode: boolean;
-  activePreset: DemoScenarioPreset | null;
-  onApplyPreset: (preset: DemoScenarioPreset) => void;
-  onEnableLiveGps: () => void;
   deliveries: Delivery[];
   shiftMetrics: any;
+  isSimulationMode?: boolean;
+  activePreset?: any;
+  onApplyPreset?: (preset: any) => void;
+  onEnableLiveGps?: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSelectDelivery,
-  isSimulationMode,
-  activePreset,
-  onApplyPreset,
-  onEnableLiveGps,
   deliveries,
   shiftMetrics,
 }) => {
-  const [isScenarioModalVisible, setIsScenarioModalVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredDeliveries = deliveries.filter((d) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      d.id.toLowerCase().includes(q) ||
+      d.trackingNumber.toLowerCase().includes(q) ||
+      d.customer.name.toLowerCase().includes(q) ||
+      d.customer.phone.includes(q) ||
+      d.address.street.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -36,12 +43,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       <View style={styles.driverAppContainer}>
         {/* Header */}
-        <Header
-          isSimulationMode={isSimulationMode}
-          activePreset={activePreset}
-          onOpenScenarioModal={() => setIsScenarioModalVisible(true)}
-          onToggleLiveGps={onEnableLiveGps}
-        />
+        <Header />
 
         <View style={styles.content}>
           {/* Shift Metrics */}
@@ -49,39 +51,73 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <MetricCard metrics={shiftMetrics} />
           </View>
 
+          {/* Search & Track Task Bar */}
+          <View style={styles.searchBarContainer}>
+            <Ionicons name="search" size={16} color={THEME.colors.slate} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Track Order ID (DEL-1001) or Tracking #..."
+              placeholderTextColor={THEME.colors.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCapitalize="characters"
+              clearButtonMode="while-editing"
+            />
+            {searchQuery ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <TouchableOpacity
+                  style={styles.trackActionBtn}
+                  onPress={() => {
+                    if (filteredDeliveries.length > 0) {
+                      onSelectDelivery(filteredDeliveries[0]);
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.trackActionText}>TRACK</Text>
+                  <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close-circle" size={16} color={THEME.colors.muted} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+
           {/* Section Header */}
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>TODAY'S DELIVERY ROUTE</Text>
-            <Text style={styles.sectionSub}>{deliveries.length} STOPS ASSIGNED</Text>
+            <Text style={styles.sectionSub}>
+              {filteredDeliveries.length} OF {deliveries.length} STOPS
+            </Text>
           </View>
 
           {/* Deliveries Queue */}
           <FlatList
-            data={deliveries}
+            data={filteredDeliveries}
             keyExtractor={(item) => item.id}
             renderItem={({ item, index }) => (
               <DeliveryCard
                 delivery={item}
                 index={index}
-                total={deliveries.length}
+                total={filteredDeliveries.length}
                 onPress={() => onSelectDelivery(item)}
               />
             )}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="search-outline" size={32} color={THEME.colors.muted} />
+                <Text style={styles.emptyTitle}>No Matching Task Found</Text>
+                <Text style={styles.emptySub}>
+                  No delivery matching "{searchQuery}" was found. Check tracking ID or order number.
+                </Text>
+              </View>
+            }
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
           />
         </View>
       </View>
-
-      {/* Scenario Selection Modal */}
-      <ScenarioModal
-        visible={isScenarioModalVisible}
-        activePreset={activePreset}
-        isSimulationMode={isSimulationMode}
-        onSelectPreset={onApplyPreset}
-        onSelectLiveGps={onEnableLiveGps}
-        onClose={() => setIsScenarioModalVisible(false)}
-      />
     </SafeAreaView>
   );
 };
@@ -104,7 +140,31 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   metricsContainer: {
+    marginBottom: 10,
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CFD7D8',
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    height: 42,
     marginBottom: 12,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.foreground,
+    paddingVertical: 0,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -126,5 +186,44 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
+  },
+  trackActionBtn: {
+    backgroundColor: THEME.colors.signal,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 3,
+  },
+  trackActionText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 4,
+    marginTop: 10,
+  },
+  emptyTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.colors.foreground,
+    marginTop: 10,
+  },
+  emptySub: {
+    fontSize: 11,
+    color: THEME.colors.muted,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
   },
 });

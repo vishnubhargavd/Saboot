@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Saboot — Zero-Trust Delivery Operations Console</title>
+  <!-- Google Maps JavaScript API with Leaflet fallback -->
+  <script src="https://maps.googleapis.com/maps/api/js?libraries=geometry" async defer></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link rel="stylesheet" href="style.css">
@@ -21,6 +23,16 @@
         <div class="console-title">OPERATIONS & DISPATCH CONSOLE</div>
         <div class="live-pill"><span class="pulse-dot"></span> LIVE TELEMETRY</div>
       </div>
+
+      <!-- Center: Track Task Input Bar -->
+      <div class="nav-center">
+        <div class="nav-search-box">
+          <span class="search-lens">🔍</span>
+          <input type="text" id="adminTrackInput" placeholder="Track Task by Order ID (DEL-1001) or Tracking #..." />
+          <button class="btn-track-submit" id="btnAdminTrack">TRACK LIVE AGENT</button>
+        </div>
+      </div>
+
       <div class="nav-right">
         <div class="active-drivers-badge">🚚 3 DRIVERS ACTIVE</div>
         <button class="btn-create-order" id="btnOpenCreateModal">+ DISPATCH NEW ORDER</button>
@@ -117,6 +129,34 @@
             <div>
               <strong id="inspectorDecisionTitle">ATTEMPT VERIFIED</strong>
               <span id="inspectorDecisionSub">All physical & contact criteria met</span>
+            </div>
+          </div>
+
+          <!-- Customer Unavailable Video Proof & Admin Approval Section -->
+          <div class="video-approval-card" id="videoApprovalSection" style="display: none;">
+            <div class="video-approval-header">
+              <span class="video-icon">📹</span>
+              <div>
+                <strong>CUSTOMER UNAVAILABLE VIDEO PROOF</strong>
+                <span class="video-sub">Requires Ops Supervisor Approval</span>
+              </div>
+            </div>
+            <div class="admin-video-player" id="adminVideoPlayer">
+              <div class="admin-video-preview">
+                <div class="play-btn-circle">▶</div>
+                <span class="video-length-tag">00:06 • 1080p Doorstep Clip</span>
+              </div>
+              <div class="video-proof-details">
+                <span>File: <strong id="videoFileName">doorstep_absence_clip.mp4</strong></span>
+                <span class="encrypted-badge">ENCRYPTED PROOF HASH</span>
+              </div>
+            </div>
+            <p class="approval-prompt">
+              Driver claims customer was unavailable after ringing phone and dwelling at address. Inspect doorstep video footage to approve or reject absence.
+            </p>
+            <div class="approval-btn-group">
+              <button class="btn-approve-claim" id="btnApproveClaim">✓ APPROVE UNAVAILABLE (VERIFIED)</button>
+              <button class="btn-reject-claim" id="btnRejectClaim">✕ REJECT CLAIM (FLAG DRIVER)</button>
             </div>
           </div>
 

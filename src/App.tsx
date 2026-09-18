@@ -25,6 +25,7 @@ export default function App() {
     updateDelivery,
     addDelivery,
     recordAttestationResult,
+    completeDelivery,
   } = useDelivery();
 
   const activeTargetDelivery = selectedDelivery || deliveries[0];
@@ -54,6 +55,14 @@ export default function App() {
     }
     setLatestResult(result);
     setCurrentScreen('RESULT');
+  };
+
+  const handleCompleteDelivery = (handoffType: 'direct' | 'doorstep' | 'security', notes?: string) => {
+    if (selectedDelivery) {
+      const result = completeDelivery(selectedDelivery.id, handoffType, notes);
+      setLatestResult(result);
+      setCurrentScreen('RESULT');
+    }
   };
 
   const handleReturnHome = () => {
@@ -89,6 +98,7 @@ export default function App() {
             activePreset={activePreset}
             onBack={() => setCurrentScreen('HOME')}
             onVerificationComplete={handleVerificationComplete}
+            onCompleteDelivery={handleCompleteDelivery}
           />
         )}
 

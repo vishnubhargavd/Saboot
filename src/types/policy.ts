@@ -1,6 +1,6 @@
 import { ResidenceCategory } from './delivery';
 
-export type VerificationDecisionType = 'VERIFIED' | 'REJECTED' | 'REVIEW';
+export type VerificationDecisionType = 'VERIFIED' | 'REJECTED' | 'REVIEW' | 'DELIVERED';
 
 export interface VerificationFacts {
   deliveryId: string;
@@ -14,8 +14,10 @@ export interface VerificationFacts {
   videoConsentRequested: boolean;
   videoConsentGiven: boolean;
   videoEvidence: boolean;
+  videoUri?: string;
   gpsAccuracyMeters: number;
   anomalyFlags: string[];
+  requiresAdminApproval?: boolean;
 }
 
 export interface VerificationRuleCheck {
@@ -39,6 +41,9 @@ export interface VerificationResult {
   detailedExplanation: string;
   auditRecordId: string;
   evaluationEngine: string; // e.g. 'Saboot-ZeroTrust-PolicyEngine-v1.0 (AWS Lambda/Cedar-equiv)'
+  requiresAdminApproval?: boolean;
+  adminApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  videoProofUri?: string;
 }
 
 export interface AuditRecord {
