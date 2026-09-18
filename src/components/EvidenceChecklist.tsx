@@ -44,237 +44,148 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>EVIDENCE COLLECTION CHECKLIST</Text>
-      <Text style={styles.sectionSubtitle}>
-        Raw sensor telemetry collected for server-side policy evaluation
-      </Text>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>EVIDENCE CRITERIA</Text>
+        <Text style={styles.sectionSubtitle}>Transmitted to AWS Backend for validation</Text>
+      </View>
 
-      {/* 1. GPS Proximity Card (MUST) */}
-      <View style={[styles.evidenceCard, isDistanceValid ? styles.validCard : styles.pendingCard]}>
+      {/* 1. Proximity Geofence */}
+      <View style={[styles.card, isDistanceValid ? styles.validCard : styles.pendingCard]}>
         <View style={styles.cardHeader}>
-          <View style={styles.cardTitleRow}>
-            <View
-              style={[
-                styles.iconBadge,
-                { backgroundColor: isDistanceValid ? THEME.colors.verifiedBg : THEME.colors.surfaceHighlight },
-              ]}
-            >
-              <Ionicons
-                name="navigate"
-                size={16}
-                color={isDistanceValid ? THEME.colors.verified : THEME.colors.primary}
-              />
-            </View>
-            <View>
-              <View style={styles.badgeRow}>
-                <Text style={styles.cardTitle}>GPS Proximity Geofence</Text>
-                <View style={styles.mustTag}>
-                  <Text style={styles.mustTagText}>MUST HAVE</Text>
-                </View>
+          <View style={styles.cardTitleContainer}>
+            <View style={styles.itemTitleRow}>
+              <Text style={styles.itemTitle}>1. Proximity Geofence</Text>
+              <View style={styles.mustTag}>
+                <Text style={styles.mustTagText}>MUST</Text>
               </View>
-              <Text style={styles.cardSubtitle}>Target: ≤ 50m to destination</Text>
             </View>
+            <Text style={styles.itemSubtitle}>Target: ≤ 50m to delivery door</Text>
           </View>
 
-          <View
-            style={[
-              styles.statusPill,
-              isDistanceValid ? styles.statusPillValid : styles.statusPillPending,
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusPillText,
-                { color: isDistanceValid ? THEME.colors.verified : THEME.colors.rejected },
-              ]}
-            >
+          <View style={[styles.statusTag, isDistanceValid && styles.statusTagActive]}>
+            <Text style={[styles.statusTagText, isDistanceValid && styles.statusTagTextActive]}>
               {distanceMeters !== null ? `${distanceMeters}m` : 'Locating...'}
             </Text>
           </View>
         </View>
 
-        <View style={styles.telemetryRow}>
-          <Text style={styles.telemetryText}>
-            Accuracy: <Text style={{ color: THEME.colors.textPrimary }}>±{gpsAccuracy}m</Text>
-          </Text>
-          <Text style={styles.telemetryText}>
-            Status:{' '}
-            <Text style={{ color: isDistanceValid ? THEME.colors.verified : THEME.colors.review }}>
-              {isDistanceValid ? 'Inside 50m Geofence' : 'Outside Geofence'}
-            </Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaText}>Accuracy: ±{gpsAccuracy}m</Text>
+          <Text style={styles.metaText}>
+            Status: {isDistanceValid ? 'Inside 50m Geofence' : 'Outside Geofence'}
           </Text>
         </View>
       </View>
 
-      {/* 2. Dwell Time Card (MUST) */}
-      <View style={[styles.evidenceCard, isDwellValid ? styles.validCard : styles.pendingCard]}>
+      {/* 2. Residence Dwell Time */}
+      <View style={[styles.card, isDwellValid ? styles.validCard : styles.pendingCard]}>
         <View style={styles.cardHeader}>
-          <View style={styles.cardTitleRow}>
-            <View
-              style={[
-                styles.iconBadge,
-                { backgroundColor: isDwellValid ? THEME.colors.verifiedBg : THEME.colors.surfaceHighlight },
-              ]}
-            >
-              <Ionicons
-                name="time"
-                size={16}
-                color={isDwellValid ? THEME.colors.verified : THEME.colors.primary}
-              />
-            </View>
-            <View>
-              <View style={styles.badgeRow}>
-                <Text style={styles.cardTitle}>Residence Dwell Time</Text>
-                <View style={styles.mustTag}>
-                  <Text style={styles.mustTagText}>MUST HAVE</Text>
-                </View>
+          <View style={styles.cardTitleContainer}>
+            <View style={styles.itemTitleRow}>
+              <Text style={styles.itemTitle}>2. Dwell Duration</Text>
+              <View style={styles.mustTag}>
+                <Text style={styles.mustTagText}>MUST</Text>
               </View>
-              <Text style={styles.cardSubtitle}>
-                Required: ≥ {requiredDwellSeconds}s at location
-              </Text>
             </View>
+            <Text style={styles.itemSubtitle}>Target: ≥ {requiredDwellSeconds}s</Text>
           </View>
 
-          <View
-            style={[
-              styles.statusPill,
-              isDwellValid ? styles.statusPillValid : styles.statusPillPending,
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusPillText,
-                { color: isDwellValid ? THEME.colors.verified : THEME.colors.review },
-              ]}
-            >
+          <View style={[styles.statusTag, isDwellValid && styles.statusTagActive]}>
+            <Text style={[styles.statusTagText, isDwellValid && styles.statusTagTextActive]}>
               {dwellSeconds}s / {requiredDwellSeconds}s
             </Text>
           </View>
         </View>
       </View>
 
-      {/* 3. Customer Call Telephony (MUST) */}
-      <View style={[styles.evidenceCard, isCallValid ? styles.validCard : styles.pendingCard]}>
+      {/* 3. Telephony Contact */}
+      <View style={[styles.card, isCallValid ? styles.validCard : styles.pendingCard]}>
         <View style={styles.cardHeader}>
-          <View style={styles.cardTitleRow}>
-            <View
-              style={[
-                styles.iconBadge,
-                { backgroundColor: isCallValid ? THEME.colors.verifiedBg : THEME.colors.surfaceHighlight },
-              ]}
-            >
-              <Ionicons
-                name="call"
-                size={16}
-                color={isCallValid ? THEME.colors.verified : THEME.colors.primary}
-              />
-            </View>
-            <View>
-              <View style={styles.badgeRow}>
-                <Text style={styles.cardTitle}>Customer Telephony Call</Text>
-                <View style={styles.mustTag}>
-                  <Text style={styles.mustTagText}>MUST HAVE</Text>
-                </View>
+          <View style={styles.cardTitleContainer}>
+            <View style={styles.itemTitleRow}>
+              <Text style={styles.itemTitle}>3. Customer Call Attempt</Text>
+              <View style={styles.mustTag}>
+                <Text style={styles.mustTagText}>MUST</Text>
               </View>
-              <Text style={styles.cardSubtitle}>{customerPhone}</Text>
             </View>
+            <Text style={styles.itemSubtitle}>{customerPhone}</Text>
           </View>
 
           {isCalling ? (
-            <TouchableOpacity style={styles.endCallButton} onPress={onEndCall}>
-              <Ionicons name="call" size={14} color="#FFF" />
+            <TouchableOpacity style={styles.endCallButton} onPress={onEndCall} activeOpacity={0.8}>
+              <Ionicons name="call" size={13} color="#FFFFFF" />
               <Text style={styles.endCallText}>End ({callDuration}s)</Text>
             </TouchableOpacity>
           ) : isCallValid ? (
-            <View style={[styles.statusPill, styles.statusPillValid]}>
-              <Ionicons name="checkmark-circle" size={12} color={THEME.colors.verified} />
-              <Text style={[styles.statusPillText, { color: THEME.colors.verified }]}>
+            <View style={[styles.statusTag, styles.statusTagActive]}>
+              <Text style={[styles.statusTagText, styles.statusTagTextActive]}>
                 {callEvidence.durationSeconds}s Logged
               </Text>
             </View>
           ) : (
-            <TouchableOpacity style={styles.callButton} onPress={onStartCall}>
-              <Ionicons name="call" size={14} color="#FFF" />
+            <TouchableOpacity style={styles.callButton} onPress={onStartCall} activeOpacity={0.8}>
+              <Ionicons name="call" size={13} color="#000000" />
               <Text style={styles.callButtonText}>Call Customer</Text>
             </TouchableOpacity>
           )}
         </View>
 
         {isCallValid && (
-          <View style={styles.telemetryRow}>
-            <Text style={styles.telemetryText}>
-              Call ID: <Text style={{ color: THEME.colors.textPrimary }}>{callEvidence.telephonyCallId || 'SIM-LOG'}</Text>
-            </Text>
-            <Text style={styles.telemetryText}>
-              Status: <Text style={{ color: THEME.colors.verified }}>Completed</Text>
-            </Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.metaText}>Telephony ID: {callEvidence.telephonyCallId || 'SIM'}</Text>
+            <Text style={styles.metaText}>Completed</Text>
           </View>
         )}
       </View>
 
-      {/* 4. Video Evidence & Consent Pipeline (CORROBORATING - OPTIONAL) */}
-      <View style={[styles.evidenceCard, styles.optionalCard]}>
+      {/* 4. Optional Corroborating Video */}
+      <View style={[styles.card, styles.optionalCard]}>
         <View style={styles.cardHeader}>
-          <View style={styles.cardTitleRow}>
-            <View style={[styles.iconBadge, { backgroundColor: 'rgba(168, 85, 247, 0.15)' }]}>
-              <Ionicons name="videocam" size={16} color={THEME.colors.simulation} />
-            </View>
-            <View>
-              <View style={styles.badgeRow}>
-                <Text style={styles.cardTitle}>Video Proof (Consent-Gated)</Text>
-                <View style={styles.optionalTag}>
-                  <Text style={styles.optionalTagText}>CORROBORATING</Text>
-                </View>
+          <View style={styles.cardTitleContainer}>
+            <View style={styles.itemTitleRow}>
+              <Text style={styles.itemTitle}>4. Video Proof (Consent-Gated)</Text>
+              <View style={styles.optionalTag}>
+                <Text style={styles.optionalTagText}>CORROBORATING</Text>
               </View>
-              <Text style={styles.cardSubtitle}>
-                Customer SMS approval required • Non-blocking
-              </Text>
             </View>
+            <Text style={styles.itemSubtitle}>Non-blocking customer consent workflow</Text>
           </View>
         </View>
 
-        {/* Consent Actions / States */}
-        <View style={styles.consentContainer}>
+        <View style={styles.consentSection}>
           {videoEvidence.consentStatus === 'not_requested' && (
-            <TouchableOpacity style={styles.consentBtn} onPress={onRequestConsent}>
-              <Ionicons name="chatbox-ellipses-outline" size={14} color={THEME.colors.primary} />
-              <Text style={styles.consentBtnText}>Send Consent SMS to Customer</Text>
+            <TouchableOpacity style={styles.outlineActionBtn} onPress={onRequestConsent} activeOpacity={0.7}>
+              <Text style={styles.outlineActionText}>Send Consent Request SMS</Text>
             </TouchableOpacity>
           )}
 
           {videoEvidence.consentStatus === 'requested' && (
-            <View style={styles.requestedBox}>
-              <View style={styles.waitingRow}>
-                <ActivityIndicator size="small" color={THEME.colors.primary} />
-                <Text style={styles.waitingText}>Consent SMS sent. Waiting for customer approval...</Text>
+            <View style={styles.pendingConsentBox}>
+              <View style={styles.loadingRow}>
+                <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text style={styles.pendingText}>SMS sent. Awaiting customer response...</Text>
               </View>
 
-              <View style={styles.simConsentRow}>
+              <View style={styles.simActionsRow}>
                 <TouchableOpacity
-                  style={[styles.simConsentAction, { borderColor: THEME.colors.verified }]}
+                  style={styles.simBtn}
                   onPress={() => onSimulateConsent('granted')}
                 >
-                  <Text style={[styles.simConsentText, { color: THEME.colors.verified }]}>
-                    Simulate Approve
-                  </Text>
+                  <Text style={styles.simBtnText}>Approve</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.simConsentAction, { borderColor: THEME.colors.rejected }]}
+                  style={styles.simBtn}
                   onPress={() => onSimulateConsent('denied')}
                 >
-                  <Text style={[styles.simConsentText, { color: THEME.colors.rejected }]}>
-                    Simulate Deny
-                  </Text>
+                  <Text style={styles.simBtnText}>Decline</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.simConsentAction, { borderColor: THEME.colors.review }]}
+                  style={styles.simBtn}
                   onPress={() => onSimulateConsent('timed_out')}
                 >
-                  <Text style={[styles.simConsentText, { color: THEME.colors.review }]}>
-                    Simulate Timeout
-                  </Text>
+                  <Text style={styles.simBtnText}>Timeout</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -282,40 +193,30 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
 
           {videoEvidence.consentStatus === 'granted' && (
             <View style={styles.grantedBox}>
-              <View style={styles.grantedHeader}>
-                <Ionicons name="checkmark-circle" size={16} color={THEME.colors.verified} />
-                <Text style={styles.grantedText}>Customer Approved Video Capture</Text>
-              </View>
-
+              <Text style={styles.grantedText}>Customer Consent Granted</Text>
               {videoEvidence.videoUri ? (
-                <View style={styles.videoRecordedBadge}>
-                  <Ionicons name="film-outline" size={14} color={THEME.colors.verified} />
-                  <Text style={styles.videoRecordedText}>
-                    Silent Video Evidence Recorded ({videoEvidence.durationSeconds || 6}s)
-                  </Text>
+                <View style={styles.recordedPill}>
+                  <Text style={styles.recordedText}>Silent Video Clip Recorded (6s)</Text>
                 </View>
               ) : (
-                <TouchableOpacity style={styles.recordBtn} onPress={onRecordVideo}>
-                  <Ionicons name="videocam" size={14} color="#FFF" />
-                  <Text style={styles.recordBtnText}>Record Silent 6s Evidence Clip</Text>
+                <TouchableOpacity style={styles.solidActionBtn} onPress={onRecordVideo}>
+                  <Text style={styles.solidActionText}>Record Silent 6s Clip</Text>
                 </TouchableOpacity>
               )}
             </View>
           )}
 
           {videoEvidence.consentStatus === 'timed_out' && (
-            <View style={styles.timedOutBox}>
-              <Ionicons name="time-outline" size={14} color={THEME.colors.review} />
-              <Text style={styles.timedOutText}>
-                Consent timed out (3 min window). Proceeding with GPS + Call evidence.
+            <View style={styles.fallbackBox}>
+              <Text style={styles.fallbackText}>
+                Consent timed out. Fallback: evaluating on GPS + Call evidence alone.
               </Text>
             </View>
           )}
 
           {videoEvidence.consentStatus === 'denied' && (
-            <View style={styles.deniedBox}>
-              <Ionicons name="close-circle-outline" size={14} color={THEME.colors.rejected} />
-              <Text style={styles.deniedText}>
+            <View style={styles.fallbackBox}>
+              <Text style={styles.fallbackText}>
                 Customer declined video consent. Non-blocking fallback active.
               </Text>
             </View>
@@ -328,116 +229,111 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 20,
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    marginBottom: 10,
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
     color: THEME.colors.textMuted,
-    letterSpacing: 1,
-    marginBottom: 4,
+    letterSpacing: 0.8,
   },
   sectionSubtitle: {
     fontSize: 12,
     color: THEME.colors.textSecondary,
-    marginBottom: 12,
+    marginTop: 2,
   },
-  evidenceCard: {
+  card: {
     backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.md,
+    borderRadius: THEME.borderRadius.lg,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: THEME.colors.border,
   },
   validCard: {
-    borderColor: 'rgba(16, 185, 129, 0.4)',
-    backgroundColor: 'rgba(16, 185, 129, 0.04)',
+    borderColor: THEME.colors.borderLight,
+    backgroundColor: THEME.colors.surfaceElevated,
   },
   pendingCard: {
     borderColor: THEME.colors.border,
   },
   optionalCard: {
-    borderColor: 'rgba(168, 85, 247, 0.3)',
-    backgroundColor: 'rgba(168, 85, 247, 0.03)',
+    borderColor: THEME.colors.border,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  cardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  cardTitleContainer: {
     flex: 1,
   },
-  iconBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeRow: {
+  itemTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  cardTitle: {
+  itemTitle: {
     fontSize: 13,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
   mustTag: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    paddingHorizontal: 4,
+    backgroundColor: THEME.colors.surfaceElevated,
+    paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderLight,
   },
   mustTagText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '800',
-    color: THEME.colors.rejected,
+    color: THEME.colors.textSecondary,
+    letterSpacing: 0.5,
   },
   optionalTag: {
-    backgroundColor: THEME.colors.simulationBg,
-    paddingHorizontal: 4,
+    backgroundColor: THEME.colors.surfaceElevated,
+    paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 3,
   },
   optionalTagText: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '800',
-    color: THEME.colors.simulation,
+    color: THEME.colors.textMuted,
+    letterSpacing: 0.5,
   },
-  cardSubtitle: {
+  itemSubtitle: {
     fontSize: 11,
     color: THEME.colors.textMuted,
-    marginTop: 1,
+    marginTop: 2,
   },
-  statusPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  statusPillValid: {
-    backgroundColor: THEME.colors.verifiedBg,
-    borderColor: THEME.colors.verifiedBorder,
-  },
-  statusPillPending: {
+  statusTag: {
     backgroundColor: THEME.colors.surfaceElevated,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: THEME.borderRadius.sm,
+    borderWidth: 1,
     borderColor: THEME.colors.borderLight,
   },
-  statusPillText: {
-    fontSize: 12,
-    fontWeight: '700',
+  statusTagActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
   },
-  telemetryRow: {
+  statusTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
+    fontFamily: THEME.typography.fontFamily.mono,
+  },
+  statusTagTextActive: {
+    color: '#000000',
+  },
+  metaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 8,
@@ -445,155 +341,129 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: THEME.colors.border,
   },
-  telemetryText: {
+  metaText: {
     fontSize: 11,
     color: THEME.colors.textMuted,
   },
   callButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: THEME.colors.primary,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    gap: 6,
+    paddingVertical: 6,
+    borderRadius: THEME.borderRadius.sm,
+    gap: 5,
   },
   callButtonText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#090D16',
+    color: '#000000',
   },
   endCallButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: THEME.colors.rejected,
+    backgroundColor: '#27272A',
     paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    gap: 6,
+    paddingVertical: 6,
+    borderRadius: THEME.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: '#3F3F46',
+    gap: 5,
   },
   endCallText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#FFF',
+    color: '#FFFFFF',
   },
-  consentContainer: {
+  consentSection: {
     marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: THEME.colors.border,
   },
-  consentBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: THEME.colors.surfaceElevated,
+  outlineActionBtn: {
     paddingVertical: 8,
-    borderRadius: 6,
+    alignItems: 'center',
+    borderRadius: THEME.borderRadius.sm,
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
-    gap: 6,
+    backgroundColor: THEME.colors.surfaceElevated,
   },
-  consentBtnText: {
+  outlineActionText: {
     fontSize: 12,
     fontWeight: '600',
-    color: THEME.colors.primary,
+    color: THEME.colors.textPrimary,
   },
-  requestedBox: {
+  pendingConsentBox: {
     gap: 8,
   },
-  waitingRow: {
+  loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  waitingText: {
+  pendingText: {
     fontSize: 11,
     color: THEME.colors.textSecondary,
     flex: 1,
   },
-  simConsentRow: {
+  simActionsRow: {
     flexDirection: 'row',
     gap: 6,
-    marginTop: 4,
   },
-  simConsentAction: {
+  simBtn: {
     flex: 1,
     paddingVertical: 5,
-    borderRadius: 4,
+    borderRadius: THEME.borderRadius.xs,
+    backgroundColor: THEME.colors.surfaceElevated,
     borderWidth: 1,
+    borderColor: THEME.colors.borderLight,
     alignItems: 'center',
   },
-  simConsentText: {
+  simBtnText: {
     fontSize: 10,
     fontWeight: '700',
+    color: THEME.colors.textPrimary,
   },
   grantedBox: {
     gap: 8,
   },
-  grantedHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
   grantedText: {
     fontSize: 12,
     fontWeight: '700',
-    color: THEME.colors.verified,
+    color: '#FFFFFF',
   },
-  recordBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: THEME.colors.simulation,
+  solidActionBtn: {
     paddingVertical: 8,
-    borderRadius: 6,
-    gap: 6,
+    alignItems: 'center',
+    borderRadius: THEME.borderRadius.sm,
+    backgroundColor: '#FFFFFF',
   },
-  recordBtnText: {
+  solidActionText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#FFF',
+    color: '#000000',
   },
-  videoRecordedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.colors.verifiedBg,
+  recordedPill: {
+    backgroundColor: THEME.colors.surfaceElevated,
     padding: 8,
-    borderRadius: 6,
-    gap: 6,
+    borderRadius: THEME.borderRadius.sm,
     borderWidth: 1,
-    borderColor: THEME.colors.verifiedBorder,
+    borderColor: THEME.colors.borderLight,
   },
-  videoRecordedText: {
+  recordedText: {
     fontSize: 11,
-    color: THEME.colors.verified,
+    color: THEME.colors.textPrimary,
     fontWeight: '600',
   },
-  timedOutBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.colors.reviewBg,
+  fallbackBox: {
+    backgroundColor: THEME.colors.surfaceElevated,
     padding: 8,
-    borderRadius: 6,
-    gap: 6,
+    borderRadius: THEME.borderRadius.sm,
   },
-  timedOutText: {
+  fallbackText: {
     fontSize: 11,
-    color: THEME.colors.review,
-    flex: 1,
-  },
-  deniedBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.colors.rejectedBg,
-    padding: 8,
-    borderRadius: 6,
-    gap: 6,
-  },
-  deniedText: {
-    fontSize: 11,
-    color: THEME.colors.rejected,
-    flex: 1,
+    color: THEME.colors.textMuted,
+    lineHeight: 15,
   },
 });
