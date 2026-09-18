@@ -12,7 +12,7 @@ import { INITIAL_DELIVERIES } from '../constants/demoData';
 let sqliteDbInstance: any = null;
 const DB_NAME = 'saboot.db';
 const LOCAL_STORAGE_KEY = 'saboot_sqlite_deliveries_v1';
-const LOCAL_STORAGE_METRICS_KEY = 'saboot_sqlite_metrics_v1';
+let inMemoryDeliveriesCache: Delivery[] = [...INITIAL_DELIVERIES];
 
 /**
  * Initialize SQLite database tables
@@ -128,12 +128,14 @@ async function seedInitialDeliveriesSQLite(db: any): Promise<void> {
  * Initialize Web storage with INITIAL_DELIVERIES if empty
  */
 function initWebStorage(): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
+  if (Platform.OS !== 'web' || typeof window === 'undefined' || !window.localStorage) return;
 
-  const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-  if (!stored) {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(INITIAL_DELIVERIES));
-  }
+  try {
+    const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!stored) {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(INITIAL_DELIVERIES));
+    }
+  } catch (err) {}
 }
 
 /**
@@ -177,18 +179,20 @@ export async function getDeliveriesFromDB(): Promise<Delivery[]> {
   }
 
   // Web fallback
-  if (typeof window !== 'undefined' && window.localStorage) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
     const data = window.localStorage.getItem(LOCAL_STORAGE_KEY);
     if (data) {
       try {
-        return JSON.parse(data);
+        const parsed = JSON.parse(data);
+        inMemoryDeliveriesCache = parsed;
+        return parsed;
       } catch (e) {
         console.error('[SQLite Web] Failed to parse deliveries from localStorage:', e);
       }
     }
   }
 
-  return [...INITIAL_DELIVERIES];
+  return inMemoryDeliveriesCache;
 }
 
 /**
@@ -263,8 +267,12 @@ export async function saveDeliveryCompletionInDB(
       : d
   );
 
-  if (typeof window !== 'undefined' && window.localStorage) {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(deliveries));
+  inMemoryDeliveriesCache = deliveries;
+
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(deliveries));
+    } catch (e) {}
   }
 
   return deliveries;
@@ -307,8 +315,12 @@ export async function updateDeliveryStatusInDB(
       : d
   );
 
-  if (typeof window !== 'undefined' && window.localStorage) {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(deliveries));
+  inMemoryDeliveriesCache = deliveries;
+
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(deliveries));
+    } catch (e) {}
   }
 
   return deliveries;

@@ -3,8 +3,10 @@
  * 
  * Synchronizes delivery status updates, completed handoffs with video proof,
  * and admin decisions between the Driver App and the Admin Operations Portal.
- * Uses BroadcastChannel with window storage event fallback.
+ * Uses in-memory dispatch on native React Native and BroadcastChannel / Storage on Web.
  */
+
+import { Platform } from 'react-native';
 
 export type RealtimeEventType = 
   | 'DELIVERY_COMPLETED'
@@ -28,11 +30,14 @@ export interface RealtimeSyncEvent {
 const CHANNEL_NAME = 'saboot_realtime_sync';
 const STORAGE_EVENT_KEY = 'saboot_realtime_event_bus';
 
-let broadcastChannel: BroadcastChannel | null = null;
+// In-memory listeners for native React Native environments (iOS / Android)
+const inMemoryListeners: Set<(event: RealtimeSyncEvent) => void> = new Set();
 
-if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+let broadcastChannel: any = null;
+
+if (Platform.OS === 'web' && typeof window !== 'undefined' && 'BroadcastChannel' in window) {
   try {
-    broadcastChannel = new BroadcastChannel(CHANNEL_NAME);
+    broadcastChannel = new (window as any).BroadcastChannel(CHANNEL_NAME);
   } catch (err) {
     console.warn('[RealtimeSync] BroadcastChannel not supported:', err);
   }
@@ -43,15 +48,27 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
  */
 export function broadcastRealtimeEvent(event: RealtimeSyncEvent): void {
   try {
-    if (broadcastChannel) {
-      broadcastChannel.postMessage(event);
-    }
+    // Notify native in-memory listeners
+    inMemoryListeners.forEach((listener) => {
+      try {
+        listener(event);
+      } catch (err) {
+        console.warn('[RealtimeSync] in-memory listener error:', err);
+      }
+    });
 
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(
-        STORAGE_EVENT_KEY,
-        JSON.stringify({ ...event, _t: Date.now() })
-      );
+    // Web BroadcastChannel & localStorage sync
+    if (Platform.OS === 'web') {
+      if (broadcastChannel && typeof broadcastChannel.postMessage === 'function') {
+        broadcastChannel.postMessage(event);
+      }
+
+      if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
+        window.localStorage.setItem(
+          STORAGE_EVENT_KEY,
+          JSON.stringify({ ...event, _t: Date.now() })
+        );
+      }
     }
   } catch (err) {
     console.warn('[RealtimeSync] Broadcast failed:', err);
@@ -59,42 +76,67 @@ export function broadcastRealtimeEvent(event: RealtimeSyncEvent): void {
 }
 
 /**
- * Subscribe to real-time events across windows / tabs
+ * Subscribe to real-time events across native hooks and web windows / tabs
  */
 export function subscribeToRealtimeEvents(
   listener: (event: RealtimeSyncEvent) => void
 ): () => void {
-  if (typeof window === 'undefined') {
-    return () => {};
-  }
+  // Always register for in-memory events
+  inMemoryListeners.add(listener);
 
-  const handleBroadcastMessage = (msgEvent: MessageEvent) => {
-    if (msgEvent && msgEvent.data) {
-      listener(msgEvent.data);
-    }
-  };
+  let handleBroadcastMessage: any = null;
+  let handleStorageEvent: any = null;
 
-  const handleStorageEvent = (storageEvent: StorageEvent) => {
-    if (storageEvent.key === STORAGE_EVENT_KEY && storageEvent.newValue) {
-      try {
-        const parsed = JSON.parse(storageEvent.newValue);
-        listener(parsed);
-      } catch (err) {
-        console.error('[RealtimeSync] Failed to parse storage event:', err);
+  // Setup DOM listeners only on Web platform where addEventListener is available
+  if (
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    typeof window.addEventListener === 'function'
+  ) {
+    handleBroadcastMessage = (msgEvent: any) => {
+      if (msgEvent && msgEvent.data) {
+        listener(msgEvent.data);
       }
+    };
+
+    handleStorageEvent = (storageEvent: any) => {
+      if (storageEvent.key === STORAGE_EVENT_KEY && storageEvent.newValue) {
+        try {
+          const parsed = JSON.parse(storageEvent.newValue);
+          listener(parsed);
+        } catch (err) {
+          console.error('[RealtimeSync] Failed to parse storage event:', err);
+        }
+      }
+    };
+
+    if (broadcastChannel && typeof broadcastChannel.addEventListener === 'function') {
+      broadcastChannel.addEventListener('message', handleBroadcastMessage);
     }
-  };
 
-  if (broadcastChannel) {
-    broadcastChannel.addEventListener('message', handleBroadcastMessage);
+    try {
+      window.addEventListener('storage', handleStorageEvent);
+    } catch (e) {
+      console.warn('[RealtimeSync] Failed to attach storage listener:', e);
+    }
   }
-
-  window.addEventListener('storage', handleStorageEvent);
 
   return () => {
-    if (broadcastChannel) {
-      broadcastChannel.removeEventListener('message', handleBroadcastMessage);
+    inMemoryListeners.delete(listener);
+
+    if (
+      Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      typeof window.removeEventListener === 'function'
+    ) {
+      if (broadcastChannel && typeof broadcastChannel.removeEventListener === 'function' && handleBroadcastMessage) {
+        broadcastChannel.removeEventListener('message', handleBroadcastMessage);
+      }
+      if (handleStorageEvent) {
+        try {
+          window.removeEventListener('storage', handleStorageEvent);
+        } catch (e) {}
+      }
     }
-    window.removeEventListener('storage', handleStorageEvent);
   };
 }

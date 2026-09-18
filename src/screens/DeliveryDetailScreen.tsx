@@ -331,6 +331,19 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
     }
   };
 
+  // Safe trigger for video file upload on web or camera recording on native
+  const handleTriggerVideoUpload = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'video/*';
+      input.onchange = (e) => handleUploadDeliveryVideoFile(e);
+      input.click();
+    } else {
+      handleRecordDeliveryVideoProof('valid');
+    }
+  };
+
   // Confirm and record successful delivery completion
   const handleConfirmCompleteDelivery = () => {
     if (deliveryVideoStatus !== 'VERIFIED') {
@@ -1053,22 +1066,14 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
                     <Text style={styles.recordProofMainText}>RECORD VIDEO PROOF</Text>
                   </TouchableOpacity>
 
-                  {/* Web Video File Upload */}
-                  {Platform.OS === 'web' && typeof document !== 'undefined' && (
-                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                      <input
-                        type="file"
-                        accept="video/*"
-                        capture="environment"
-                        style={{ display: 'none' }}
-                        onChange={handleUploadDeliveryVideoFile}
-                      />
-                      <View style={styles.uploadVideoBtn}>
-                        <Ionicons name="cloud-upload" size={14} color={THEME.colors.foreground} />
-                        <Text style={styles.uploadVideoText}>UPLOAD</Text>
-                      </View>
-                    </label>
-                  )}
+                  <TouchableOpacity
+                    style={styles.uploadVideoBtn}
+                    onPress={handleTriggerVideoUpload}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="cloud-upload" size={14} color={THEME.colors.foreground} />
+                    <Text style={styles.uploadVideoText}>UPLOAD</Text>
+                  </TouchableOpacity>
                 </View>
               )}
 
