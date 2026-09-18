@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, View, Text, SafeAreaView, StatusBar, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, Text, StatusBar, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { VerificationResult } from '../types/policy';
@@ -18,23 +19,27 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   onReturnHome,
 }) => {
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={THEME.colors.surface} />
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="light-content" backgroundColor="#000000" />
 
-      {/* Header */}
-      <View style={styles.navBar}>
-        <View style={styles.navTitleContainer}>
-          <Text style={styles.navTitle}>Zero-Trust Attestation Result</Text>
-          <Text style={styles.navSubtitle}>{delivery.trackingNumber} • {delivery.customer.name}</Text>
+      <View style={styles.responsiveContainer}>
+        {/* Header */}
+        <View style={styles.navBar}>
+          <View style={styles.navTitleContainer}>
+            <Text style={styles.navTitle}>Attestation Certificate</Text>
+            <Text style={styles.navSubtitle}>
+              {delivery.trackingNumber} • {delivery.customer.name}
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.closeBtn} onPress={onReturnHome} activeOpacity={0.7}>
+            <Ionicons name="close" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.closeBtn} onPress={onReturnHome}>
-          <Ionicons name="close" size={20} color={THEME.colors.textPrimary} />
-        </TouchableOpacity>
+        {/* Result Card */}
+        <ResultCard result={result} onReturnHome={onReturnHome} />
       </View>
-
-      {/* Result Card */}
-      <ResultCard result={result} onReturnHome={onReturnHome} />
     </SafeAreaView>
   );
 };
@@ -42,7 +47,13 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: THEME.colors.background,
+    backgroundColor: '#000000',
+  },
+  responsiveContainer: {
+    flex: 1,
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
   },
   navBar: {
     flexDirection: 'row',
@@ -58,7 +69,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   navTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
@@ -66,12 +77,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: THEME.colors.textMuted,
     marginTop: 2,
+    fontFamily: THEME.typography.fontFamily.mono,
   },
   closeBtn: {
     padding: 6,
     backgroundColor: THEME.colors.surfaceElevated,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
+    borderRadius: THEME.borderRadius.full,
   },
 });

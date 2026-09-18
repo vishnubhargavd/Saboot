@@ -4,12 +4,12 @@ import {
   View,
   Text,
   ScrollView,
-  SafeAreaView,
   TouchableOpacity,
   Modal,
   TextInput,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { Delivery, FailureReason } from '../types/delivery';
@@ -32,13 +32,13 @@ interface DeliveryDetailScreenProps {
   onVerificationComplete: (result: VerificationResult) => void;
 }
 
-const FAILURE_REASONS: { id: FailureReason; label: string; icon: string }[] = [
-  { id: 'customer_unavailable', label: 'Customer Unavailable / Unreachable', icon: 'person-remove-outline' },
-  { id: 'gate_locked_security_refusal', label: 'Security Gate Locked / Access Denied', icon: 'shield-outline' },
-  { id: 'incorrect_address', label: 'Incorrect Address / Unit Not Found', icon: 'location-outline' },
-  { id: 'customer_rejected_delivery', label: 'Customer Refused / Cancelled at Door', icon: 'close-circle-outline' },
-  { id: 'access_code_required', label: 'Entry Passcode / OTP Required', icon: 'key-outline' },
-  { id: 'other', label: 'Other Operational Issue', icon: 'help-circle-outline' },
+const FAILURE_REASONS: { id: FailureReason; label: string }[] = [
+  { id: 'customer_unavailable', label: 'Customer Unavailable / Unreachable' },
+  { id: 'gate_locked_security_refusal', label: 'Security Gate Locked / Access Denied' },
+  { id: 'incorrect_address', label: 'Incorrect Address / Unit Not Found' },
+  { id: 'customer_rejected_delivery', label: 'Customer Refused at Door' },
+  { id: 'access_code_required', label: 'Entry Passcode / OTP Required' },
+  { id: 'other', label: 'Other Operational Issue' },
 ];
 
 export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
@@ -93,113 +93,97 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      {/* Top Navigation Bar */}
-      <View style={styles.navBar}>
-        <TouchableOpacity style={styles.backButton} onPress={onBack}>
-          <Ionicons name="arrow-back" size={20} color={THEME.colors.textPrimary} />
-          <Text style={styles.backText}>Queue</Text>
-        </TouchableOpacity>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <View style={styles.responsiveContainer}>
+        {/* Navigation Bar */}
+        <View style={styles.navBar}>
+          <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.7}>
+            <Ionicons name="arrow-back" size={18} color="#FFFFFF" />
+            <Text style={styles.backText}>Queue</Text>
+          </TouchableOpacity>
 
-        <View style={styles.navTitleContainer}>
-          <Text style={styles.navTitle}>{delivery.trackingNumber}</Text>
-          <Text style={styles.navSubtitle}>Live Delivery Attestation</Text>
-        </View>
-
-        <View
-          style={[
-            styles.modeTag,
-            isSimulationMode ? styles.simModeTag : styles.liveModeTag,
-          ]}
-        >
-          <Text
-            style={[
-              styles.modeTagText,
-              { color: isSimulationMode ? THEME.colors.simulation : THEME.colors.liveGps },
-            ]}
-          >
-            {isSimulationMode ? 'SIM' : 'LIVE'}
-          </Text>
-        </View>
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Destination & Customer Summary Card */}
-        <View style={styles.destinationCard}>
-          <View style={styles.cardHeader}>
-            <View>
-              <Text style={styles.customerName}>{delivery.customer.name}</Text>
-              <Text style={styles.customerPhone}>{delivery.customer.phone}</Text>
-            </View>
-            <View style={styles.residencePill}>
-              <Ionicons name={dwellRule.icon as any} size={12} color={THEME.colors.primary} />
-              <Text style={styles.residenceText}>{dwellRule.displayName}</Text>
-            </View>
+          <View style={styles.navTitleContainer}>
+            <Text style={styles.navTitle}>{delivery.trackingNumber}</Text>
+            <Text style={styles.navSubtitle}>Attempt Verification</Text>
           </View>
 
-          <View style={styles.addressBox}>
-            <Ionicons name="location-sharp" size={16} color={THEME.colors.primary} />
+          <View style={styles.modeTag}>
+            <Text style={styles.modeTagText}>{isSimulationMode ? 'SIM' : 'LIVE'}</Text>
+          </View>
+        </View>
+
+        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+          {/* Destination Summary Card */}
+          <View style={styles.destinationCard}>
+            <View style={styles.cardHeader}>
+              <View>
+                <Text style={styles.customerName}>{delivery.customer.name}</Text>
+                <Text style={styles.customerPhone}>{delivery.customer.phone}</Text>
+              </View>
+              <View style={styles.residencePill}>
+                <Text style={styles.residenceText}>{dwellRule.displayName}</Text>
+              </View>
+            </View>
+
             <Text style={styles.addressText}>
               {delivery.address.street}, {delivery.address.city}
             </Text>
+
+            {delivery.notes && (
+              <View style={styles.notesBox}>
+                <Text style={styles.notesText}>{delivery.notes}</Text>
+              </View>
+            )}
           </View>
 
-          {delivery.notes && (
-            <View style={styles.notesBox}>
-              <Ionicons name="information-circle-outline" size={14} color={THEME.colors.textMuted} />
-              <Text style={styles.notesText}>{delivery.notes}</Text>
+          {/* Dwell Gauge */}
+          <DwellGauge
+            residenceCategory={delivery.address.residenceCategory}
+            currentDwellSeconds={dwellSeconds}
+            isInsideGeofence={isInsideGeofence}
+            distanceMeters={distanceMeters}
+          />
+
+          {/* Evidence Checklist */}
+          <EvidenceChecklist
+            distanceMeters={distanceMeters}
+            gpsAccuracy={currentLocation?.accuracy || 10}
+            dwellSeconds={dwellSeconds}
+            requiredDwellSeconds={requiredDwellSeconds}
+            callEvidence={callEvidence}
+            isCalling={isCalling}
+            callDuration={callDuration}
+            videoEvidence={videoEvidence}
+            customerPhone={delivery.customer.phone}
+            onStartCall={startCall}
+            onEndCall={endCall}
+            onRequestConsent={requestConsent}
+            onSimulateConsent={simulateCustomerConsentResponse}
+            onRecordVideo={() => recordVideoClip('file:///clips/silent_clip.mp4', 6)}
+          />
+
+          {/* Error Alert */}
+          {error && (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
-        </View>
 
-        {/* Live Category-Aware Dwell Gauge */}
-        <DwellGauge
-          residenceCategory={delivery.address.residenceCategory}
-          currentDwellSeconds={dwellSeconds}
-          isInsideGeofence={isInsideGeofence}
-          distanceMeters={distanceMeters}
-        />
+          {/* Submit Attempt Button */}
+          <TouchableOpacity
+            style={styles.submitButton}
+            onPress={() => setIsSubmitModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.submitButtonText}>Submit Delivery Attempt</Text>
+            <Ionicons name="arrow-forward" size={14} color="#000000" />
+          </TouchableOpacity>
 
-        {/* Multi-Modal Evidence Checklist */}
-        <EvidenceChecklist
-          distanceMeters={distanceMeters}
-          gpsAccuracy={currentLocation?.accuracy || 10}
-          dwellSeconds={dwellSeconds}
-          requiredDwellSeconds={requiredDwellSeconds}
-          callEvidence={callEvidence}
-          isCalling={isCalling}
-          callDuration={callDuration}
-          videoEvidence={videoEvidence}
-          customerPhone={delivery.customer.phone}
-          onStartCall={startCall}
-          onEndCall={endCall}
-          onRequestConsent={requestConsent}
-          onSimulateConsent={simulateCustomerConsentResponse}
-          onRecordVideo={() => recordVideoClip('file:///clips/silent_clip.mp4', 6)}
-        />
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </View>
 
-        {/* Error Alert */}
-        {error && (
-          <View style={styles.errorBox}>
-            <Ionicons name="alert-circle" size={16} color={THEME.colors.rejected} />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-
-        {/* Submit Attempt Action Button */}
-        <TouchableOpacity
-          style={styles.submitButton}
-          onPress={() => setIsSubmitModalVisible(true)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="shield-checkmark" size={18} color="#090D16" />
-          <Text style={styles.submitButtonText}>Submit Delivery Attempt</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
-      </ScrollView>
-
-      {/* Submit Attempt Modal */}
+      {/* Failure Reason Modal */}
       <Modal
         visible={isSubmitModalVisible}
         transparent={true}
@@ -210,16 +194,14 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>Submit Delivery Failure</Text>
-                <Text style={styles.modalSubtitle}>
-                  Select reason for zero-trust policy attestation
-                </Text>
+                <Text style={styles.modalTitle}>Submit Attempt</Text>
+                <Text style={styles.modalSubtitle}>Select reason for zero-trust evaluation</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setIsSubmitModalVisible(false)}
                 style={styles.modalClose}
               >
-                <Ionicons name="close" size={20} color={THEME.colors.textMuted} />
+                <Ionicons name="close" size={18} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
 
@@ -236,11 +218,6 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
                     onPress={() => setFailureReason(r.id)}
                     activeOpacity={0.7}
                   >
-                    <Ionicons
-                      name={r.icon as any}
-                      size={18}
-                      color={isSelected ? THEME.colors.primary : THEME.colors.textMuted}
-                    />
                     <Text
                       style={[
                         styles.reasonOptionText,
@@ -250,16 +227,16 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
                       {r.label}
                     </Text>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={18} color={THEME.colors.primary} />
+                      <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
                     )}
                   </TouchableOpacity>
                 );
               })}
 
-              <Text style={styles.inputLabel}>Driver Notes (Optional)</Text>
+              <Text style={styles.inputLabel}>Notes (Optional)</Text>
               <TextInput
                 style={styles.textInput}
-                placeholder="e.g. Waited at security gate, intercom unanswered..."
+                placeholder="Driver notes..."
                 placeholderTextColor={THEME.colors.textMuted}
                 value={failureNotes}
                 onChangeText={setFailureNotes}
@@ -273,18 +250,18 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               onPress={handleSubmit}
               activeOpacity={0.8}
             >
-              <Text style={styles.confirmSubmitText}>Transmit Telemetry to Backend</Text>
-              <Ionicons name="arrow-forward" size={16} color="#090D16" />
+              <Text style={styles.confirmSubmitText}>Transmit Telemetry</Text>
+              <Ionicons name="arrow-forward" size={14} color="#000000" />
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Submitting Loading Overlay */}
+      {/* Loading Overlay */}
       {isSubmitting && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color={THEME.colors.primary} />
+            <ActivityIndicator size="large" color="#FFFFFF" />
             <Text style={styles.loadingTitle}>Evaluating Zero-Trust Policy</Text>
             <Text style={styles.loadingSubtitle}>
               Server independently calculating distance, dwell & rule checks...
@@ -299,7 +276,13 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: THEME.colors.background,
+    backgroundColor: '#000000',
+  },
+  responsiveContainer: {
+    flex: 1,
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
   },
   navBar: {
     flexDirection: 'row',
@@ -317,7 +300,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   backText: {
-    fontSize: 14,
+    fontSize: 13,
     color: THEME.colors.textPrimary,
     fontWeight: '600',
   },
@@ -325,31 +308,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   navTitle: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
+    fontFamily: THEME.typography.fontFamily.mono,
   },
   navSubtitle: {
     fontSize: 11,
     color: THEME.colors.textMuted,
   },
   modeTag: {
+    backgroundColor: THEME.colors.surfaceElevated,
     paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
     borderWidth: 1,
-  },
-  liveModeTag: {
-    backgroundColor: THEME.colors.liveGpsBg,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-  },
-  simModeTag: {
-    backgroundColor: THEME.colors.simulationBg,
-    borderColor: THEME.colors.simulationBorder,
+    borderColor: THEME.colors.borderLight,
   },
   modeTagText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
+    color: THEME.colors.textSecondary,
+    fontFamily: THEME.typography.fontFamily.mono,
   },
   content: {
     flex: 1,
@@ -361,105 +341,82 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   customerName: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
   customerPhone: {
     fontSize: 12,
     color: THEME.colors.textMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
   residencePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
   },
   residenceText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    color: THEME.colors.primary,
-  },
-  addressBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
-    marginTop: 4,
+    color: THEME.colors.textPrimary,
   },
   addressText: {
     fontSize: 13,
     color: THEME.colors.textSecondary,
-    flex: 1,
     lineHeight: 18,
   },
   notesBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: THEME.colors.surfaceElevated,
     padding: 8,
     borderRadius: 6,
     marginTop: 8,
-    gap: 6,
   },
   notesText: {
     fontSize: 11,
     color: THEME.colors.textMuted,
-    flex: 1,
   },
   errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.colors.rejectedBg,
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: THEME.colors.surfaceElevated,
+    padding: 10,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: THEME.colors.rejectedBorder,
-    marginBottom: 14,
-    gap: 8,
+    borderColor: THEME.colors.borderLight,
+    marginBottom: 12,
   },
   errorText: {
-    fontSize: 12,
-    color: THEME.colors.rejected,
-    flex: 1,
+    fontSize: 11,
+    color: THEME.colors.textPrimary,
   },
   submitButton: {
-    backgroundColor: THEME.colors.primary,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
     borderRadius: THEME.borderRadius.md,
-    gap: 8,
-    shadowColor: THEME.colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    gap: 6,
   },
   submitButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
-    color: '#090D16',
-    letterSpacing: 0.5,
+    color: '#000000',
+    letterSpacing: 0.2,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -470,20 +427,23 @@ const styles = StyleSheet.create({
     maxHeight: '85%',
     borderWidth: 1,
     borderColor: THEME.colors.border,
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
   modalSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: THEME.colors.textMuted,
     marginTop: 2,
   },
@@ -491,35 +451,35 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   reasonList: {
-    marginBottom: 16,
+    marginBottom: 14,
   },
   reasonOption: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: THEME.colors.surfaceElevated,
     padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
+    borderRadius: THEME.borderRadius.sm,
+    marginBottom: 6,
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
-    gap: 10,
   },
   reasonOptionSelected: {
-    borderColor: THEME.colors.primary,
-    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surfaceHighlight,
   },
   reasonOptionText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: THEME.colors.textSecondary,
     flex: 1,
   },
   reasonOptionTextSelected: {
-    color: THEME.colors.textPrimary,
+    color: '#FFFFFF',
     fontWeight: '700',
   },
   inputLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: THEME.colors.textMuted,
     marginTop: 10,
@@ -527,31 +487,31 @@ const styles = StyleSheet.create({
   },
   textInput: {
     backgroundColor: THEME.colors.surfaceElevated,
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: THEME.borderRadius.sm,
+    padding: 10,
     color: THEME.colors.textPrimary,
-    fontSize: 13,
+    fontSize: 12,
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
     textAlignVertical: 'top',
   },
   confirmSubmitBtn: {
-    backgroundColor: THEME.colors.primary,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
     borderRadius: THEME.borderRadius.md,
-    gap: 8,
+    gap: 6,
   },
   confirmSubmitText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
-    color: '#090D16',
+    color: '#000000',
   },
   loadingOverlay: {
     ...(StyleSheet.absoluteFill as any),
-    backgroundColor: 'rgba(9, 13, 22, 0.88)',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
@@ -559,24 +519,24 @@ const styles = StyleSheet.create({
   loadingBox: {
     backgroundColor: THEME.colors.surfaceElevated,
     padding: 24,
-    borderRadius: 16,
+    borderRadius: 14,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
     maxWidth: 320,
   },
   loadingTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
     marginTop: 14,
-    marginBottom: 6,
+    marginBottom: 4,
     textAlign: 'center',
   },
   loadingSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: THEME.colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 15,
   },
 });

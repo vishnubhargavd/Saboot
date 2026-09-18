@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { THEME } from './constants/theme';
 import { useDelivery } from './hooks/useDelivery';
@@ -58,48 +59,50 @@ export default function App() {
   };
 
   return (
-    <View style={styles.root}>
-      <StatusBar style="light" />
+    <SafeAreaProvider>
+      <View style={styles.root}>
+        <StatusBar style="light" />
 
-      {currentScreen === 'HOME' && (
-        <HomeScreen
-          deliveries={deliveries}
-          shiftMetrics={shiftMetrics}
-          onSelectDelivery={handleSelectDelivery}
-          isSimulationMode={isSimulationMode}
-          activePreset={activePreset}
-          onApplyPreset={applyDemoPreset}
-          onEnableLiveGps={enableLiveGps}
-        />
-      )}
+        {currentScreen === 'HOME' && (
+          <HomeScreen
+            deliveries={deliveries}
+            shiftMetrics={shiftMetrics}
+            onSelectDelivery={handleSelectDelivery}
+            isSimulationMode={isSimulationMode}
+            activePreset={activePreset}
+            onApplyPreset={applyDemoPreset}
+            onEnableLiveGps={enableLiveGps}
+          />
+        )}
 
-      {currentScreen === 'DELIVERY_DETAIL' && selectedDelivery && (
-        <DeliveryDetailScreen
-          delivery={selectedDelivery}
-          currentLocation={currentLocation}
-          distanceMeters={distanceMeters}
-          breadcrumbs={breadcrumbs}
-          isSimulationMode={isSimulationMode}
-          activePreset={activePreset}
-          onBack={() => setCurrentScreen('HOME')}
-          onVerificationComplete={handleVerificationComplete}
-        />
-      )}
+        {currentScreen === 'DELIVERY_DETAIL' && selectedDelivery && (
+          <DeliveryDetailScreen
+            delivery={selectedDelivery}
+            currentLocation={currentLocation}
+            distanceMeters={distanceMeters}
+            breadcrumbs={breadcrumbs}
+            isSimulationMode={isSimulationMode}
+            activePreset={activePreset}
+            onBack={() => setCurrentScreen('HOME')}
+            onVerificationComplete={handleVerificationComplete}
+          />
+        )}
 
-      {currentScreen === 'RESULT' && latestResult && selectedDelivery && (
-        <ResultScreen
-          result={latestResult}
-          delivery={selectedDelivery}
-          onReturnHome={handleReturnHome}
-        />
-      )}
-    </View>
+        {currentScreen === 'RESULT' && latestResult && selectedDelivery && (
+          <ResultScreen
+            result={latestResult}
+            delivery={selectedDelivery}
+            onReturnHome={handleReturnHome}
+          />
+        )}
+      </View>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: THEME.colors.background,
+    backgroundColor: '#000000',
   },
 });

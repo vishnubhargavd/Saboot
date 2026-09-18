@@ -63,7 +63,7 @@ export async function requestForegroundLocationPermission(): Promise<LocationPer
  */
 export async function getCurrentRawLocation(): Promise<RawGPSPoint | null> {
   try {
-    const isServicesEnabled = await Location.isLocationServicesEnabledAsync().catch(() => false);
+    const isServicesEnabled = await Location.hasServicesEnabledAsync().catch(() => false);
     if (!isServicesEnabled) {
       return null;
     }
@@ -99,7 +99,7 @@ export async function subscribeToForegroundLocation(
   distanceIntervalMeters: number = 5
 ): Promise<Location.LocationSubscription | null> {
   try {
-    const isServicesEnabled = await Location.isLocationServicesEnabledAsync().catch(() => false);
+    const isServicesEnabled = await Location.hasServicesEnabledAsync().catch(() => false);
     if (!isServicesEnabled) {
       return null;
     }

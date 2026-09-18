@@ -25,16 +25,14 @@ export const ScenarioModal: React.FC<ScenarioModalProps> = ({
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.modalContent}>
-          {/* Modal Header */}
+          {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>Hackathon Demo Scenarios</Text>
-              <Text style={styles.subtitle}>
-                Inject realistic multi-modal telemetry profiles for live judging
-              </Text>
+              <Text style={styles.title}>Demo Scenarios</Text>
+              <Text style={styles.subtitle}>Select a telemetry preset for testing</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={20} color={THEME.colors.textMuted} />
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
+              <Ionicons name="close" size={18} color={THEME.colors.textPrimary} />
             </TouchableOpacity>
           </View>
 
@@ -52,41 +50,32 @@ export const ScenarioModal: React.FC<ScenarioModalProps> = ({
               activeOpacity={0.7}
             >
               <View style={styles.cardTopRow}>
-                <View style={[styles.badge, styles.liveBadge]}>
-                  <Ionicons name="navigate" size={12} color={THEME.colors.liveGps} />
-                  <Text style={[styles.badgeText, { color: THEME.colors.liveGps }]}>
-                    LIVE GPS HARDWARE
-                  </Text>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>LIVE HARDWARE</Text>
                 </View>
                 {!isSimulationMode && (
-                  <Ionicons name="checkmark-circle" size={18} color={THEME.colors.liveGps} />
+                  <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
                 )}
               </View>
-              <Text style={styles.presetTitle}>Physical Device Sensors</Text>
+              <Text style={styles.presetTitle}>Device GPS Sensor</Text>
               <Text style={styles.presetDesc}>
-                Use live foreground GPS coordinates from your device's location chip.
+                Uses foreground GPS from phone hardware.
               </Text>
             </TouchableOpacity>
 
             <View style={styles.divider} />
-            <Text style={styles.sectionHeader}>DEMO SIMULATION PRESETS</Text>
+            <Text style={styles.sectionHeader}>SIMULATION SCENARIOS</Text>
 
-            {/* Scenario Presets */}
+            {/* Presets */}
             {DEMO_SCENARIO_PRESETS.map((preset) => {
               const isSelected = isSimulationMode && activePreset?.id === preset.id;
-              const decisionColor =
-                preset.expectedDecision === 'VERIFIED'
-                  ? THEME.colors.verified
-                  : preset.expectedDecision === 'REJECTED'
-                  ? THEME.colors.rejected
-                  : THEME.colors.review;
 
               return (
                 <TouchableOpacity
                   key={preset.id}
                   style={[
                     styles.presetCard,
-                    isSelected && { borderColor: decisionColor, backgroundColor: `${decisionColor}0C` },
+                    isSelected && styles.selectedPresetCard,
                   ]}
                   onPress={() => {
                     onSelectPreset(preset);
@@ -95,30 +84,30 @@ export const ScenarioModal: React.FC<ScenarioModalProps> = ({
                   activeOpacity={0.7}
                 >
                   <View style={styles.cardTopRow}>
-                    <View style={[styles.badge, { backgroundColor: `${decisionColor}18`, borderColor: `${decisionColor}40` }]}>
-                      <Text style={[styles.badgeText, { color: decisionColor }]}>
+                    <View style={[styles.badge, isSelected && styles.selectedBadge]}>
+                      <Text style={[styles.badgeText, isSelected && { color: '#000000' }]}>
                         EXPECTED: {preset.expectedDecision}
                       </Text>
                     </View>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={18} color={decisionColor} />
+                      <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
                     )}
                   </View>
 
                   <Text style={styles.presetTitle}>{preset.title}</Text>
                   <Text style={styles.presetDesc}>{preset.description}</Text>
 
-                  {/* Fact Chips */}
+                  {/* Chips */}
                   <View style={styles.chipsRow}>
                     <View style={styles.chip}>
-                      <Text style={styles.chipText}>📍 {preset.simulatedGps.distanceMeters}m</Text>
+                      <Text style={styles.chipText}>{preset.simulatedGps.distanceMeters}m</Text>
                     </View>
                     <View style={styles.chip}>
-                      <Text style={styles.chipText}>⏱️ {preset.dwellSeconds}s dwell</Text>
+                      <Text style={styles.chipText}>{preset.dwellSeconds}s dwell</Text>
                     </View>
                     <View style={styles.chip}>
                       <Text style={styles.chipText}>
-                        📞 {preset.callAttempted ? `${preset.callDurationSeconds}s Call` : 'No Call'}
+                        {preset.callAttempted ? `${preset.callDurationSeconds}s Call` : 'No Call'}
                       </Text>
                     </View>
                   </View>
@@ -135,7 +124,7 @@ export const ScenarioModal: React.FC<ScenarioModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     justifyContent: 'flex-end',
   },
   modalContent: {
@@ -148,6 +137,9 @@ const styles = StyleSheet.create({
     maxHeight: '85%',
     borderWidth: 1,
     borderColor: THEME.colors.border,
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -156,9 +148,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   title: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
+    letterSpacing: 0.2,
   },
   subtitle: {
     fontSize: 12,
@@ -166,22 +159,28 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   closeBtn: {
-    padding: 4,
+    padding: 6,
+    backgroundColor: THEME.colors.surfaceElevated,
+    borderRadius: THEME.borderRadius.full,
   },
   presetList: {
     marginBottom: 8,
   },
   presetCard: {
     backgroundColor: THEME.colors.surfaceElevated,
-    borderRadius: 12,
+    borderRadius: THEME.borderRadius.md,
     padding: 14,
-    marginBottom: 10,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
   },
   activeLiveCard: {
-    borderColor: THEME.colors.liveGps,
-    backgroundColor: THEME.colors.liveGpsBg,
+    borderColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surfaceHighlight,
+  },
+  selectedPresetCard: {
+    borderColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surfaceHighlight,
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -190,33 +189,31 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
+    backgroundColor: THEME.colors.surfaceHighlight,
+    paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    gap: 4,
+    borderRadius: THEME.borderRadius.xs,
   },
-  liveBadge: {
-    backgroundColor: THEME.colors.liveGpsBg,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+  selectedBadge: {
+    backgroundColor: '#FFFFFF',
   },
   badgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
+    color: THEME.colors.textPrimary,
+    letterSpacing: 0.5,
   },
   presetTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
     marginBottom: 4,
   },
   presetDesc: {
-    fontSize: 12,
+    fontSize: 11,
     color: THEME.colors.textSecondary,
-    lineHeight: 16,
-    marginBottom: 10,
+    lineHeight: 15,
+    marginBottom: 8,
   },
   chipsRow: {
     flexDirection: 'row',
@@ -224,15 +221,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   chip: {
-    backgroundColor: THEME.colors.surfaceHighlight,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    backgroundColor: THEME.colors.surface,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
   },
   chipText: {
-    fontSize: 11,
-    color: THEME.colors.textPrimary,
-    fontWeight: '600',
+    fontSize: 10,
+    color: THEME.colors.textSecondary,
+    fontFamily: THEME.typography.fontFamily.mono,
   },
   divider: {
     height: 1,
@@ -240,10 +239,10 @@ const styles = StyleSheet.create({
     marginVertical: 12,
   },
   sectionHeader: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     color: THEME.colors.textMuted,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
     marginBottom: 10,
   },
 });

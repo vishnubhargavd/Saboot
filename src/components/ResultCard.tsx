@@ -10,139 +10,103 @@ interface ResultCardProps {
 }
 
 export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) => {
-  const getDecisionTheme = () => {
+  const getDecisionTag = () => {
     switch (result.decision) {
       case 'VERIFIED':
         return {
           title: 'ATTEMPT VERIFIED',
-          subtitle: 'Zero-trust physical & telephony telemetry satisfied',
-          color: THEME.colors.verified,
-          bg: THEME.colors.verifiedBg,
-          border: THEME.colors.verifiedBorder,
-          icon: 'shield-checkmark',
+          subtitle: 'Multi-modal telemetry criteria satisfied',
+          tagBg: '#FFFFFF',
+          tagText: '#000000',
         };
       case 'REJECTED':
         return {
           title: 'ATTEMPT REJECTED',
-          subtitle: 'Mandatory physical or contact evidence criteria failed',
-          color: THEME.colors.rejected,
-          bg: THEME.colors.rejectedBg,
-          border: THEME.colors.rejectedBorder,
-          icon: 'close-circle',
+          subtitle: 'Policy criteria failed (insufficient evidence)',
+          tagBg: '#27272A',
+          tagText: '#FFFFFF',
         };
       case 'REVIEW':
       default:
         return {
-          title: 'SENT TO OPS REVIEW',
-          subtitle: 'Borderline or ambiguous telemetry requires human verification',
-          color: THEME.colors.review,
-          bg: THEME.colors.reviewBg,
-          border: THEME.colors.reviewBorder,
-          icon: 'alert-circle',
+          title: 'SENT TO REVIEW',
+          subtitle: 'Telemetry ambiguity requires supervisor inspection',
+          tagBg: '#3F3F46',
+          tagText: '#FFFFFF',
         };
     }
   };
 
-  const decisionTheme = getDecisionTheme();
+  const decisionInfo = getDecisionTag();
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Decision Banner */}
-      <View
-        style={[
-          styles.banner,
-          { backgroundColor: decisionTheme.bg, borderColor: decisionTheme.border },
-        ]}
-      >
-        <View style={styles.iconCircle}>
-          <Ionicons
-            name={decisionTheme.icon as any}
-            size={40}
-            color={decisionTheme.color}
-          />
-        </View>
-        <Text style={[styles.decisionTitle, { color: decisionTheme.color }]}>
-          {decisionTheme.title}
-        </Text>
-        <Text style={styles.decisionSubtitle}>{decisionTheme.subtitle}</Text>
-      </View>
-
-      {/* Primary Server Explanation */}
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeaderRow}>
-          <Ionicons name="document-text-outline" size={16} color={THEME.colors.primary} />
-          <Text style={styles.sectionTitle}>Deterministic Policy Evaluation</Text>
-        </View>
-        <Text style={styles.primaryReason}>{result.primaryReason}</Text>
-        <Text style={styles.detailedText}>{result.detailedExplanation}</Text>
-      </View>
-
-      {/* Server Facts Checklist */}
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeaderRow}>
-          <Ionicons name="checkbox-outline" size={16} color={THEME.colors.primary} />
-          <Text style={styles.sectionTitle}>Evaluated Server Facts</Text>
+      <View style={styles.contentWrapper}>
+        {/* Top Status Banner */}
+        <View style={styles.banner}>
+          <View style={[styles.decisionPill, { backgroundColor: decisionInfo.tagBg }]}>
+            <Text style={[styles.decisionPillText, { color: decisionInfo.tagText }]}>
+              {decisionInfo.title}
+            </Text>
+          </View>
+          <Text style={styles.decisionSubtitle}>{decisionInfo.subtitle}</Text>
         </View>
 
-        {result.ruleChecks.map((rule) => (
-          <View key={rule.id} style={styles.ruleRow}>
-            <View style={styles.ruleIconContainer}>
-              <Ionicons
-                name={rule.passed ? 'checkmark-circle' : rule.isHardRequirement ? 'close-circle' : 'alert-circle'}
-                size={18}
-                color={rule.passed ? THEME.colors.verified : rule.isHardRequirement ? THEME.colors.rejected : THEME.colors.review}
-              />
-            </View>
-            <View style={styles.ruleContent}>
-              <View style={styles.ruleTitleRow}>
+        {/* Primary Server Explanation */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionLabel}>DETERMINISTIC EVALUATION</Text>
+          <Text style={styles.primaryReason}>{result.primaryReason}</Text>
+          <Text style={styles.detailedText}>{result.detailedExplanation}</Text>
+        </View>
+
+        {/* Server Facts Checklist */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionLabel}>EVALUATED SERVER FACTS</Text>
+
+          {result.ruleChecks.map((rule) => (
+            <View key={rule.id} style={styles.ruleRow}>
+              <View style={styles.ruleHeader}>
                 <Text style={styles.ruleName}>{rule.name}</Text>
-                <Text
-                  style={[
-                    styles.ruleStatus,
-                    { color: rule.passed ? THEME.colors.verified : rule.isHardRequirement ? THEME.colors.rejected : THEME.colors.review },
-                  ]}
-                >
-                  {rule.actualValue}
-                </Text>
+                <View style={[styles.statusBadge, rule.passed ? styles.statusPassed : styles.statusFailed]}>
+                  <Text style={[styles.statusBadgeText, { color: rule.passed ? '#000000' : '#FFFFFF' }]}>
+                    {rule.actualValue}
+                  </Text>
+                </View>
               </View>
               <Text style={styles.ruleExplanation}>{rule.explanation}</Text>
             </View>
+          ))}
+        </View>
+
+        {/* Cryptographic Audit Record */}
+        <View style={styles.auditCard}>
+          <Text style={styles.auditHeader}>CRYPTOGRAPHIC AUDIT RECORD</Text>
+          <View style={styles.auditRow}>
+            <Text style={styles.auditLabel}>Audit ID</Text>
+            <Text style={styles.auditValue}>{result.auditRecordId}</Text>
           </View>
-        ))}
-      </View>
+          <View style={styles.auditRow}>
+            <Text style={styles.auditLabel}>Timestamp</Text>
+            <Text style={styles.auditValue}>{new Date(result.timestamp).toLocaleTimeString()}</Text>
+          </View>
+          <View style={styles.auditRow}>
+            <Text style={styles.auditLabel}>Policy Engine</Text>
+            <Text style={styles.auditValue}>AWS Deterministic Policy (v1.0)</Text>
+          </View>
+          <View style={styles.auditRow}>
+            <Text style={styles.auditLabel}>Audit Hash</Text>
+            <Text style={styles.auditHash}>sha256:8f4c...394e1</Text>
+          </View>
+        </View>
 
-      {/* Tamper-Proof Audit Record */}
-      <View style={styles.auditCard}>
-        <View style={styles.auditHeader}>
-          <Ionicons name="finger-print-outline" size={16} color={THEME.colors.textMuted} />
-          <Text style={styles.auditTitle}>Cryptographic Audit Trail</Text>
-        </View>
-        <View style={styles.auditItem}>
-          <Text style={styles.auditLabel}>Audit ID:</Text>
-          <Text style={styles.auditValue}>{result.auditRecordId}</Text>
-        </View>
-        <View style={styles.auditItem}>
-          <Text style={styles.auditLabel}>Timestamp:</Text>
-          <Text style={styles.auditValue}>{new Date(result.timestamp).toLocaleString()}</Text>
-        </View>
-        <View style={styles.auditItem}>
-          <Text style={styles.auditLabel}>Engine:</Text>
-          <Text style={styles.auditValue}>{result.evaluationEngine}</Text>
-        </View>
-        <View style={styles.auditItem}>
-          <Text style={styles.auditLabel}>Immutable Hash:</Text>
-          <Text style={styles.auditHash} numberOfLines={1}>
-            sha256:8f4c82b991a0...394e1
-          </Text>
-        </View>
-      </View>
+        {/* Return Button */}
+        <TouchableOpacity style={styles.returnButton} onPress={onReturnHome} activeOpacity={0.8}>
+          <Text style={styles.returnButtonText}>Return to Delivery Queue</Text>
+          <Ionicons name="arrow-forward" size={14} color="#000000" />
+        </TouchableOpacity>
 
-      {/* Action Button */}
-      <TouchableOpacity style={styles.returnButton} onPress={onReturnHome} activeOpacity={0.8}>
-        <Text style={styles.returnButtonText}>Return to Delivery Queue</Text>
-        <Ionicons name="arrow-forward" size={16} color="#090D16" />
-      </TouchableOpacity>
-      <View style={{ height: 40 }} />
+        <View style={{ height: 40 }} />
+      </View>
     </ScrollView>
   );
 };
@@ -150,32 +114,35 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  contentWrapper: {
+    maxWidth: 540,
+    width: '100%',
+    alignSelf: 'center',
     padding: 16,
   },
   banner: {
+    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.lg,
-    padding: 24,
+    padding: 20,
     alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1.5,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
   },
-  iconCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
+  decisionPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: THEME.borderRadius.full,
+    marginBottom: 8,
   },
-  decisionTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    marginBottom: 4,
+  decisionPillText: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   decisionSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: THEME.colors.textSecondary,
     textAlign: 'center',
   },
@@ -185,64 +152,60 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    marginBottom: 14,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
   },
-  sectionTitle: {
-    fontSize: 13,
+  sectionLabel: {
+    fontSize: 10,
     fontWeight: '800',
-    color: THEME.colors.textPrimary,
-    letterSpacing: 0.5,
+    color: THEME.colors.textMuted,
+    letterSpacing: 0.8,
+    marginBottom: 8,
   },
   primaryReason: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
     marginBottom: 6,
-    lineHeight: 20,
-  },
-  detailedText: {
-    fontSize: 13,
-    color: THEME.colors.textSecondary,
     lineHeight: 18,
   },
+  detailedText: {
+    fontSize: 12,
+    color: THEME.colors.textSecondary,
+    lineHeight: 16,
+  },
   ruleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 12,
-    paddingBottom: 10,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.surfaceHighlight,
+    borderBottomColor: THEME.colors.border,
   },
-  ruleIconContainer: {
-    marginTop: 2,
-  },
-  ruleContent: {
-    flex: 1,
-  },
-  ruleTitleRow: {
+  ruleHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   ruleName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
-  ruleStatus: {
-    fontSize: 12,
+  statusBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  statusPassed: {
+    backgroundColor: '#FFFFFF',
+  },
+  statusFailed: {
+    backgroundColor: THEME.colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.borderLight,
+  },
+  statusBadgeText: {
+    fontSize: 10,
     fontWeight: '800',
+    fontFamily: THEME.typography.fontFamily.mono,
   },
   ruleExplanation: {
     fontSize: 11,
@@ -255,27 +218,19 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: THEME.colors.borderLight,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   auditHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 10,
-    paddingBottom: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
-  },
-  auditTitle: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     color: THEME.colors.textMuted,
     letterSpacing: 0.8,
+    marginBottom: 10,
   },
-  auditItem: {
+  auditRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   auditLabel: {
     fontSize: 11,
@@ -288,11 +243,11 @@ const styles = StyleSheet.create({
   },
   auditHash: {
     fontSize: 11,
-    color: THEME.colors.primary,
+    color: THEME.colors.textPrimary,
     fontFamily: THEME.typography.fontFamily.mono,
   },
   returnButton: {
-    backgroundColor: THEME.colors.primary,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -301,9 +256,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   returnButtonText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
-    color: '#090D16',
-    letterSpacing: 0.5,
+    color: '#000000',
+    letterSpacing: 0.2,
   },
 });
