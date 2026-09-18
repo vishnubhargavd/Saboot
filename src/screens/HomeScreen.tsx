@@ -32,9 +32,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      <View style={styles.responsiveContainer}>
+      <View style={styles.driverAppContainer}>
         {/* Header */}
         <Header
           isSimulationMode={isSimulationMode}
@@ -49,19 +49,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <MetricCard metrics={shiftMetrics} />
           </View>
 
-          {/* Queue Title */}
-          <View style={styles.queueHeader}>
-            <Text style={styles.queueTitle}>Assigned Queue</Text>
-            <Text style={styles.queueCount}>{deliveries.length} Packages</Text>
+          {/* Section Header */}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>TODAY'S DELIVERY ROUTE</Text>
+            <Text style={styles.sectionSub}>{deliveries.length} STOPS ASSIGNED</Text>
           </View>
 
-          {/* Delivery List */}
+          {/* Deliveries Queue */}
           <FlatList
             data={deliveries}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <DeliveryCard
                 delivery={item}
+                index={index}
+                total={deliveries.length}
                 onPress={() => onSelectDelivery(item)}
               />
             )}
@@ -87,10 +89,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#FFFFFF',
   },
-  responsiveContainer: {
+  driverAppContainer: {
     flex: 1,
+    backgroundColor: '#EEF2F3',
     maxWidth: 540,
     width: '100%',
     alignSelf: 'center',
@@ -101,24 +104,25 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   metricsContainer: {
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  queueHeader: {
+  sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  queueTitle: {
-    fontSize: 15,
+  sectionTitle: {
+    fontSize: 10,
     fontWeight: '800',
-    color: THEME.colors.textPrimary,
-    letterSpacing: 0.2,
+    color: THEME.colors.muted,
+    letterSpacing: 1.2,
   },
-  queueCount: {
-    fontSize: 11,
-    color: THEME.colors.textMuted,
-    fontWeight: '600',
+  sectionSub: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.slate,
+    letterSpacing: 0.5,
   },
   listContent: {
     paddingBottom: 24,

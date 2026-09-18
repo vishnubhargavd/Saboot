@@ -1,40 +1,42 @@
 export const THEME = {
   colors: {
-    // Pure Apple Monochrome Palette
-    background: '#000000',
-    surface: '#0D0D0D',
-    surfaceElevated: '#161616',
-    surfaceHighlight: '#222222',
-    border: '#1F1F1F',
-    borderLight: '#2E2E2E',
-    borderFocus: '#FFFFFF',
+    // Exact Design System Tokens from logistics-driver-app-design
+    background: '#EEF2F3',
+    cardBackground: '#FFFFFF',
+    foreground: '#15202B',
+    line: '#DBE1E5',
+    slate: '#334454',
+    muted: '#697781',
+    signal: '#D94A27',
+    signalHover: '#B93F21',
+    green: '#1F8A57',
 
-    // Pure Stark Accents
-    primary: '#FFFFFF',
-    primaryInverse: '#000000',
-    textPrimary: '#FFFFFF',
-    textSecondary: '#A1A1AA', // Zinc 400
-    textMuted: '#71717A',     // Zinc 500
-    textDisabled: '#52525B',
+    // Surface & Borders
+    surface: '#FFFFFF',
+    surfaceElevated: '#F4F6F7',
+    surfaceHighlight: '#E3E9E5',
+    border: '#DBE1E5',
+    borderLight: '#D5DCDF',
+    borderFocus: '#15202B',
 
-    // Status (Minimal Apple Tint with Crisp Monochrome Badging)
-    verified: '#34D399',      // Minimal Apple Mint
-    verifiedBg: '#0A1A12',
-    verifiedBorder: '#164E35',
+    // Geofence & Status Pills
+    geofenceBg: '#F3FBF5',
+    geofenceBorder: '#A9D1BB',
+    geofenceText: '#1A7047',
 
-    rejected: '#F87171',      // Minimal Apple Rose
-    rejectedBg: '#1A0A0A',
-    rejectedBorder: '#4E1616',
+    rejectedBg: '#FDF2F2',
+    rejectedBorder: '#FCA5A5',
+    rejectedText: '#D94A27',
 
-    review: '#FBBF24',        // Minimal Apple Amber
-    reviewBg: '#1A1408',
-    reviewBorder: '#4E380E',
+    reviewBg: '#FFFBEB',
+    reviewBorder: '#FDE68A',
+    reviewText: '#B45309',
 
-    // Modes
-    liveGps: '#FFFFFF',
-    liveGpsBg: '#161616',
-    simulation: '#E4E4E7',
-    simulationBg: '#161616',
+    // Text hierarchy
+    textPrimary: '#15202B',
+    textSecondary: '#334454',
+    textMuted: '#697781',
+    textInverse: '#FFFFFF',
   },
 
   typography: {
@@ -44,23 +46,14 @@ export const THEME = {
       bold: 'System',
       mono: 'Courier',
     },
-    sizes: {
-      xs: 11,
-      sm: 13,
-      md: 15,
-      lg: 17,
-      xl: 20,
-      xxl: 24,
-      hero: 32,
-    },
   },
 
   borderRadius: {
     xs: 4,
-    sm: 8,
-    md: 12,
-    lg: 16,
-    xl: 22,
+    sm: 6,
+    md: 8,
+    lg: 12,
+    xl: 16,
     full: 9999,
   },
 };

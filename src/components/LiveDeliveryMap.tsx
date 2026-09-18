@@ -1,9 +1,8 @@
 import React from 'react';
-import { StyleSheet, View, Text, Platform, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
-import { PROXIMITY_POLICY } from '../constants/dwellPolicy';
 
 interface LiveDeliveryMapProps {
   driverLat: number;
@@ -14,6 +13,7 @@ interface LiveDeliveryMapProps {
   distanceMeters: number | null;
   gpsAccuracy: number;
   isInsideGeofence: boolean;
+  onRecenter?: () => void;
 }
 
 export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
@@ -25,8 +25,9 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
   distanceMeters,
   gpsAccuracy,
   isInsideGeofence,
+  onRecenter,
 }) => {
-  // Leaflet HTML with Apple dark minimalist map styling & live pins
+  // Map rendered with the exact light logistics carto theme from the design
   const mapHtml = `
     <!DOCTYPE html>
     <html>
@@ -36,41 +37,41 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          html, body, #map { width: 100%; height: 100%; background: #000000; }
+          html, body, #map { width: 100%; height: 100%; background: #edf1ef; }
           
-          /* Dark monochrome map tiles */
-          .leaflet-tile {
-            filter: brightness(0.6) invert(1) contrast(1.8) hue-rotate(180deg) saturate(0.2);
-          }
-          
-          /* Driver Marker Pulse */
-          .driver-pulse {
-            width: 20px;
-            height: 20px;
-            background: #FFFFFF;
+          /* Custom Truck Marker */
+          .truck-marker {
+            width: 38px;
+            height: 38px;
             border-radius: 50%;
-            border: 3px solid #000000;
-            box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
-            animation: pulse-ring 2s infinite ease-out;
-          }
-          @keyframes pulse-ring {
-            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.8); }
-            70% { box-shadow: 0 0 0 16px rgba(255, 255, 255, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+            background: #334454;
+            border: 3px solid #ffffff;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 10px rgba(21, 32, 43, 0.25);
+            font-size: 16px;
           }
           
-          /* Destination Flag Marker */
-          .dest-marker {
-            background: #FFFFFF;
-            color: #000000;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            font-size: 11px;
-            font-weight: 800;
-            border: 2px solid #000000;
-            white-space: nowrap;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+          /* Customer Marker (Signal Red/Orange teardrop) */
+          .customer-marker {
+            width: 34px;
+            height: 34px;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            background: #d94a27;
+            border: 3px solid #ffffff;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 10px rgba(217, 74, 39, 0.35);
+          }
+          .customer-marker span {
+            transform: rotate(45deg);
+            font-size: 14px;
+            font-weight: bold;
           }
         </style>
       </head>
@@ -84,74 +85,69 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             touchZoom: true
           });
 
-          // CartoDB Dark Matter tiles
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          // Light CartoDB Positron / OSM tiles matching design
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             maxZoom: 19,
           }).addTo(map);
 
-          // 50m Geofence Circle
-          const geofenceCircle = L.circle([${destLat}, ${destLng}], {
-            color: '#FFFFFF',
-            fillColor: '#FFFFFF',
-            fillOpacity: ${isInsideGeofence ? 0.15 : 0.05},
-            weight: 1.5,
-            dashArray: '4, 4',
+          // 50m Geofence Circle with signal accent
+          L.circle([${destLat}, ${destLng}], {
+            color: '#d94a27',
+            fillColor: '#d94a27',
+            fillOpacity: ${isInsideGeofence ? 0.12 : 0.05},
+            weight: 2,
+            dashArray: '6, 6',
             radius: 50
           }).addTo(map);
 
-          // Destination Pin
-          const destIcon = L.divIcon({
-            className: 'dest-marker',
-            html: '📍 Door (Target)',
-            iconSize: [80, 24],
-            iconAnchor: [40, 24]
-          });
-          L.marker([${destLat}, ${destLng}], { icon: destIcon }).addTo(map);
+          // Route line between truck and customer
+          const routeLine = L.polyline([
+            [${driverLat}, ${driverLng}],
+            [${destLat}, ${destLng}]
+          ], {
+            color: '#d94a27',
+            weight: 3,
+            opacity: 0.75,
+            dashArray: '4, 6'
+          }).addTo(map);
 
-          // Driver Pin
-          const driverIcon = L.divIcon({
-            className: 'driver-pulse',
-            iconSize: [20, 20],
-            iconAnchor: [10, 10]
+          // Customer Pin
+          const custIcon = L.divIcon({
+            className: 'customer-marker-container',
+            html: '<div class="customer-marker"><span>📍</span></div>',
+            iconSize: [34, 34],
+            iconAnchor: [17, 34]
           });
-          L.marker([${driverLat}, ${driverLng}], { icon: driverIcon }).addTo(map);
+          L.marker([${destLat}, ${destLng}], { icon: custIcon }).addTo(map);
 
-          // Fit bounds to show both driver and destination
+          // Truck Pin
+          const truckIcon = L.divIcon({
+            className: 'truck-marker-container',
+            html: '<div class="truck-marker">🚚</div>',
+            iconSize: [38, 38],
+            iconAnchor: [19, 19]
+          });
+          L.marker([${driverLat}, ${driverLng}], { icon: truckIcon }).addTo(map);
+
           const bounds = L.latLngBounds([
             [${destLat}, ${destLng}],
             [${driverLat}, ${driverLng}]
           ]);
-          map.fitBounds(bounds, { padding: [40, 40], maxZoom: 18 });
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
         </script>
       </body>
     </html>
   `;
 
   return (
-    <View style={styles.container}>
-      {/* Map Header Status Banner (High Accessibility) */}
-      <View style={styles.headerBanner}>
-        <View style={styles.headerLeft}>
-          <View style={[styles.statusDot, { backgroundColor: isInsideGeofence ? '#FFFFFF' : '#A1A1AA' }]} />
-          <Text style={styles.headerTitle}>
-            {isInsideGeofence ? 'You are at delivery door' : 'Moving towards address'}
-          </Text>
-        </View>
-
-        <View style={styles.distanceBadge}>
-          <Text style={styles.distanceText}>
-            {distanceMeters !== null ? `${distanceMeters}m away` : 'Locating...'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Embedded Live Map View */}
-      <View style={styles.mapFrame}>
+    <View style={styles.mapStage}>
+      {/* Background Interactive Map */}
+      <View style={styles.mapContainer}>
         {Platform.OS === 'web' ? (
           <iframe
             srcDoc={mapHtml}
             style={{ width: '100%', height: '100%', border: 'none' }}
-            title="Live Delivery Map"
+            title="Live Route Map"
           />
         ) : (
           <WebView
@@ -166,100 +162,117 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
         )}
       </View>
 
-      {/* Footer Info for Seniors / Drivers */}
-      <View style={styles.footer}>
-        <View style={styles.footerItem}>
-          <Ionicons name="navigate-circle" size={16} color="#FFFFFF" />
-          <Text style={styles.footerText}>GPS: ±{gpsAccuracy}m accuracy</Text>
+      {/* Top Header Overlay from design */}
+      <View style={styles.mapHeader}>
+        <View style={styles.unitChip}>
+          <Ionicons name="radio-outline" size={14} color={THEME.colors.slate} />
+          <Text style={styles.unitChipText}>LIVE / UNIT 24</Text>
         </View>
-        <View style={styles.footerDivider} />
-        <View style={styles.footerItem}>
-          <Ionicons name="shield-checkmark" size={16} color="#FFFFFF" />
-          <Text style={styles.footerText}>50m Geofence active</Text>
-        </View>
+
+        <TouchableOpacity style={styles.mapIconButton} onPress={onRecenter} activeOpacity={0.8}>
+          <Ionicons name="locate-outline" size={18} color={THEME.colors.slate} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Bottom Readout Overlay from design */}
+      <View style={styles.mapBottomReadout}>
+        <Ionicons name="navigate" size={14} color={THEME.colors.signal} />
+        <Text style={styles.readoutText}>
+          {distanceMeters !== null ? `${distanceMeters}m TO DOOR` : 'APPROACHING'}
+          <Text style={styles.readoutDot}> • </Text>
+          {isInsideGeofence ? 'INSIDE 50M GEOFENCE' : 'EN ROUTE'}
+        </Text>
       </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.lg,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    marginBottom: 14,
+  mapStage: {
+    height: 260,
+    width: '100%',
+    backgroundColor: '#EDF1EF',
+    position: 'relative',
     overflow: 'hidden',
-  },
-  headerBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: THEME.colors.surfaceElevated,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.border,
   },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  headerTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-  },
-  distanceBadge: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: THEME.borderRadius.sm,
-  },
-  distanceText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#000000',
-    fontFamily: THEME.typography.fontFamily.mono,
-  },
-  mapFrame: {
-    height: 180,
-    width: '100%',
-    backgroundColor: '#000000',
+  mapContainer: {
+    ...(StyleSheet.absoluteFill as any),
   },
   webview: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#EDF1EF',
   },
-  footer: {
+  mapHeader: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    backgroundColor: THEME.colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: THEME.colors.border,
+    zIndex: 10,
   },
-  footerItem: {
+  unitChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CFD7D8',
+    height: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  footerText: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    fontWeight: '600',
+  unitChipText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.slate,
+    letterSpacing: 1,
   },
-  footerDivider: {
-    width: 1,
-    height: 14,
-    backgroundColor: THEME.colors.border,
+  mapIconButton: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CFD7D8',
+    width: 36,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  mapBottomReadout: {
+    position: 'absolute',
+    bottom: 14,
+    left: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: '#CFD7D8',
+    zIndex: 10,
+  },
+  readoutText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#52625F',
+    letterSpacing: 1.2,
+  },
+  readoutDot: {
+    color: '#8C979B',
   },
 });

@@ -20,20 +20,20 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
 }) => {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle="light-content" backgroundColor="#000000" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      <View style={styles.responsiveContainer}>
-        {/* Header */}
+      <View style={styles.driverAppContainer}>
+        {/* Navigation Bar */}
         <View style={styles.navBar}>
           <View style={styles.navTitleContainer}>
-            <Text style={styles.navTitle}>Attestation Certificate</Text>
-            <Text style={styles.navSubtitle}>
+            <Text style={styles.navEyebrow}>ATTESTATION CERTIFICATE</Text>
+            <Text style={styles.navTitle}>
               {delivery.trackingNumber} • {delivery.customer.name}
             </Text>
           </View>
 
           <TouchableOpacity style={styles.closeBtn} onPress={onReturnHome} activeOpacity={0.7}>
-            <Ionicons name="close" size={18} color="#FFFFFF" />
+            <Ionicons name="close" size={20} color={THEME.colors.foreground} />
           </TouchableOpacity>
         </View>
 
@@ -47,10 +47,11 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#FFFFFF',
   },
-  responsiveContainer: {
+  driverAppContainer: {
     flex: 1,
+    backgroundColor: '#EEF2F3',
     maxWidth: 540,
     width: '100%',
     alignSelf: 'center',
@@ -59,29 +60,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: THEME.colors.surface,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
+    borderBottomColor: '#DBE1E5',
   },
   navTitleContainer: {
     flex: 1,
   },
-  navTitle: {
-    fontSize: 15,
+  navEyebrow: {
+    fontSize: 9,
     fontWeight: '800',
-    color: THEME.colors.textPrimary,
+    letterSpacing: 1.2,
+    color: THEME.colors.muted,
   },
-  navSubtitle: {
-    fontSize: 11,
-    color: THEME.colors.textMuted,
-    marginTop: 2,
-    fontFamily: THEME.typography.fontFamily.mono,
+  navTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.colors.foreground,
+    marginTop: 1,
   },
   closeBtn: {
     padding: 6,
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderRadius: THEME.borderRadius.full,
+    backgroundColor: '#EEF2F3',
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: '#CFD7D8',
   },
 });

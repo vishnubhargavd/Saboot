@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Animated } from 'react-native';
+import React from 'react';
+import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { DemoScenarioPreset } from '../constants/demoData';
@@ -17,101 +17,52 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenScenarioModal,
   onToggleLiveGps,
 }) => {
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 0.3,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [pulseAnim]);
-
   return (
     <View style={styles.container}>
-      {/* Top row: Brand + Driver ID */}
+      {/* Top Console Bar */}
       <View style={styles.topRow}>
-        <View style={styles.brandRow}>
+        <View style={styles.brandContainer}>
           <Text style={styles.brandTitle}>SABOOT</Text>
-          <View style={styles.versionPill}>
-            <Text style={styles.versionText}>ZERO-TRUST</Text>
+          <View style={styles.unitChip}>
+            <Ionicons name="radio-outline" size={13} color={THEME.colors.slate} />
+            <Text style={styles.unitChipText}>LIVE / UNIT 24</Text>
           </View>
         </View>
 
-        <View style={styles.driverPill}>
-          <Animated.View
-            style={[
-              styles.statusDot,
-              { opacity: pulseAnim },
-            ]}
-          />
-          <Text style={styles.driverText}>DRV-BLR-09</Text>
-        </View>
+        <TouchableOpacity
+          style={styles.scenarioButton}
+          onPress={onOpenScenarioModal}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="layers-outline" size={14} color={THEME.colors.slate} />
+          <Text style={styles.scenarioButtonText}>
+            {isSimulationMode && activePreset ? activePreset.tag : 'SCENARIOS'}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Mode Switcher Bar */}
+      {/* GPS Mode Bar */}
       <View style={styles.modeBar}>
         <TouchableOpacity
-          style={[
-            styles.modeButton,
-            !isSimulationMode ? styles.activeModeButton : styles.inactiveModeButton,
-          ]}
+          style={[styles.modePill, !isSimulationMode ? styles.liveActive : styles.modeInactive]}
           onPress={onToggleLiveGps}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Ionicons
-            name="navigate"
-            size={12}
-            color={!isSimulationMode ? THEME.colors.primaryInverse : THEME.colors.textMuted}
-          />
-          <Text
-            style={[
-              styles.modeButtonText,
-              !isSimulationMode ? styles.activeModeText : styles.inactiveModeText,
-            ]}
-          >
-            Live GPS
+          <View style={[styles.statusDot, { backgroundColor: !isSimulationMode ? THEME.colors.green : THEME.colors.muted }]} />
+          <Text style={[styles.modeText, { color: !isSimulationMode ? THEME.colors.foreground : THEME.colors.muted }]}>
+            LIVE HARDWARE GPS
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[
-            styles.modeButton,
-            isSimulationMode ? styles.activeModeButton : styles.inactiveModeButton,
-          ]}
+          style={[styles.modePill, isSimulationMode ? styles.simActive : styles.modeInactive]}
           onPress={onOpenScenarioModal}
-          activeOpacity={0.7}
+          activeOpacity={0.8}
         >
-          <Ionicons
-            name="cube-outline"
-            size={12}
-            color={isSimulationMode ? THEME.colors.primaryInverse : THEME.colors.textMuted}
-          />
-          <Text
-            style={[
-              styles.modeButtonText,
-              isSimulationMode ? styles.activeModeText : styles.inactiveModeText,
-            ]}
-            numberOfLines={1}
-          >
-            {activePreset ? activePreset.tag : 'Sim Scenarios'}
+          <View style={[styles.statusDot, { backgroundColor: isSimulationMode ? THEME.colors.signal : THEME.colors.muted }]} />
+          <Text style={[styles.modeText, { color: isSimulationMode ? THEME.colors.signal : THEME.colors.muted }]}>
+            DEMO SIMULATOR
           </Text>
-          <Ionicons
-            name="chevron-forward"
-            size={11}
-            color={isSimulationMode ? THEME.colors.primaryInverse : THEME.colors.textMuted}
-          />
         </TouchableOpacity>
       </View>
     </View>
@@ -120,101 +71,98 @@ export const Header: React.FC<HeaderProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: THEME.colors.surface,
-    paddingTop: 8,
-    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
+    borderBottomColor: '#DBE1E5',
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  brandRow: {
+  brandContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   brandTitle: {
-    fontSize: 19,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '900',
     letterSpacing: 2,
+    color: THEME.colors.foreground,
   },
-  versionPill: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+  unitChip: {
+    backgroundColor: '#EEF2F3',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
-  },
-  versionText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: THEME.colors.textSecondary,
-    letterSpacing: 0.8,
-  },
-  driverPill: {
+    borderColor: '#CFD7D8',
+    height: 28,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: THEME.borderRadius.full,
-    gap: 6,
+    gap: 5,
+    paddingHorizontal: 8,
+    borderRadius: 2,
+  },
+  unitChipText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: THEME.colors.slate,
+    letterSpacing: 1,
+  },
+  scenarioButton: {
+    backgroundColor: '#EEF2F3',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
+    borderColor: '#CFD7D8',
+    height: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    borderRadius: 2,
+  },
+  scenarioButtonText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: THEME.colors.slate,
+    letterSpacing: 0.8,
+  },
+  modeBar: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modePill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    borderRadius: 2,
+    borderWidth: 1,
+    gap: 6,
+  },
+  liveActive: {
+    backgroundColor: THEME.colors.geofenceBg,
+    borderColor: THEME.colors.geofenceBorder,
+  },
+  simActive: {
+    backgroundColor: '#FFF5F2',
+    borderColor: '#FCA5A5',
+  },
+  modeInactive: {
+    backgroundColor: '#F4F6F7',
+    borderColor: '#DBE1E5',
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#FFFFFF',
   },
-  driverText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: THEME.colors.textSecondary,
-    fontFamily: THEME.typography.fontFamily.mono,
-  },
-  modeBar: {
-    flexDirection: 'row',
-    backgroundColor: THEME.colors.background,
-    padding: 3,
-    borderRadius: THEME.borderRadius.md,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    gap: 4,
-  },
-  modeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 7,
-    paddingHorizontal: 8,
-    borderRadius: THEME.borderRadius.sm,
-    gap: 5,
-  },
-  activeModeButton: {
-    backgroundColor: '#FFFFFF',
-  },
-  inactiveModeButton: {
-    backgroundColor: 'transparent',
-  },
-  modeButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  activeModeText: {
-    color: '#000000',
-  },
-  inactiveModeText: {
-    color: THEME.colors.textMuted,
+  modeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
 });

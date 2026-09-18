@@ -1,6 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Animated } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React from 'react';
+import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import { THEME } from '../constants/theme';
 import { ResidenceCategory } from '../types/delivery';
 import { DWELL_POLICY_CONFIG } from '../constants/dwellPolicy';
@@ -10,215 +10,200 @@ interface DwellGaugeProps {
   currentDwellSeconds: number;
   isInsideGeofence: boolean;
   distanceMeters: number | null;
+  arrivalWindow?: string;
+  customerName?: string;
+  customerPhone?: string;
+  isPaused?: boolean;
+  onTogglePause?: () => void;
 }
 
 export const DwellGauge: React.FC<DwellGaugeProps> = ({
   residenceCategory,
   currentDwellSeconds,
   isInsideGeofence,
+  arrivalWindow = '11:00 — 12:00',
+  customerName = 'VISHNU BHARGAV',
+  customerPhone = '+91 90191 44983',
+  isPaused = false,
+  onTogglePause,
 }) => {
   const dwellRule = DWELL_POLICY_CONFIG[residenceCategory];
   const targetSeconds = dwellRule.requiredDwellSeconds;
-  const progressPercent = Math.min(100, Math.round((currentDwellSeconds / targetSeconds) * 100));
+  const remainingSeconds = Math.max(0, targetSeconds - currentDwellSeconds);
   const isSatisfied = currentDwellSeconds >= targetSeconds;
 
-  const animatedWidth = useRef(new Animated.Value(0)).current;
+  const minutes = Math.floor(remainingSeconds / 60).toString().padStart(2, '0');
+  const seconds = (remainingSeconds % 60).toString().padStart(2, '0');
 
-  useEffect(() => {
-    Animated.timing(animatedWidth, {
-      toValue: progressPercent,
-      duration: 350,
-      useNativeDriver: false,
-    }).start();
-  }, [progressPercent, animatedWidth]);
+  // SVG Circular progress math (radius 45, circumference ~ 282.74)
+  const radius = 45;
+  const circumference = 2 * Math.PI * radius; // ~282.74
+  const progressRatio = Math.min(1, currentDwellSeconds / targetSeconds);
+  const strokeDashoffset = circumference * (1 - progressRatio);
+
+  const ringColor = isSatisfied ? THEME.colors.green : THEME.colors.signal;
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>DWELL REQUIREMENT</Text>
-        </View>
-
-        <View
-          style={[
-            styles.geofencePill,
-            isInsideGeofence ? styles.geofenceActive : styles.geofenceInactive,
-          ]}
-        >
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: isInsideGeofence ? '#FFFFFF' : THEME.colors.textMuted },
-            ]}
+    <View style={styles.stopContent}>
+      {/* Exact Circular Timer Wrap from design */}
+      <View style={styles.timerWrap}>
+        <Svg width={140} height={140} viewBox="0 0 108 108" style={styles.timerRing}>
+          {/* Background Track */}
+          <Circle
+            cx="54"
+            cy="54"
+            r={radius}
+            stroke="#E5EAEC"
+            strokeWidth="7"
+            fill="none"
           />
-          <Text
-            style={[
-              styles.geofenceText,
-              { color: isInsideGeofence ? '#FFFFFF' : THEME.colors.textMuted },
-            ]}
-          >
-            {isInsideGeofence ? 'Inside 50m Geofence' : 'Outside Geofence'}
+          {/* Active Progress Stroke */}
+          <Circle
+            cx="54"
+            cy="54"
+            r={radius}
+            stroke={ringColor}
+            strokeWidth="7"
+            fill="none"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="square"
+            transform="rotate(-90 54 54)"
+          />
+        </Svg>
+
+        <View style={styles.timerContent}>
+          <Text style={styles.timerLabel}>DWELL TIME</Text>
+          <Text style={styles.timerTime}>
+            {isSatisfied ? '00:00' : `${minutes}:${seconds}`}
+          </Text>
+          <Text style={styles.timerSubtext}>
+            {isSatisfied ? 'THRESHOLD MET' : 'REMAINING'}
           </Text>
         </View>
+
+        {onTogglePause && (
+          <TouchableOpacity style={styles.timerToggle} onPress={onTogglePause} activeOpacity={0.8}>
+            <Text style={styles.timerToggleText}>{isPaused ? 'RESUME' : 'PAUSE'}</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Main Counter & Target */}
-      <View style={styles.counterRow}>
-        <View style={styles.secondsContainer}>
-          <Text style={styles.secondsValue}>{currentDwellSeconds}s</Text>
-          <Text style={styles.secondsTarget}> / {targetSeconds}s required</Text>
+      {/* Exact Stop Meta Column from design */}
+      <View style={styles.stopMeta}>
+        <View style={styles.metaBlock}>
+          <Text style={styles.metaLabel}>ARRIVAL WINDOW</Text>
+          <Text style={styles.metaValue}>{arrivalWindow}</Text>
         </View>
 
-        <View style={[styles.thresholdBadge, isSatisfied ? styles.thresholdSatisfied : styles.thresholdPending]}>
-          <Text style={[styles.thresholdText, { color: isSatisfied ? '#000000' : '#FFFFFF' }]}>
-            {isSatisfied ? 'THRESHOLD MET' : `${targetSeconds - currentDwellSeconds}s LEFT`}
-          </Text>
+        <View style={styles.metaBlock}>
+          <Text style={styles.metaLabel}>RESIDENCE TYPE</Text>
+          <Text style={styles.metaValue}>{dwellRule.displayName.toUpperCase()} ({targetSeconds}S)</Text>
         </View>
-      </View>
 
-      {/* Animated Progress Bar */}
-      <View style={styles.progressBarTrack}>
-        <Animated.View
-          style={[
-            styles.progressBarFill,
-            {
-              width: animatedWidth.interpolate({
-                inputRange: [0, 100],
-                outputRange: ['0%', '100%'],
-              }),
-              backgroundColor: isSatisfied ? '#FFFFFF' : '#A1A1AA',
-            },
-          ]}
-        />
-      </View>
-
-      {/* Category Rationale */}
-      <View style={styles.rationaleBox}>
-        <Text style={styles.rationaleText}>
-          <Text style={{ fontWeight: '700', color: THEME.colors.textPrimary }}>
-            {dwellRule.displayName}:{' '}
-          </Text>
-          {dwellRule.rationale}
-        </Text>
+        <View style={styles.metaBlock}>
+          <Text style={styles.metaLabel}>CONTACT</Text>
+          <Text style={styles.metaValue} numberOfLines={1}>{customerName}</Text>
+          <Text style={styles.metaSubValue}>{customerPhone}</Text>
+        </View>
       </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.lg,
-    padding: 16,
+  stopContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
+    marginVertical: 16,
+    backgroundColor: '#FFFFFF',
+    padding: 12,
+    borderRadius: 4,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
-    marginBottom: 14,
+    borderColor: '#DBE1E5',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  timerWrap: {
+    width: 140,
+    height: 140,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    position: 'relative',
   },
-  titleRow: {
-    flexDirection: 'row',
+  timerRing: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  timerContent: {
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 2,
   },
-  title: {
-    fontSize: 11,
+  timerLabel: {
+    fontSize: 9,
     fontWeight: '800',
-    color: THEME.colors.textMuted,
-    letterSpacing: 0.8,
+    letterSpacing: 1.2,
+    color: THEME.colors.muted,
   },
-  geofencePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  timerTime: {
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: -1,
+    color: THEME.colors.foreground,
+    lineHeight: 28,
+  },
+  timerSubtext: {
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: THEME.colors.muted,
+  },
+  timerToggle: {
+    position: 'absolute',
+    bottom: -6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD4D7',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: THEME.borderRadius.full,
-    borderWidth: 1,
-    gap: 5,
+    borderRadius: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  geofenceActive: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderColor: THEME.colors.borderLight,
+  timerToggleText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: THEME.colors.slate,
   },
-  geofenceInactive: {
-    backgroundColor: THEME.colors.background,
-    borderColor: THEME.colors.border,
+  stopMeta: {
+    flex: 1,
+    gap: 12,
+    minWidth: 0,
   },
-  statusDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
+  metaBlock: {
+    gap: 2,
   },
-  geofenceText: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  counterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginBottom: 10,
-  },
-  secondsContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-  secondsValue: {
-    fontSize: 34,
+  metaLabel: {
+    fontSize: 9,
     fontWeight: '800',
-    color: THEME.colors.textPrimary,
-    fontFamily: THEME.typography.fontFamily.mono,
-    letterSpacing: -0.5,
+    letterSpacing: 1.2,
+    color: THEME.colors.muted,
   },
-  secondsTarget: {
-    fontSize: 13,
-    color: THEME.colors.textMuted,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  thresholdBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: THEME.borderRadius.sm,
-    borderWidth: 1,
-  },
-  thresholdSatisfied: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
-  },
-  thresholdPending: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderColor: THEME.colors.borderLight,
-  },
-  thresholdText: {
-    fontSize: 10,
+  metaValue: {
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
+    color: THEME.colors.foreground,
   },
-  progressBarTrack: {
-    height: 6,
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  rationaleBox: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    padding: 10,
-    borderRadius: THEME.borderRadius.sm,
-  },
-  rationaleText: {
+  metaSubValue: {
     fontSize: 11,
-    color: THEME.colors.textSecondary,
-    lineHeight: 16,
+    color: THEME.colors.slate,
+    fontWeight: '600',
+    marginTop: 1,
   },
 });

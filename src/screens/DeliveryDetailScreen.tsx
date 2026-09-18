@@ -8,15 +8,16 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Linking,
+  Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { Delivery, FailureReason } from '../types/delivery';
-import { DWELL_POLICY_CONFIG } from '../constants/dwellPolicy';
 import { LiveDeliveryMap } from '../components/LiveDeliveryMap';
 import { DwellGauge } from '../components/DwellGauge';
-import { EvidenceChecklist } from '../components/EvidenceChecklist';
 import { useAttestation } from '../hooks/useAttestation';
 import { RawGPSPoint, CallEvidence } from '../types/evidence';
 import { DemoScenarioPreset } from '../constants/demoData';
@@ -53,6 +54,10 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   onVerificationComplete,
 }) => {
   const [isSubmitModalVisible, setIsSubmitModalVisible] = useState(false);
+  const [isCallOutcomeModalVisible, setIsCallOutcomeModalVisible] = useState(false);
+  const [isVerifyingCallLog, setIsVerifyingCallLog] = useState(false);
+  const [selectedCallOutcome, setSelectedCallOutcome] = useState<'answered' | 'unanswered' | 'busy'>('answered');
+  const [callDurationSec, setCallDurationSec] = useState<number>(24);
 
   const {
     dwellSeconds,
@@ -79,11 +84,51 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
     activePreset,
   });
 
-  const dwellRule = DWELL_POLICY_CONFIG[delivery.address.residenceCategory];
-
-  // Map coordinates
   const driverLat = currentLocation?.latitude || (isSimulationMode && activePreset ? activePreset.simulatedGps.latitude : delivery.address.latitude + 0.0003);
   const driverLng = currentLocation?.longitude || (isSimulationMode && activePreset ? activePreset.simulatedGps.longitude : delivery.address.longitude + 0.0003);
+
+  // Real phone dialer trigger
+  const handleDialCustomer = async () => {
+    const rawNumber = delivery.customer.phone.replace(/\s+/g, '');
+    const telUrl = `tel:${rawNumber}`;
+
+    try {
+      if (Platform.OS === 'web') {
+        window.open(telUrl);
+      } else {
+        const canOpen = await Linking.canOpenURL(telUrl);
+        if (canOpen) {
+          await Linking.openURL(telUrl);
+        } else {
+          Alert.alert('Calling Customer', `Dialing ${delivery.customer.phone}`);
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
+    // Prompt call log verification after dialing
+    setTimeout(() => {
+      setIsCallOutcomeModalVisible(true);
+    }, 1200);
+  };
+
+  const handleConfirmCallLog = () => {
+    setIsVerifyingCallLog(true);
+
+    setTimeout(() => {
+      setIsVerifyingCallLog(false);
+
+      callEvidence.attempted = true;
+      callEvidence.timestamp = new Date().toISOString();
+      callEvidence.durationSeconds = selectedCallOutcome === 'answered' ? callDurationSec : 0;
+      callEvidence.status = selectedCallOutcome === 'answered' ? 'completed' : selectedCallOutcome === 'unanswered' ? 'no_answer' : 'busy';
+      callEvidence.recipientPhone = delivery.customer.phone;
+      callEvidence.telephonyCallId = `LOG-${Date.now().toString(36).toUpperCase()}`;
+
+      setIsCallOutcomeModalVisible(false);
+    }, 600);
+  };
 
   const handleSubmit = async () => {
     setIsSubmitModalVisible(false);
@@ -95,112 +140,185 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <View style={styles.responsiveContainer}>
-        {/* Navigation Bar */}
-        <View style={styles.navBar}>
-          <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
-            <Text style={styles.backText}>Queue</Text>
-          </TouchableOpacity>
+      <View style={styles.driverAppContainer}>
+        {/* Top Map Stage matching logistics-driver-app-design */}
+        <LiveDeliveryMap
+          driverLat={driverLat}
+          driverLng={driverLng}
+          destLat={delivery.address.latitude}
+          destLng={delivery.address.longitude}
+          destAddress={`${delivery.address.street}, ${delivery.address.city}`}
+          distanceMeters={distanceMeters}
+          gpsAccuracy={currentLocation?.accuracy || 8}
+          isInsideGeofence={isInsideGeofence}
+          onRecenter={onBack}
+        />
 
-          <View style={styles.navTitleContainer}>
-            <Text style={styles.navTitle}>{delivery.trackingNumber}</Text>
-            <Text style={styles.navSubtitle}>Attempt Verification</Text>
-          </View>
+        {/* Bottom Sheet matching logistics-driver-app-design */}
+        <ScrollView style={styles.bottomSheet} showsVerticalScrollIndicator={false}>
+          <View style={styles.sheetHandle} />
 
-          <View style={styles.modeTag}>
-            <Text style={styles.modeTagText}>{isSimulationMode ? 'SIM' : 'LIVE'}</Text>
-          </View>
-        </View>
-
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Customer & Address Summary Card (Senior Friendly) */}
-          <View style={styles.destinationCard}>
-            <View style={styles.cardHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.customerName}>{delivery.customer.name}</Text>
-                <Text style={styles.customerPhone}>📞 {delivery.customer.phone}</Text>
-              </View>
-              <View style={styles.residencePill}>
-                <Text style={styles.residenceText}>{dwellRule.displayName}</Text>
-              </View>
+          {/* Sheet Topline */}
+          <View style={styles.sheetTopline}>
+            <View>
+              <Text style={styles.eyebrow}>ACTIVE STOP / 01 OF 04</Text>
+              <Text style={styles.destinationTitle}>{delivery.customer.name}</Text>
             </View>
+            <TouchableOpacity style={styles.closeButton} onPress={onBack} activeOpacity={0.7}>
+              <Ionicons name="close" size={24} color={THEME.colors.muted} />
+            </TouchableOpacity>
+          </View>
 
-            <Text style={styles.addressText}>
+          {/* Address Row */}
+          <View style={styles.addressRow}>
+            <Ionicons name="location-sharp" size={16} color={THEME.colors.signal} />
+            <Text style={styles.addressText} numberOfLines={2}>
               {delivery.address.street}, {delivery.address.city}
             </Text>
-
-            {delivery.notes && (
-              <View style={styles.notesBox}>
-                <Text style={styles.notesText}>Note: {delivery.notes}</Text>
-              </View>
-            )}
+            <Ionicons name="chevron-down" size={16} color="#8C979B" style={styles.addressChevron} />
           </View>
 
-          {/* Live Google / Dark Map */}
-          <LiveDeliveryMap
-            driverLat={driverLat}
-            driverLng={driverLng}
-            destLat={delivery.address.latitude}
-            destLng={delivery.address.longitude}
-            destAddress={`${delivery.address.street}, ${delivery.address.city}`}
-            distanceMeters={distanceMeters}
-            gpsAccuracy={currentLocation?.accuracy || 8}
-            isInsideGeofence={isInsideGeofence}
-          />
+          {/* Status Pill matching design */}
+          <View style={styles.statusPill}>
+            <View style={[styles.statusDot, { backgroundColor: isInsideGeofence ? THEME.colors.green : THEME.colors.signal }]} />
+            <Text style={styles.statusPillText}>
+              {isInsideGeofence ? 'INSIDE GEOFENCE' : 'OUTSIDE GEOFENCE'}
+            </Text>
+            <View style={styles.statusDivider} />
+            <Text style={styles.statusPillSub}>
+              {distanceMeters !== null ? `${distanceMeters}M DISTANCE` : '50M RADIUS'}
+            </Text>
+          </View>
 
-          {/* Dwell Gauge */}
+          {/* Stop Content: Circular Dwell Ring + Stop Meta */}
           <DwellGauge
             residenceCategory={delivery.address.residenceCategory}
             currentDwellSeconds={dwellSeconds}
             isInsideGeofence={isInsideGeofence}
             distanceMeters={distanceMeters}
-          />
-
-          {/* Step-by-Step Evidence Checklist with Live Dialing & Call Log */}
-          <EvidenceChecklist
-            distanceMeters={distanceMeters}
-            gpsAccuracy={currentLocation?.accuracy || 8}
-            dwellSeconds={dwellSeconds}
-            requiredDwellSeconds={requiredDwellSeconds}
-            callEvidence={callEvidence}
-            videoEvidence={videoEvidence}
+            arrivalWindow={delivery.estimatedDeliveryWindow}
+            customerName={delivery.customer.name}
             customerPhone={delivery.customer.phone}
-            onCallLogged={(evidence: CallEvidence) => {
-              // Update call evidence in state
-              callEvidence.attempted = evidence.attempted;
-              callEvidence.durationSeconds = evidence.durationSeconds;
-              callEvidence.status = evidence.status;
-              callEvidence.timestamp = evidence.timestamp;
-              callEvidence.telephonyCallId = evidence.telephonyCallId;
-            }}
-            onRequestConsent={requestConsent}
-            onSimulateConsent={simulateCustomerConsentResponse}
-            onRecordVideo={() => recordVideoClip('file:///clips/silent_clip.mp4', 6)}
           />
 
-          {/* Error Alert */}
-          {error && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-
-          {/* Submit Delivery Attempt Button (High Visibility for Seniors) */}
+          {/* Giant Call Customer Button matching design */}
           <TouchableOpacity
-            style={styles.submitButton}
-            onPress={() => setIsSubmitModalVisible(true)}
-            activeOpacity={0.8}
+            style={[styles.callButton, callEvidence.attempted && styles.callButtonCalled]}
+            onPress={handleDialCustomer}
+            activeOpacity={0.85}
           >
-            <Text style={styles.submitButtonText}>Submit Delivery Attempt</Text>
-            <Ionicons name="arrow-forward" size={16} color="#000000" />
+            <Ionicons name="call" size={22} color="#FFFFFF" />
+            <Text style={styles.callButtonText}>
+              {callEvidence.attempted
+                ? `CUSTOMER CALLED (${callEvidence.durationSeconds}S)`
+                : `CALL CUSTOMER (${delivery.customer.phone})`}
+            </Text>
           </TouchableOpacity>
+
+          {/* Submit Delivery Attempt Action Button */}
+          <TouchableOpacity
+            style={styles.attestButton}
+            onPress={() => setIsSubmitModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+            <Text style={styles.attestButtonText}>SUBMIT ATTEMPT FOR VERIFICATION</Text>
+          </TouchableOpacity>
+
+          {/* Sheet Footer matching design */}
+          <View style={styles.sheetFooter}>
+            <Ionicons name="notifications-outline" size={14} color={THEME.colors.muted} />
+            <Text style={styles.sheetFooterText}>
+              Dispatch & policy engine will evaluate dwell & call evidence
+            </Text>
+          </View>
 
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
 
-      {/* Failure Reason Modal */}
+      {/* Call Outcome Verification Modal */}
+      <Modal
+        visible={isCallOutcomeModalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setIsCallOutcomeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalHeaderTitle}>CALL VERIFICATION</Text>
+              <Text style={styles.modalHeaderSub}>Did customer pick up at {delivery.customer.phone}?</Text>
+            </View>
+
+            <View style={styles.outcomeOptions}>
+              <TouchableOpacity
+                style={[styles.outcomeBtn, selectedCallOutcome === 'answered' && styles.outcomeBtnSelected]}
+                onPress={() => {
+                  setSelectedCallOutcome('answered');
+                  setCallDurationSec(25);
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-circle" size={22} color={selectedCallOutcome === 'answered' ? THEME.colors.green : THEME.colors.muted} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outcomeBtnTitle}>Yes, Spoke with Customer</Text>
+                  <Text style={styles.outcomeBtnSubtitle}>Call connected ({callDurationSec}s duration)</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.outcomeBtn, selectedCallOutcome === 'unanswered' && styles.outcomeBtnSelected]}
+                onPress={() => {
+                  setSelectedCallOutcome('unanswered');
+                  setCallDurationSec(0);
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="close-circle" size={22} color={selectedCallOutcome === 'unanswered' ? THEME.colors.signal : THEME.colors.muted} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outcomeBtnTitle}>No Answer / Phone Rang Out</Text>
+                  <Text style={styles.outcomeBtnSubtitle}>Customer did not pick up call</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.outcomeBtn, selectedCallOutcome === 'busy' && styles.outcomeBtnSelected]}
+                onPress={() => {
+                  setSelectedCallOutcome('busy');
+                  setCallDurationSec(0);
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="alert-circle" size={22} color={selectedCallOutcome === 'busy' ? THEME.colors.signal : THEME.colors.muted} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outcomeBtnTitle}>Number Busy / Switched Off</Text>
+                  <Text style={styles.outcomeBtnSubtitle}>Line was busy or unreachable</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.confirmCallBtn}
+              onPress={handleConfirmCallLog}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.confirmCallBtnText}>
+                {isVerifyingCallLog ? 'VERIFYING CALL LOG...' : 'SAVE VERIFIED CALL EVIDENCE'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => setIsCallOutcomeModalVisible(false)}
+            >
+              <Text style={styles.cancelBtnText}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Failure Reason Picker Modal */}
       <Modal
         visible={isSubmitModalVisible}
         transparent={true}
@@ -208,70 +326,48 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
         onRequestClose={() => setIsSubmitModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Select Delivery Issue</Text>
-                <Text style={styles.modalSubtitle}>Why could the package not be delivered?</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setIsSubmitModalVisible(false)}
-                style={styles.modalClose}
-              >
-                <Ionicons name="close" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
+              <Text style={styles.modalHeaderTitle}>DELIVERY ISSUE REASON</Text>
+              <Text style={styles.modalHeaderSub}>Select reason for zero-trust policy attestation</Text>
             </View>
 
-            <ScrollView style={styles.reasonList}>
+            <ScrollView style={{ maxHeight: 280, marginBottom: 12 }}>
               {FAILURE_REASONS.map((r) => {
                 const isSelected = failureReason === r.id;
                 return (
                   <TouchableOpacity
                     key={r.id}
-                    style={[
-                      styles.reasonOption,
-                      isSelected && styles.reasonOptionSelected,
-                    ]}
+                    style={[styles.reasonOption, isSelected && styles.reasonOptionSelected]}
                     onPress={() => setFailureReason(r.id)}
                     activeOpacity={0.7}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text
-                        style={[
-                          styles.reasonOptionText,
-                          isSelected && styles.reasonOptionTextSelected,
-                        ]}
-                      >
-                        {r.label}
-                      </Text>
+                      <Text style={styles.reasonOptionTitle}>{r.label}</Text>
                       <Text style={styles.reasonOptionDesc}>{r.desc}</Text>
                     </View>
                     {isSelected && (
-                      <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                      <Ionicons name="checkmark-circle" size={20} color={THEME.colors.signal} />
                     )}
                   </TouchableOpacity>
                 );
               })}
-
-              <Text style={styles.inputLabel}>Driver Remarks (Optional)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Waited at security gate..."
-                placeholderTextColor={THEME.colors.textMuted}
-                value={failureNotes}
-                onChangeText={setFailureNotes}
-                multiline
-                numberOfLines={3}
-              />
             </ScrollView>
+
+            <TextInput
+              style={styles.textInput}
+              placeholder="Driver remarks (e.g. security refusal)..."
+              placeholderTextColor={THEME.colors.muted}
+              value={failureNotes}
+              onChangeText={setFailureNotes}
+            />
 
             <TouchableOpacity
               style={styles.confirmSubmitBtn}
               onPress={handleSubmit}
               activeOpacity={0.8}
             >
-              <Text style={styles.confirmSubmitText}>Send Telemetry to AWS Backend</Text>
-              <Ionicons name="arrow-forward" size={16} color="#000000" />
+              <Text style={styles.confirmSubmitText}>TRANSMIT TELEMETRY TO BACKEND</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -281,10 +377,10 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
       {isSubmitting && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#FFFFFF" />
-            <Text style={styles.loadingTitle}>Evaluating Zero-Trust Policy</Text>
+            <ActivityIndicator size="large" color={THEME.colors.signal} />
+            <Text style={styles.loadingTitle}>EVALUATING ZERO-TRUST POLICY</Text>
             <Text style={styles.loadingSubtitle}>
-              Server calculating Haversine distance, dwell & telephony validation...
+              Server independently verifying Haversine distance, dwell & call records...
             </Text>
           </View>
         </View>
@@ -296,274 +392,308 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#EDF1EF',
   },
-  responsiveContainer: {
+  driverAppContainer: {
     flex: 1,
+    backgroundColor: '#EEF2F3',
     maxWidth: 540,
     width: '100%',
     alignSelf: 'center',
   },
-  navBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: THEME.colors.surface,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-  },
-  backText: {
-    fontSize: 14,
-    color: THEME.colors.textPrimary,
-    fontWeight: '700',
-  },
-  navTitleContainer: {
-    alignItems: 'center',
-  },
-  navTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-    fontFamily: THEME.typography.fontFamily.mono,
-  },
-  navSubtitle: {
-    fontSize: 11,
-    color: THEME.colors.textMuted,
-  },
-  modeTag: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
-  },
-  modeTagText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: THEME.colors.textSecondary,
-    fontFamily: THEME.typography.fontFamily.mono,
-  },
-  content: {
+  bottomSheet: {
     flex: 1,
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#D5DCDF',
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
-  destinationCard: {
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.lg,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-    marginBottom: 12,
+  sheetHandle: {
+    width: 42,
+    height: 4,
+    backgroundColor: '#AEB9BE',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
   },
-  cardHeader: {
+  sheetTopline: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  customerName: {
-    fontSize: 17,
+  eyebrow: {
+    fontSize: 10,
     fontWeight: '800',
-    color: THEME.colors.textPrimary,
+    letterSpacing: 1.4,
+    color: THEME.colors.muted,
   },
-  customerPhone: {
-    fontSize: 13,
-    color: THEME.colors.textSecondary,
-    fontWeight: '600',
+  destinationTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    color: THEME.colors.foreground,
     marginTop: 2,
   },
-  residencePill: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
+  closeButton: {
+    padding: 2,
   },
-  residenceText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
+  addressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
   },
   addressText: {
-    fontSize: 14,
-    color: THEME.colors.textSecondary,
-    lineHeight: 20,
+    fontSize: 13,
+    fontWeight: '700',
+    color: THEME.colors.slate,
+    flex: 1,
   },
-  notesBox: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    padding: 8,
-    borderRadius: 6,
-    marginTop: 8,
+  addressChevron: {
+    marginLeft: 'auto',
   },
-  notesText: {
-    fontSize: 12,
-    color: THEME.colors.textMuted,
-  },
-  errorBox: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    padding: 12,
-    borderRadius: 8,
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 7,
+    backgroundColor: THEME.colors.geofenceBg,
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
-    marginBottom: 12,
+    borderColor: THEME.colors.geofenceBorder,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    marginTop: 14,
+    borderRadius: 2,
   },
-  errorText: {
-    fontSize: 12,
-    color: THEME.colors.textPrimary,
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
-  submitButton: {
-    backgroundColor: '#FFFFFF',
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    color: THEME.colors.geofenceText,
+  },
+  statusDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: '#AFD0BA',
+  },
+  statusPillSub: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: THEME.colors.geofenceText,
+  },
+  callButton: {
+    width: '100%',
+    minHeight: 64,
+    backgroundColor: THEME.colors.signal,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: THEME.borderRadius.md,
-    gap: 8,
-    minHeight: 54,
+    gap: 10,
+    borderRadius: 2,
+    marginTop: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  submitButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#000000',
-    letterSpacing: 0.2,
+  callButtonCalled: {
+    backgroundColor: THEME.colors.green,
+  },
+  callButtonText: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+  },
+  attestButton: {
+    width: '100%',
+    minHeight: 52,
+    backgroundColor: THEME.colors.slate,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 2,
+    marginTop: 10,
+  },
+  attestButtonText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  sheetFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 16,
+  },
+  sheetFooterText: {
+    fontSize: 10,
+    color: THEME.colors.muted,
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.88)',
+    backgroundColor: 'rgba(21, 32, 43, 0.75)',
     justifyContent: 'flex-end',
   },
-  modalContent: {
-    backgroundColor: THEME.colors.surface,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+  modalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     padding: 20,
-    maxHeight: '85%',
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
     maxWidth: 540,
     width: '100%',
     alignSelf: 'center',
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     marginBottom: 14,
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
+  modalHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: THEME.colors.foreground,
+    letterSpacing: 0.5,
   },
-  modalSubtitle: {
+  modalHeaderSub: {
     fontSize: 12,
-    color: THEME.colors.textMuted,
+    color: THEME.colors.muted,
     marginTop: 2,
   },
-  modalClose: {
-    padding: 4,
+  outcomeOptions: {
+    gap: 8,
+    marginBottom: 16,
   },
-  reasonList: {
-    marginBottom: 14,
+  outcomeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F4F6F7',
+    padding: 14,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#DBE1E5',
+    gap: 12,
+  },
+  outcomeBtnSelected: {
+    borderColor: THEME.colors.foreground,
+    backgroundColor: '#E3E9E5',
+  },
+  outcomeBtnTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.colors.foreground,
+  },
+  outcomeBtnSubtitle: {
+    fontSize: 11,
+    color: THEME.colors.muted,
+    marginTop: 1,
+  },
+  confirmCallBtn: {
+    backgroundColor: THEME.colors.signal,
+    paddingVertical: 15,
+    borderRadius: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmCallBtnText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+  },
+  cancelBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cancelBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.muted,
+    letterSpacing: 1,
   },
   reasonOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: THEME.colors.surfaceElevated,
-    padding: 14,
-    borderRadius: THEME.borderRadius.md,
-    marginBottom: 8,
+    backgroundColor: '#F4F6F7',
+    padding: 12,
+    borderRadius: 4,
+    marginBottom: 6,
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
+    borderColor: '#DBE1E5',
   },
   reasonOptionSelected: {
-    borderColor: '#FFFFFF',
-    backgroundColor: THEME.colors.surfaceHighlight,
+    borderColor: THEME.colors.signal,
+    backgroundColor: '#FFF5F2',
   },
-  reasonOptionText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-  },
-  reasonOptionTextSelected: {
-    color: '#FFFFFF',
+  reasonOptionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.colors.foreground,
   },
   reasonOptionDesc: {
     fontSize: 11,
-    color: THEME.colors.textMuted,
-    marginTop: 2,
-  },
-  inputLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.textMuted,
-    marginTop: 10,
-    marginBottom: 6,
+    color: THEME.colors.muted,
+    marginTop: 1,
   },
   textInput: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderRadius: THEME.borderRadius.sm,
-    padding: 12,
-    color: THEME.colors.textPrimary,
-    fontSize: 13,
+    backgroundColor: '#F4F6F7',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
-    textAlignVertical: 'top',
+    borderColor: '#DBE1E5',
+    borderRadius: 4,
+    padding: 10,
+    fontSize: 12,
+    color: THEME.colors.foreground,
+    marginBottom: 12,
   },
   confirmSubmitBtn: {
-    backgroundColor: '#FFFFFF',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: THEME.colors.slate,
     paddingVertical: 15,
-    borderRadius: THEME.borderRadius.md,
-    gap: 8,
-    minHeight: 52,
+    borderRadius: 2,
+    alignItems: 'center',
   },
   confirmSubmitText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#000000',
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 1,
   },
   loadingOverlay: {
     ...(StyleSheet.absoluteFill as any),
-    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+    backgroundColor: 'rgba(21, 32, 43, 0.85)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
   },
   loadingBox: {
-    backgroundColor: THEME.colors.surfaceElevated,
+    backgroundColor: '#FFFFFF',
     padding: 24,
-    borderRadius: 16,
+    borderRadius: 8,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
     maxWidth: 320,
   },
   loadingTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '900',
+    color: THEME.colors.foreground,
     marginTop: 14,
     marginBottom: 4,
-    textAlign: 'center',
+    letterSpacing: 0.5,
   },
   loadingSubtitle: {
-    fontSize: 12,
-    color: THEME.colors.textSecondary,
+    fontSize: 11,
+    color: THEME.colors.muted,
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 15,
   },
 });

@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Animated } from 'react-native';
+import React from 'react';
+import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { Delivery } from '../types/delivery';
@@ -7,231 +7,178 @@ import { DWELL_POLICY_CONFIG } from '../constants/dwellPolicy';
 
 interface DeliveryCardProps {
   delivery: Delivery;
+  index?: number;
+  total?: number;
   isSelected?: boolean;
   onPress: () => void;
 }
 
 export const DeliveryCard: React.FC<DeliveryCardProps> = ({
   delivery,
+  index = 0,
+  total = 4,
   isSelected = false,
   onPress,
 }) => {
   const dwellRule = DWELL_POLICY_CONFIG[delivery.address.residenceCategory];
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const stopNumber = (index + 1).toString().padStart(2, '0');
+  const totalStops = total.toString().padStart(2, '0');
 
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.98,
-      useNativeDriver: true,
-      speed: 20,
-    }).start();
-  };
-
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 20,
-    }).start();
-  };
-
-  const getStatusBadge = () => {
+  const getStatusInfo = () => {
     switch (delivery.status) {
       case 'VERIFIED':
-        return { text: 'VERIFIED', isDone: true, color: '#FFFFFF' };
+        return { text: 'VERIFIED', bg: THEME.colors.geofenceBg, border: THEME.colors.geofenceBorder, color: THEME.colors.green };
       case 'REJECTED':
-        return { text: 'REJECTED', isDone: true, color: '#A1A1AA' };
+        return { text: 'REJECTED', bg: '#FFF5F2', border: '#FCA5A5', color: THEME.colors.signal };
       case 'REVIEW':
-        return { text: 'IN REVIEW', isDone: true, color: '#E4E4E7' };
-      case 'IN_TRANSIT':
-        return { text: 'IN TRANSIT', isDone: false, color: '#FFFFFF' };
+        return { text: 'IN REVIEW', bg: '#FFFBEB', border: '#FDE68A', color: '#B45309' };
       default:
-        return { text: 'READY', isDone: false, color: THEME.colors.textMuted };
+        return { text: 'READY', bg: '#EEF2F3', border: '#CFD7D8', color: THEME.colors.slate };
     }
   };
 
-  const status = getStatusBadge();
+  const status = getStatusInfo();
 
   return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-      <TouchableOpacity
-        style={[
-          styles.card,
-          isSelected && styles.selectedCard,
-        ]}
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        activeOpacity={0.9}
-      >
-        {/* Header: Tracking + Status */}
-        <View style={styles.headerRow}>
-          <View style={styles.trackingContainer}>
-            <Text style={styles.trackingNumber}>{delivery.trackingNumber}</Text>
-            <Text style={styles.etaText}>{delivery.estimatedDeliveryWindow}</Text>
-          </View>
-
-          <View style={styles.statusPill}>
-            <Text style={[styles.statusText, { color: status.color }]}>{status.text}</Text>
-          </View>
+    <TouchableOpacity
+      style={[styles.card, isSelected && styles.selectedCard]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      {/* Top Header: Stop Number + Status */}
+      <View style={styles.headerRow}>
+        <Text style={styles.eyebrow}>STOP {stopNumber} OF {totalStops}</Text>
+        <View style={[styles.statusTag, { backgroundColor: status.bg, borderColor: status.border }]}>
+          <Text style={[styles.statusText, { color: status.color }]}>{status.text}</Text>
         </View>
+      </View>
 
-        {/* Customer & Address */}
-        <View style={styles.body}>
-          <View style={styles.customerRow}>
-            <Text style={styles.customerName}>{delivery.customer.name}</Text>
-            <Text style={styles.customerPhone}>• {delivery.customer.phone}</Text>
-          </View>
+      {/* Destination Title & Phone */}
+      <Text style={styles.title}>{delivery.customer.name}</Text>
+      <Text style={styles.phoneText}>📞 {delivery.customer.phone}</Text>
 
-          <Text style={styles.addressText} numberOfLines={2}>
-            {delivery.address.street}, {delivery.address.city}
+      {/* Address */}
+      <View style={styles.addressRow}>
+        <Ionicons name="location-sharp" size={14} color={THEME.colors.signal} />
+        <Text style={styles.addressText} numberOfLines={1}>
+          {delivery.address.street}, {delivery.address.city}
+        </Text>
+      </View>
+
+      {/* Footer: Dwell Policy & ETA */}
+      <View style={styles.footerRow}>
+        <View style={styles.residencePill}>
+          <Text style={styles.residenceText}>
+            {dwellRule.displayName.toUpperCase()} ({dwellRule.requiredDwellSeconds}S DWELL)
           </Text>
-
-          {delivery.address.landmark && (
-            <Text style={styles.landmarkText}>{delivery.address.landmark}</Text>
-          )}
         </View>
 
-        {/* Footer: Residence Category Tag + Action */}
-        <View style={styles.footer}>
-          <View style={styles.categoryPill}>
-            <Ionicons name={dwellRule.icon as any} size={12} color={THEME.colors.textPrimary} />
-            <Text style={styles.categoryText}>
-              {dwellRule.displayName}
-            </Text>
-            <View style={styles.dwellDot} />
-            <Text style={styles.dwellText}>{dwellRule.requiredDwellSeconds}s dwell</Text>
-          </View>
-
-          <View style={styles.actionRow}>
-            <Text style={styles.actionText}>Attest</Text>
-            <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
-          </View>
+        <View style={styles.actionArrow}>
+          <Text style={styles.actionText}>VIEW STOP</Text>
+          <Ionicons name="arrow-forward" size={13} color={THEME.colors.slate} />
         </View>
-      </TouchableOpacity>
-    </Animated.View>
+      </View>
+    </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.lg,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DBE1E5',
+    borderRadius: 4,
     padding: 16,
     marginBottom: 10,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   selectedCard: {
-    borderColor: '#FFFFFF',
-    backgroundColor: THEME.colors.surfaceElevated,
+    borderColor: THEME.colors.foreground,
+    backgroundColor: '#FAFBFB',
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
+    alignItems: 'center',
+    marginBottom: 6,
   },
-  trackingContainer: {
-    flex: 1,
+  eyebrow: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: THEME.colors.muted,
   },
-  trackingNumber: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-    fontFamily: THEME.typography.fontFamily.mono,
-    letterSpacing: 0.5,
-  },
-  etaText: {
-    fontSize: 11,
-    color: THEME.colors.textMuted,
-    marginTop: 2,
-  },
-  statusPill: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 8,
+  statusTag: {
+    paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: THEME.borderRadius.sm,
+    borderRadius: 2,
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
   },
   statusText: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
-  body: {
-    marginBottom: 12,
+  title: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: THEME.colors.foreground,
+    letterSpacing: -0.3,
   },
-  customerRow: {
+  phoneText: {
+    fontSize: 12,
+    color: THEME.colors.slate,
+    fontWeight: '600',
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  addressRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 4,
-  },
-  customerName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-  },
-  customerPhone: {
-    fontSize: 12,
-    color: THEME.colors.textMuted,
+    marginBottom: 12,
   },
   addressText: {
-    fontSize: 13,
-    color: THEME.colors.textSecondary,
-    lineHeight: 18,
+    fontSize: 12,
+    color: THEME.colors.slate,
+    fontWeight: '600',
+    flex: 1,
   },
-  landmarkText: {
-    fontSize: 11,
-    color: THEME.colors.textMuted,
-    marginTop: 2,
-    fontStyle: 'italic',
-  },
-  footer: {
+  footerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: THEME.colors.border,
+    borderTopColor: '#EEF2F3',
   },
-  categoryPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: THEME.borderRadius.sm,
+  residencePill: {
+    backgroundColor: '#EEF2F3',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 2,
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
-    gap: 5,
+    borderColor: '#CFD7D8',
   },
-  categoryText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: THEME.colors.textPrimary,
+  residenceText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.colors.slate,
+    letterSpacing: 0.5,
   },
-  dwellDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: THEME.colors.textMuted,
-  },
-  dwellText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.textSecondary,
-  },
-  actionRow: {
+  actionArrow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
   actionText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    color: THEME.colors.slate,
+    letterSpacing: 0.8,
   },
 });
