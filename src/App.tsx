@@ -1,0 +1,105 @@
+import React, { useState } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { THEME } from './constants/theme';
+import { useDelivery } from './hooks/useDelivery';
+import { useLocationTracking } from './hooks/useLocationTracking';
+import { HomeScreen } from './screens/HomeScreen';
+import { DeliveryDetailScreen } from './screens/DeliveryDetailScreen';
+import { ResultScreen } from './screens/ResultScreen';
+import { Delivery } from './types/delivery';
+import { VerificationResult } from './types/policy';
+
+type ScreenState = 'HOME' | 'DELIVERY_DETAIL' | 'RESULT';
+
+export default function App() {
+  const [currentScreen, setCurrentScreen] = useState<ScreenState>('HOME');
+  const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
+  const [latestResult, setLatestResult] = useState<VerificationResult | null>(null);
+
+  const {
+    deliveries,
+    shiftMetrics,
+    selectDelivery,
+    recordAttestationResult,
+  } = useDelivery();
+
+  const {
+    currentLocation,
+    distanceMeters,
+    breadcrumbs,
+    isSimulationMode,
+    activePreset,
+    applyDemoPreset,
+    enableLiveGps,
+  } = useLocationTracking({
+    targetLatitude: selectedDelivery?.address.latitude,
+    targetLongitude: selectedDelivery?.address.longitude,
+  });
+
+  const handleSelectDelivery = (delivery: Delivery) => {
+    setSelectedDelivery(delivery);
+    selectDelivery(delivery.id);
+    setCurrentScreen('DELIVERY_DETAIL');
+  };
+
+  const handleVerificationComplete = (result: VerificationResult) => {
+    if (selectedDelivery) {
+      recordAttestationResult(selectedDelivery.id, result);
+    }
+    setLatestResult(result);
+    setCurrentScreen('RESULT');
+  };
+
+  const handleReturnHome = () => {
+    setSelectedDelivery(null);
+    setLatestResult(null);
+    setCurrentScreen('HOME');
+  };
+
+  return (
+    <View style={styles.root}>
+      <StatusBar style="light" />
+
+      {currentScreen === 'HOME' && (
+        <HomeScreen
+          deliveries={deliveries}
+          shiftMetrics={shiftMetrics}
+          onSelectDelivery={handleSelectDelivery}
+          isSimulationMode={isSimulationMode}
+          activePreset={activePreset}
+          onApplyPreset={applyDemoPreset}
+          onEnableLiveGps={enableLiveGps}
+        />
+      )}
+
+      {currentScreen === 'DELIVERY_DETAIL' && selectedDelivery && (
+        <DeliveryDetailScreen
+          delivery={selectedDelivery}
+          currentLocation={currentLocation}
+          distanceMeters={distanceMeters}
+          breadcrumbs={breadcrumbs}
+          isSimulationMode={isSimulationMode}
+          activePreset={activePreset}
+          onBack={() => setCurrentScreen('HOME')}
+          onVerificationComplete={handleVerificationComplete}
+        />
+      )}
+
+      {currentScreen === 'RESULT' && latestResult && selectedDelivery && (
+        <ResultScreen
+          result={latestResult}
+          delivery={selectedDelivery}
+          onReturnHome={handleReturnHome}
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: THEME.colors.background,
+  },
+});
