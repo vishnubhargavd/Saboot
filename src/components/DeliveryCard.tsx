@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import React, { useRef } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { Delivery } from '../types/delivery';
@@ -17,146 +17,99 @@ export const DeliveryCard: React.FC<DeliveryCardProps> = ({
   onPress,
 }) => {
   const dwellRule = DWELL_POLICY_CONFIG[delivery.address.residenceCategory];
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const getResidenceColor = () => {
-    switch (delivery.address.residenceCategory) {
-      case 'gated_society':
-        return THEME.colors.categoryGated;
-      case 'apartment':
-        return THEME.colors.categoryApartment;
-      case 'individual_house':
-      default:
-        return THEME.colors.categoryHouse;
-    }
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.98,
+      useNativeDriver: true,
+      speed: 20,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 20,
+    }).start();
   };
 
   const getStatusBadge = () => {
     switch (delivery.status) {
       case 'VERIFIED':
-        return {
-          text: '🟢 VERIFIED',
-          bg: THEME.colors.verifiedBg,
-          color: THEME.colors.verified,
-          border: THEME.colors.verifiedBorder,
-        };
+        return { text: 'VERIFIED', isDone: true, color: '#FFFFFF' };
       case 'REJECTED':
-        return {
-          text: '🔴 REJECTED',
-          bg: THEME.colors.rejectedBg,
-          color: THEME.colors.rejected,
-          border: THEME.colors.rejectedBorder,
-        };
+        return { text: 'REJECTED', isDone: true, color: '#A1A1AA' };
       case 'REVIEW':
-        return {
-          text: '🟡 IN REVIEW',
-          bg: THEME.colors.reviewBg,
-          color: THEME.colors.review,
-          border: THEME.colors.reviewBorder,
-        };
+        return { text: 'IN REVIEW', isDone: true, color: '#E4E4E7' };
       case 'IN_TRANSIT':
-        return {
-          text: '🔵 IN TRANSIT',
-          bg: 'rgba(56, 189, 248, 0.12)',
-          color: THEME.colors.primary,
-          border: THEME.colors.primary,
-        };
+        return { text: 'IN TRANSIT', isDone: false, color: '#FFFFFF' };
       default:
-        return {
-          text: 'ASSIGNED',
-          bg: THEME.colors.surfaceElevated,
-          color: THEME.colors.textSecondary,
-          border: THEME.colors.borderLight,
-        };
+        return { text: 'READY', isDone: false, color: THEME.colors.textMuted };
     }
   };
 
-  const statusBadge = getStatusBadge();
-  const residenceColor = getResidenceColor();
+  const status = getStatusBadge();
 
   return (
-    <TouchableOpacity
-      style={[
-        styles.card,
-        isSelected && styles.selectedCard,
-      ]}
-      onPress={onPress}
-      activeOpacity={0.8}
-    >
-      {/* Card Header: Tracking + Status */}
-      <View style={styles.headerRow}>
-        <View style={styles.trackingContainer}>
-          <Text style={styles.trackingNumber}>{delivery.trackingNumber}</Text>
-          <Text style={styles.etaText}>ETA: {delivery.estimatedDeliveryWindow}</Text>
-        </View>
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        style={[
+          styles.card,
+          isSelected && styles.selectedCard,
+        ]}
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={0.9}
+      >
+        {/* Header: Tracking + Status */}
+        <View style={styles.headerRow}>
+          <View style={styles.trackingContainer}>
+            <Text style={styles.trackingNumber}>{delivery.trackingNumber}</Text>
+            <Text style={styles.etaText}>{delivery.estimatedDeliveryWindow}</Text>
+          </View>
 
-        <View
-          style={[
-            styles.statusPill,
-            { backgroundColor: statusBadge.bg, borderColor: statusBadge.border },
-          ]}
-        >
-          <Text style={[styles.statusText, { color: statusBadge.color }]}>
-            {statusBadge.text}
-          </Text>
-        </View>
-      </View>
-
-      {/* Customer & Address */}
-      <View style={styles.body}>
-        <View style={styles.customerRow}>
-          <Ionicons name="person" size={14} color={THEME.colors.textSecondary} />
-          <Text style={styles.customerName}>{delivery.customer.name}</Text>
-          <Text style={styles.customerPhone}>• {delivery.customer.phone}</Text>
-        </View>
-
-        <View style={styles.addressRow}>
-          <Ionicons name="location-sharp" size={16} color={THEME.colors.primary} />
-          <Text style={styles.addressText} numberOfLines={2}>
-            {delivery.address.street}, {delivery.address.city}
-          </Text>
-        </View>
-
-        {delivery.address.landmark && (
-          <Text style={styles.landmarkText}>Landmark: {delivery.address.landmark}</Text>
-        )}
-
-        <View style={styles.packageRow}>
-          <Ionicons name="cube" size={13} color={THEME.colors.textMuted} />
-          <Text style={styles.packageText} numberOfLines={1}>
-            {delivery.packageDescription}
-          </Text>
-        </View>
-      </View>
-
-      {/* Footer: Category-Aware Dwell Requirement Badge + Action */}
-      <View style={styles.footer}>
-        <View
-          style={[
-            styles.categoryBadge,
-            { backgroundColor: `${residenceColor}15`, borderColor: `${residenceColor}40` },
-          ]}
-        >
-          <Ionicons
-            name={dwellRule.icon as any}
-            size={13}
-            color={residenceColor}
-          />
-          <Text style={[styles.categoryText, { color: residenceColor }]}>
-            {dwellRule.displayName}
-          </Text>
-          <View style={[styles.dwellTimeTag, { backgroundColor: `${residenceColor}25` }]}>
-            <Text style={[styles.dwellTimeText, { color: residenceColor }]}>
-              {dwellRule.requiredDwellSeconds}s Dwell
-            </Text>
+          <View style={styles.statusPill}>
+            <Text style={[styles.statusText, { color: status.color }]}>{status.text}</Text>
           </View>
         </View>
 
-        <View style={styles.actionPrompt}>
-          <Text style={styles.actionText}>Attest Attempt</Text>
-          <Ionicons name="arrow-forward" size={14} color={THEME.colors.primary} />
+        {/* Customer & Address */}
+        <View style={styles.body}>
+          <View style={styles.customerRow}>
+            <Text style={styles.customerName}>{delivery.customer.name}</Text>
+            <Text style={styles.customerPhone}>• {delivery.customer.phone}</Text>
+          </View>
+
+          <Text style={styles.addressText} numberOfLines={2}>
+            {delivery.address.street}, {delivery.address.city}
+          </Text>
+
+          {delivery.address.landmark && (
+            <Text style={styles.landmarkText}>{delivery.address.landmark}</Text>
+          )}
         </View>
-      </View>
-    </TouchableOpacity>
+
+        {/* Footer: Residence Category Tag + Action */}
+        <View style={styles.footer}>
+          <View style={styles.categoryPill}>
+            <Ionicons name={dwellRule.icon as any} size={12} color={THEME.colors.textPrimary} />
+            <Text style={styles.categoryText}>
+              {dwellRule.displayName}
+            </Text>
+            <View style={styles.dwellDot} />
+            <Text style={styles.dwellText}>{dwellRule.requiredDwellSeconds}s dwell</Text>
+          </View>
+
+          <View style={styles.actionRow}>
+            <Text style={styles.actionText}>Attest</Text>
+            <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
+          </View>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 };
 
@@ -165,24 +118,19 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.lg,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: THEME.colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 3,
   },
   selectedCard: {
-    borderColor: THEME.colors.primary,
-    backgroundColor: 'rgba(56, 189, 248, 0.05)',
+    borderColor: '#FFFFFF',
+    backgroundColor: THEME.colors.surfaceElevated,
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   trackingContainer: {
     flex: 1,
@@ -191,6 +139,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
+    fontFamily: THEME.typography.fontFamily.mono,
     letterSpacing: 0.5,
   },
   etaText: {
@@ -199,66 +148,46 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   statusPill: {
+    backgroundColor: THEME.colors.surfaceElevated,
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingVertical: 3,
+    borderRadius: THEME.borderRadius.sm,
     borderWidth: 1,
+    borderColor: THEME.colors.borderLight,
   },
   statusText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.5,
   },
   body: {
     marginBottom: 12,
-    gap: 6,
   },
   customerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginBottom: 4,
   },
   customerName: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
   customerPhone: {
     fontSize: 12,
     color: THEME.colors.textMuted,
   },
-  addressRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 6,
-    marginTop: 2,
-  },
   addressText: {
     fontSize: 13,
     color: THEME.colors.textSecondary,
-    flex: 1,
     lineHeight: 18,
   },
   landmarkText: {
     fontSize: 11,
     color: THEME.colors.textMuted,
-    marginLeft: 22,
+    marginTop: 2,
     fontStyle: 'italic',
-  },
-  packageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-    backgroundColor: THEME.colors.surfaceElevated,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  packageText: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    flex: 1,
   },
   footer: {
     flexDirection: 'row',
@@ -268,29 +197,34 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: THEME.colors.border,
   },
-  categoryBadge: {
+  categoryPill: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: THEME.colors.surfaceElevated,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: THEME.borderRadius.sm,
     borderWidth: 1,
-    gap: 6,
+    borderColor: THEME.colors.borderLight,
+    gap: 5,
   },
   categoryText: {
     fontSize: 11,
     fontWeight: '600',
+    color: THEME.colors.textPrimary,
   },
-  dwellTimeTag: {
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
+  dwellDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: THEME.colors.textMuted,
   },
-  dwellTimeText: {
-    fontSize: 10,
-    fontWeight: '800',
+  dwellText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
   },
-  actionPrompt: {
+  actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -298,6 +232,6 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 12,
     fontWeight: '700',
-    color: THEME.colors.primary,
+    color: '#FFFFFF',
   },
 });

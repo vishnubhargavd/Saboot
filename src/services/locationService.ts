@@ -2,8 +2,7 @@ import * as Location from 'expo-location';
 import { RawGPSPoint } from '../types/evidence';
 
 /**
- * Computes the great-circle distance between two points using the Haversine formula.
- * Returns distance in meters.
+ * Computes great-circle distance using Haversine formula (meters)
  */
 export function calculateHaversineDistanceMeters(
   lat1: number,
@@ -11,7 +10,7 @@ export function calculateHaversineDistanceMeters(
   lat2: number,
   lon2: number
 ): number {
-  const R = 6371000; // Earth radius in meters
+  const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -31,18 +30,26 @@ export interface LocationPermissionStatus {
 }
 
 /**
- * Requests foreground location permissions from the device.
+ * Checks and requests foreground location permissions
  */
 export async function requestForegroundLocationPermission(): Promise<LocationPermissionStatus> {
   try {
+    const existing = await Location.getForegroundPermissionsAsync();
+    if (existing.granted) {
+      return {
+        granted: true,
+        canAskAgain: existing.canAskAgain,
+        status: existing.status,
+      };
+    }
+
     const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
     return {
       granted: status === Location.PermissionStatus.GRANTED,
       canAskAgain,
       status,
     };
-  } catch (error) {
-    console.warn('Error requesting location permission:', error);
+  } catch {
     return {
       granted: false,
       canAskAgain: true,
@@ -52,12 +59,22 @@ export async function requestForegroundLocationPermission(): Promise<LocationPer
 }
 
 /**
- * Fetches single current location snapshot.
+ * Fetches single current location snapshot with graceful fallback
  */
 export async function getCurrentRawLocation(): Promise<RawGPSPoint | null> {
   try {
+    const isServicesEnabled = await Location.isLocationServicesEnabledAsync().catch(() => false);
+    if (!isServicesEnabled) {
+      return null;
+    }
+
+    const perm = await Location.getForegroundPermissionsAsync().catch(() => null);
+    if (!perm?.granted) {
+      return null;
+    }
+
     const loc = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
+      accuracy: Location.Accuracy.Balanced,
     });
     return {
       latitude: loc.coords.latitude,
@@ -68,14 +85,13 @@ export async function getCurrentRawLocation(): Promise<RawGPSPoint | null> {
       heading: loc.coords.heading,
       timestamp: loc.timestamp,
     };
-  } catch (error) {
-    console.warn('Error fetching current position:', error);
+  } catch {
     return null;
   }
 }
 
 /**
- * Subscribes to continuous foreground location updates (every 5-10s).
+ * Subscribes to continuous foreground location updates
  */
 export async function subscribeToForegroundLocation(
   onLocationUpdate: (point: RawGPSPoint) => void,
@@ -83,12 +99,19 @@ export async function subscribeToForegroundLocation(
   distanceIntervalMeters: number = 5
 ): Promise<Location.LocationSubscription | null> {
   try {
+    const isServicesEnabled = await Location.isLocationServicesEnabledAsync().catch(() => false);
+    if (!isServicesEnabled) {
+      return null;
+    }
+
     const perm = await requestForegroundLocationPermission();
-    if (!perm.granted) return null;
+    if (!perm.granted) {
+      return null;
+    }
 
     const subscription = await Location.watchPositionAsync(
       {
-        accuracy: Location.Accuracy.High,
+        accuracy: Location.Accuracy.Balanced,
         timeInterval: timeIntervalMs,
         distanceInterval: distanceIntervalMeters,
       },
@@ -105,8 +128,7 @@ export async function subscribeToForegroundLocation(
       }
     );
     return subscription;
-  } catch (error) {
-    console.warn('Error subscribing to foreground location:', error);
+  } catch {
     return null;
   }
 }
