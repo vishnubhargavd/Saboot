@@ -4,7 +4,6 @@ import Svg, { Circle } from 'react-native-svg';
 import { THEME } from '../constants/theme';
 import { ResidenceCategory } from '../types/delivery';
 import { DWELL_POLICY_CONFIG } from '../constants/dwellPolicy';
-import { CallEvidence } from '../types/evidence';
 
 interface DwellGaugeProps {
   residenceCategory: ResidenceCategory;
@@ -14,7 +13,6 @@ interface DwellGaugeProps {
   arrivalWindow?: string;
   customerName?: string;
   customerPhone?: string;
-  callEvidence?: CallEvidence;
   isPaused?: boolean;
   onTogglePause?: () => void;
 }
@@ -26,7 +24,6 @@ export const DwellGauge: React.FC<DwellGaugeProps> = ({
   arrivalWindow = '11:00 — 12:00',
   customerName = 'VISHNU BHARGAV',
   customerPhone = '+91 90191 44983',
-  callEvidence,
   isPaused = false,
   onTogglePause,
 }) => {
@@ -105,24 +102,14 @@ export const DwellGauge: React.FC<DwellGaugeProps> = ({
         </View>
 
         <View style={styles.metaBlock}>
-          <Text style={styles.metaLabel}>CALL EVIDENCE</Text>
-          <Text
-            style={[
-              styles.metaValue,
-              { color: callEvidence?.attempted ? THEME.colors.green : THEME.colors.signal },
-            ]}
-          >
-            {callEvidence?.attempted
-              ? `✓ LOGGED (${callEvidence.durationSeconds}S)`
-              : 'PENDING CALL'}
-          </Text>
+          <Text style={styles.metaLabel}>CONTACT</Text>
+          <Text style={styles.metaValue} numberOfLines={1}>{customerName}</Text>
           <Text style={styles.metaSubValue}>{customerPhone}</Text>
         </View>
       </View>
     </View>
   );
 };
-
 
 const styles = StyleSheet.create({
   stopContent: {

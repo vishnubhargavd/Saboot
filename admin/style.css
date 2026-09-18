@@ -54,10 +54,20 @@ body {
 }
 
 .brand-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 900;
   letter-spacing: 1.5px;
   color: var(--text-main);
+}
+
+.brand-logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
 }
 
 .console-title {

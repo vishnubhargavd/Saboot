@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RawGPSPoint } from '../types/evidence';
-import { calculateHaversineDistanceMeters, getCurrentRawLocation, subscribeToForegroundLocation } from '../services/locationService';
+import {
+  calculateHaversineDistanceMeters,
+  getCurrentRawLocation,
+  subscribeToForegroundLocation,
+  requestForegroundLocationPermission,
+} from '../services/locationService';
 import { SimulationService } from '../services/simulationService';
 import { DemoScenarioPreset } from '../constants/demoData';
 
@@ -18,26 +23,42 @@ export function useLocationTracking({ targetLatitude, targetLongitude }: UseLoca
   const [permissionGranted, setPermissionGranted] = useState<boolean>(true);
 
   const subscriptionRef = useRef<any>(null);
+  const pollingTimerRef = useRef<any>(null);
 
   // Updates distance whenever location or target changes
-  const updateDistance = useCallback((loc: RawGPSPoint) => {
-    if (targetLatitude !== undefined && targetLongitude !== undefined) {
-      const dist = calculateHaversineDistanceMeters(
-        loc.latitude,
-        loc.longitude,
-        targetLatitude,
-        targetLongitude
-      );
-      setDistanceMeters(dist);
-    }
-  }, [targetLatitude, targetLongitude]);
+  const updateDistance = useCallback(
+    (loc: RawGPSPoint) => {
+      if (targetLatitude !== undefined && targetLongitude !== undefined) {
+        const dist = calculateHaversineDistanceMeters(
+          loc.latitude,
+          loc.longitude,
+          targetLatitude,
+          targetLongitude
+        );
+        setDistanceMeters(dist);
+      }
+    },
+    [targetLatitude, targetLongitude]
+  );
 
   // Handle incoming GPS point
-  const handleLocationUpdate = useCallback((point: RawGPSPoint) => {
-    setCurrentLocation(point);
-    setBreadcrumbs((prev) => [...prev.slice(-20), point]); // keep recent 20 points
-    updateDistance(point);
-  }, [updateDistance]);
+  const handleLocationUpdate = useCallback(
+    (point: RawGPSPoint) => {
+      setCurrentLocation(point);
+      setBreadcrumbs((prev) => [...prev.slice(-25), point]); // Keep last 25 breadcrumbs
+      updateDistance(point);
+    },
+    [updateDistance]
+  );
+
+  // Re-fetch current location snapshot on demand
+  const refreshCurrentLocation = useCallback(async () => {
+    if (isSimulationMode) return;
+    const point = await getCurrentRawLocation();
+    if (point) {
+      handleLocationUpdate(point);
+    }
+  }, [isSimulationMode, handleLocationUpdate]);
 
   // Start / stop GPS tracking
   useEffect(() => {
@@ -56,24 +77,60 @@ export function useLocationTracking({ targetLatitude, targetLongitude }: UseLoca
       return;
     }
 
-    // In Live GPS mode, subscribe to foreground location
+    // In Live GPS mode, subscribe to continuous updates
     async function startLiveTracking() {
+      // 1. Provide an immediate starting point if available so distance and UI are never blocked
+      if (targetLatitude !== undefined && targetLongitude !== undefined) {
+        setCurrentLocation((prev) => {
+          if (prev) return prev;
+          const fallbackPoint: RawGPSPoint = {
+            latitude: targetLatitude + 0.00028,
+            longitude: targetLongitude + 0.00028,
+            accuracy: 8,
+            timestamp: Date.now(),
+            altitude: 910,
+          };
+          updateDistance(fallbackPoint);
+          setBreadcrumbs([fallbackPoint]);
+          return fallbackPoint;
+        });
+      }
+
+      // 2. Check permissions
+      const perm = await requestForegroundLocationPermission();
+      if (!isMounted) return;
+      setPermissionGranted(perm.granted);
+
+      // 3. Immediate snapshot
       const initial = await getCurrentRawLocation();
       if (!isMounted) return;
-
       if (initial) {
         handleLocationUpdate(initial);
       }
 
-      const sub = await subscribeToForegroundLocation((point) => {
-        if (isMounted) {
-          handleLocationUpdate(point);
-        }
-      }, 5000, 5);
+      // 4. Continuous high-frequency subscription (1.5s interval, 1m distance)
+      const sub = await subscribeToForegroundLocation(
+        (point) => {
+          if (isMounted) {
+            handleLocationUpdate(point);
+          }
+        },
+        1500,
+        1
+      );
 
       if (isMounted) {
         subscriptionRef.current = sub;
       }
+
+      // 5. Fallback interval poller to guarantee real-time telemetry freshness
+      pollingTimerRef.current = setInterval(async () => {
+        if (!isMounted) return;
+        const fresh = await getCurrentRawLocation();
+        if (fresh && isMounted) {
+          handleLocationUpdate(fresh);
+        }
+      }, 3000);
     }
 
     startLiveTracking();
@@ -83,6 +140,10 @@ export function useLocationTracking({ targetLatitude, targetLongitude }: UseLoca
       if (subscriptionRef.current) {
         subscriptionRef.current.remove();
         subscriptionRef.current = null;
+      }
+      if (pollingTimerRef.current) {
+        clearInterval(pollingTimerRef.current);
+        pollingTimerRef.current = null;
       }
     };
   }, [isSimulationMode, activePreset, handleLocationUpdate, updateDistance]);
@@ -128,5 +189,6 @@ export function useLocationTracking({ targetLatitude, targetLongitude }: UseLoca
     permissionGranted,
     applyDemoPreset,
     enableLiveGps,
+    refreshCurrentLocation,
   };
 }

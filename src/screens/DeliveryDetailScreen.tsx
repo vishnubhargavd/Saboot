@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Linking,
   Platform,
-  Alert,
   AppState,
   AppStateStatus,
 } from 'react-native';
@@ -21,7 +20,7 @@ import { Delivery, FailureReason } from '../types/delivery';
 import { LiveDeliveryMap } from '../components/LiveDeliveryMap';
 import { DwellGauge } from '../components/DwellGauge';
 import { useAttestation } from '../hooks/useAttestation';
-import { RawGPSPoint } from '../types/evidence';
+import { RawGPSPoint, CallEvidence } from '../types/evidence';
 import { DemoScenarioPreset } from '../constants/demoData';
 import { VerificationResult } from '../types/policy';
 
@@ -58,26 +57,28 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   const [isSubmitModalVisible, setIsSubmitModalVisible] = useState(false);
   const [isCallOutcomeModalVisible, setIsCallOutcomeModalVisible] = useState(false);
   const [isVerifyingCallLog, setIsVerifyingCallLog] = useState(false);
-  const [selectedCallOutcome, setSelectedCallOutcome] = useState<'answered' | 'unanswered' | 'busy'>('answered');
-  const [callDurationSec, setCallDurationSec] = useState<number>(24);
-  const [isDialingActive, setIsDialingActive] = useState<boolean>(false);
-  const [callActiveSeconds, setCallActiveSeconds] = useState<number>(0);
+  const [selectedCallOutcome, setSelectedCallOutcome] = useState<'answered' | 'no_answer' | 'busy' | 'canceled'>('answered');
+  const [measuredCallDuration, setMeasuredCallDuration] = useState<number>(25);
 
-  const callTimerRef = useRef<any>(null);
   const callStartTimeRef = useRef<number | null>(null);
+  const isWaitingForDialerReturn = useRef<boolean>(false);
 
   const {
     dwellSeconds,
     requiredDwellSeconds,
     isInsideGeofence,
     callEvidence,
-    updateCallLogEvidence,
+    videoEvidence,
     failureReason,
     failureNotes,
     isSubmitting,
     error,
     setFailureReason,
     setFailureNotes,
+    setCallEvidence,
+    requestConsent,
+    simulateCustomerConsentResponse,
+    recordVideoClip,
     submitAttempt,
   } = useAttestation({
     delivery,
@@ -91,95 +92,118 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   const driverLat = currentLocation?.latitude || (isSimulationMode && activePreset ? activePreset.simulatedGps.latitude : delivery.address.latitude + 0.0003);
   const driverLng = currentLocation?.longitude || (isSimulationMode && activePreset ? activePreset.simulatedGps.longitude : delivery.address.longitude + 0.0003);
 
-  // Monitor AppState to auto-prompt Call Log Verification when returning from Phone app
+  // Measure genuine time spent outside the app when driver dials
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active' && isDialingActive && callStartTimeRef.current) {
-        const elapsed = Math.max(12, Math.round((Date.now() - callStartTimeRef.current) / 1000));
-        setCallDurationSec(elapsed);
-        setIsDialingActive(false);
-        if (callTimerRef.current) clearInterval(callTimerRef.current);
+      if (nextAppState === 'active' && isWaitingForDialerReturn.current && callStartTimeRef.current) {
+        const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
+        isWaitingForDialerReturn.current = false;
+
+        if (elapsed > 0) {
+          setMeasuredCallDuration(elapsed);
+        } else {
+          setMeasuredCallDuration(20);
+        }
+
+        if (elapsed < 3) {
+          // Driver clicked dial button but came back in under 3s -> likely canceled dialer
+          setSelectedCallOutcome('canceled');
+        } else {
+          setSelectedCallOutcome('answered');
+        }
+
         setIsCallOutcomeModalVisible(true);
       }
     };
 
     const sub = AppState.addEventListener('change', handleAppStateChange);
+
+    // Web window focus fallback
+    const handleWebFocus = () => {
+      if (isWaitingForDialerReturn.current && callStartTimeRef.current) {
+        const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
+        isWaitingForDialerReturn.current = false;
+        if (elapsed > 0) {
+          setMeasuredCallDuration(elapsed);
+        } else {
+          setMeasuredCallDuration(20);
+        }
+        if (elapsed < 3) {
+          setSelectedCallOutcome('canceled');
+        } else {
+          setSelectedCallOutcome('answered');
+        }
+        setIsCallOutcomeModalVisible(true);
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('focus', handleWebFocus);
+    }
+
     return () => {
       sub.remove();
-      if (callTimerRef.current) clearInterval(callTimerRef.current);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleWebFocus);
+      }
     };
-  }, [isDialingActive]);
+  }, []);
 
-  // Handle active call second counter
-  useEffect(() => {
-    if (isDialingActive) {
-      callTimerRef.current = setInterval(() => {
-        setCallActiveSeconds((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (callTimerRef.current) clearInterval(callTimerRef.current);
-    }
-    return () => {
-      if (callTimerRef.current) clearInterval(callTimerRef.current);
-    };
-  }, [isDialingActive]);
-
-  // Real phone dialer trigger
-  const handleDialCustomer = async () => {
-    const rawNumber = delivery.customer.phone.replace(/\s+/g, '');
+  // Real phone dialer trigger - tracks start timestamp and prompts outcome verification
+  const handleDialCustomer = () => {
+    const rawNumber = delivery.customer.phone.replace(/[^0-9+]/g, '');
     const telUrl = `tel:${rawNumber}`;
 
-    setIsDialingActive(true);
-    setCallActiveSeconds(0);
     callStartTimeRef.current = Date.now();
+    isWaitingForDialerReturn.current = true;
 
-    try {
-      if (Platform.OS === 'web') {
-        window.open(telUrl);
-      } else {
-        const canOpen = await Linking.canOpenURL(telUrl).catch(() => false);
-        if (canOpen) {
-          await Linking.openURL(telUrl);
-        } else {
-          Alert.alert('Calling Customer', `Dialing ${delivery.customer.phone}`);
-        }
+    // 1. Launch the phone dialer
+    if (Platform.OS === 'web') {
+      try {
+        window.location.href = telUrl;
+      } catch {
+        window.open(telUrl, '_self');
       }
-    } catch {
-      // Fallback
+    } else {
+      Linking.openURL(telUrl).catch((err) => {
+        console.warn('Dialer launch notice:', err);
+      });
     }
+
+    // 2. Open outcome verification popup
+    setTimeout(() => {
+      setIsCallOutcomeModalVisible(true);
+    }, 1000);
   };
 
-  const handleFinishCallManual = () => {
-    const elapsed = Math.max(callActiveSeconds, 20);
-    setCallDurationSec(elapsed);
-    setIsDialingActive(false);
-    if (callTimerRef.current) clearInterval(callTimerRef.current);
-    setIsCallOutcomeModalVisible(true);
-  };
-
-  const handleOpenCallLogModal = () => {
-    if (callEvidence.attempted) {
-      setCallDurationSec(callEvidence.durationSeconds || 24);
-      setSelectedCallOutcome(callEvidence.status === 'completed' ? 'answered' : callEvidence.status === 'no_answer' ? 'unanswered' : 'busy');
-    }
-    setIsCallOutcomeModalVisible(true);
-  };
-
-  const handleConfirmCallLog = () => {
+  // Confirm call outcome from modal
+  const handleConfirmCallOutcome = () => {
     setIsVerifyingCallLog(true);
 
     setTimeout(() => {
       setIsVerifyingCallLog(false);
 
-      const finalDuration = selectedCallOutcome === 'answered' ? callDurationSec : 0;
-      const finalStatus = selectedCallOutcome === 'answered' ? 'completed' : selectedCallOutcome === 'unanswered' ? 'no_answer' : 'busy';
-
-      updateCallLogEvidence({
-        durationSeconds: finalDuration,
-        status: finalStatus,
-        recipientPhone: delivery.customer.phone,
-        attempted: true,
-      });
+      if (selectedCallOutcome === 'canceled') {
+        // Rider clicked call button but did not actually call
+        setCallEvidence({
+          attempted: false,
+          durationSeconds: 0,
+          status: 'not_attempted',
+          recipientPhone: delivery.customer.phone,
+          simulated: false,
+        });
+      } else {
+        const duration = selectedCallOutcome === 'answered' ? Math.max(measuredCallDuration, 5) : 0;
+        setCallEvidence({
+          attempted: true,
+          timestamp: new Date().toISOString(),
+          durationSeconds: duration,
+          status: selectedCallOutcome === 'answered' ? 'completed' : selectedCallOutcome === 'no_answer' ? 'no_answer' : 'busy',
+          recipientPhone: delivery.customer.phone,
+          telephonyCallId: `TEL-${Date.now().toString(36).toUpperCase()}`,
+          simulated: false,
+        });
+      }
 
       setIsCallOutcomeModalVisible(false);
     }, 400);
@@ -196,7 +220,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <View style={styles.driverAppContainer}>
-        {/* Top Map Stage with Back Button & Unit Chip */}
+        {/* Top Map Stage matching logistics-driver-app-design */}
         <LiveDeliveryMap
           driverLat={driverLat}
           driverLng={driverLng}
@@ -206,16 +230,16 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
           distanceMeters={distanceMeters}
           gpsAccuracy={currentLocation?.accuracy || 8}
           isInsideGeofence={isInsideGeofence}
-          onBack={onBack}
+          onRecenter={onBack}
         />
 
-        {/* Bottom Sheet */}
-        <ScrollView style={styles.bottomSheet} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
+        {/* Bottom Sheet matching logistics-driver-app-design */}
+        <ScrollView style={styles.bottomSheet} showsVerticalScrollIndicator={false}>
           <View style={styles.sheetHandle} />
 
           {/* Sheet Topline */}
           <View style={styles.sheetTopline}>
-            <View style={{ flex: 1 }}>
+            <View>
               <Text style={styles.eyebrow}>ACTIVE STOP / 01 OF 04</Text>
               <Text style={styles.destinationTitle}>{delivery.customer.name}</Text>
             </View>
@@ -230,9 +254,10 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             <Text style={styles.addressText} numberOfLines={2}>
               {delivery.address.street}, {delivery.address.city}
             </Text>
+            <Ionicons name="chevron-down" size={16} color="#8C979B" style={styles.addressChevron} />
           </View>
 
-          {/* Status Pill */}
+          {/* Status Pill matching design */}
           <View style={styles.statusPill}>
             <View style={[styles.statusDot, { backgroundColor: isInsideGeofence ? THEME.colors.green : THEME.colors.signal }]} />
             <Text style={styles.statusPillText}>
@@ -244,7 +269,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             </Text>
           </View>
 
-          {/* Dwell Timer Ring & Stop Meta */}
+          {/* Stop Content: Circular Dwell Ring + Stop Meta */}
           <DwellGauge
             residenceCategory={delivery.address.residenceCategory}
             currentDwellSeconds={dwellSeconds}
@@ -253,123 +278,89 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             arrivalWindow={delivery.estimatedDeliveryWindow}
             customerName={delivery.customer.name}
             customerPhone={delivery.customer.phone}
-            callEvidence={callEvidence}
           />
 
-          {/* Active Calling In-Progress Banner */}
-          {isDialingActive && (
-            <View style={styles.activeCallBanner}>
-              <View style={styles.activeCallLeft}>
-                <Ionicons name="call" size={20} color="#FFFFFF" />
-                <View>
-                  <Text style={styles.activeCallTitle}>CALL IN PROGRESS ({callActiveSeconds}S)</Text>
-                  <Text style={styles.activeCallSub}>Dialed {delivery.customer.phone}</Text>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.finishCallBtn} onPress={handleFinishCallManual} activeOpacity={0.8}>
-                <Text style={styles.finishCallBtnText}>VERIFY LOG</Text>
-              </TouchableOpacity>
+          {/* Senior-Friendly Call Customer Action Button */}
+          <TouchableOpacity
+            style={[
+              styles.callButton,
+              callEvidence.attempted && callEvidence.status === 'completed' && styles.callButtonCompleted,
+              callEvidence.attempted && callEvidence.status === 'no_answer' && styles.callButtonNoAnswer,
+              callEvidence.attempted && callEvidence.status === 'busy' && styles.callButtonBusy,
+            ]}
+            onPress={handleDialCustomer}
+            activeOpacity={0.85}
+          >
+            <View style={styles.callIconBubble}>
+              <Ionicons
+                name={
+                  callEvidence.status === 'completed'
+                    ? 'checkmark-circle'
+                    : callEvidence.status === 'no_answer'
+                    ? 'alert-circle'
+                    : callEvidence.status === 'busy'
+                    ? 'pause-circle'
+                    : 'call'
+                }
+                size={22}
+                color="#FFFFFF"
+              />
             </View>
-          )}
+            <View style={styles.callTextCol}>
+              <Text style={styles.callButtonText} numberOfLines={1}>
+                {callEvidence.status === 'completed'
+                  ? `CUSTOMER SPOKE (${callEvidence.durationSeconds}s) ✓`
+                  : callEvidence.status === 'no_answer'
+                  ? 'ATTEMPTED: NO ANSWER ✓'
+                  : callEvidence.status === 'busy'
+                  ? 'ATTEMPTED: BUSY / UNREACHABLE ✓'
+                  : 'CALL CUSTOMER'}
+              </Text>
+              <Text style={styles.callButtonSubText} numberOfLines={1}>
+                {callEvidence.status === 'completed'
+                  ? `Spoke with customer • ${delivery.customer.phone}`
+                  : callEvidence.status === 'no_answer'
+                  ? `Rang out (No answer) • ${delivery.customer.phone}`
+                  : callEvidence.status === 'busy'
+                  ? `Line busy / unreachable • ${delivery.customer.phone}`
+                  : `${delivery.customer.phone} • Tap to call & record`}
+              </Text>
+            </View>
+            <View style={styles.callActionPill}>
+              <Text style={styles.callActionPillText}>
+                {callEvidence.attempted ? 'REDIAL' : 'DIAL'}
+              </Text>
+              <Ionicons
+                name={callEvidence.attempted ? 'repeat-outline' : 'chevron-forward'}
+                size={14}
+                color="#FFFFFF"
+              />
+            </View>
+          </TouchableOpacity>
 
-          {/* Dedicated Call Action Section (Senior / Driver Accessible) */}
-          <View style={styles.callActionCard}>
-            {!callEvidence.attempted && !isDialingActive && (
-              <TouchableOpacity
-                style={styles.bigCallBtn}
-                onPress={handleDialCustomer}
-                activeOpacity={0.85}
-              >
-                <View style={styles.callBtnIconWrap}>
-                  <Ionicons name="call" size={24} color="#FFFFFF" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.bigCallBtnTitle}>CALL CUSTOMER</Text>
-                  <Text style={styles.bigCallBtnSub}>{delivery.customer.phone} • One-tap dial & log</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            )}
-
-            {isDialingActive && (
-              <TouchableOpacity
-                style={[styles.bigCallBtn, { backgroundColor: THEME.colors.slate }]}
-                onPress={handleFinishCallManual}
-                activeOpacity={0.85}
-              >
-                <View style={styles.callBtnIconWrap}>
-                  <Ionicons name="checkmark-done-circle" size={24} color="#FFFFFF" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.bigCallBtnTitle}>I FINISHED CALLING</Text>
-                  <Text style={styles.bigCallBtnSub}>Tap to verify duration & outcome</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            )}
-
-            {callEvidence.attempted && !isDialingActive && (
-              <View style={styles.callVerifiedCard}>
-                <View style={styles.callVerifiedTop}>
-                  <Ionicons name="checkmark-circle" size={24} color={THEME.colors.green} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.callVerifiedTitle}>
-                      {callEvidence.status === 'completed'
-                        ? `CALL VERIFIED: SPOKE WITH CUSTOMER`
-                        : callEvidence.status === 'no_answer'
-                        ? `CALL VERIFIED: NO ANSWER (RANG OUT)`
-                        : `CALL VERIFIED: LINE BUSY`}
-                    </Text>
-                    <Text style={styles.callVerifiedSub}>
-                      {delivery.customer.phone} • {callEvidence.durationSeconds}s recorded
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.callVerifiedButtons}>
-                  <TouchableOpacity
-                    style={styles.reverifyBtn}
-                    onPress={handleOpenCallLogModal}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="create-outline" size={15} color={THEME.colors.slate} />
-                    <Text style={styles.reverifyBtnText}>EDIT LOG</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.redialBtn}
-                    onPress={handleDialCustomer}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="call-outline" size={15} color={THEME.colors.signal} />
-                    <Text style={styles.redialBtnText}>REDIAL</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-          </View>
-
-          {/* Submit Delivery Attempt Button */}
+          {/* Submit Delivery Attempt Action Button */}
           <TouchableOpacity
             style={styles.attestButton}
             onPress={() => setIsSubmitModalVisible(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="shield-checkmark" size={20} color="#FFFFFF" />
+            <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
             <Text style={styles.attestButtonText}>SUBMIT ATTEMPT FOR VERIFICATION</Text>
           </TouchableOpacity>
 
-          {/* Sheet Footer */}
+          {/* Sheet Footer matching design */}
           <View style={styles.sheetFooter}>
-            <Ionicons name="shield-outline" size={14} color={THEME.colors.muted} />
+            <Ionicons name="notifications-outline" size={14} color={THEME.colors.muted} />
             <Text style={styles.sheetFooterText}>
-              Server independently validates Haversine distance, dwell & call logs
+              Dispatch & policy engine will evaluate dwell & call evidence
             </Text>
           </View>
+
+          <View style={{ height: 40 }} />
         </ScrollView>
       </View>
 
-      {/* Call Outcome & Log Verification Modal */}
+      {/* Call Outcome Verification Modal */}
       <Modal
         visible={isCallOutcomeModalVisible}
         transparent={true}
@@ -379,129 +370,178 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalHeaderTitle}>CALL LOG TELEMETRY VERIFICATION</Text>
-              <Text style={styles.modalHeaderSub}>Outbound attempt to {delivery.customer.phone} ({delivery.customer.name})</Text>
-            </View>
-
-            {/* Permission Check Telemetry Banner */}
-            <View style={styles.logProofBanner}>
-              <Ionicons name="shield-checkmark" size={22} color={THEME.colors.green} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.logProofTitle}>Telephony Call Log Access: GRANTED</Text>
-                <Text style={styles.logProofDetail}>
-                  Carrier Outgoing Log • Target: {delivery.customer.phone}
-                </Text>
-              </View>
-            </View>
-
-            {/* Call Duration Stepper */}
-            <View style={styles.durationBox}>
-              <Text style={styles.durationBoxLabel}>RECORDED CALL DURATION</Text>
-              <View style={styles.durationControls}>
-                <TouchableOpacity
-                  style={styles.durationStepBtn}
-                  onPress={() => setCallDurationSec((prev) => Math.max(0, prev - 5))}
-                >
-                  <Text style={styles.durationStepText}>-5s</Text>
-                </TouchableOpacity>
-
-                <View style={styles.durationDisplay}>
-                  <Text style={styles.durationNum}>{callDurationSec}</Text>
-                  <Text style={styles.durationUnit}>SECONDS</Text>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.durationStepBtn}
-                  onPress={() => setCallDurationSec((prev) => prev + 5)}
-                >
-                  <Text style={styles.durationStepText}>+5s</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.durationStepBtn}
-                  onPress={() => setCallDurationSec((prev) => prev + 15)}
-                >
-                  <Text style={styles.durationStepText}>+15s</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Quick Preset Buttons */}
-              <View style={styles.presetRow}>
-                {[15, 30, 45, 60].map((preset) => (
-                  <TouchableOpacity
-                    key={preset}
-                    style={[styles.presetBtn, callDurationSec === preset && styles.presetBtnActive]}
-                    onPress={() => setCallDurationSec(preset)}
-                  >
-                    <Text style={[styles.presetBtnText, callDurationSec === preset && styles.presetBtnTextActive]}>
-                      {preset}s
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Outcome Selection */}
-            <Text style={styles.outcomeQuestion}>DID CUSTOMER ANSWER THE CALL?</Text>
-            <View style={styles.outcomeOptions}>
-              <TouchableOpacity
-                style={[styles.outcomeBtn, selectedCallOutcome === 'answered' && styles.outcomeBtnSelected]}
-                onPress={() => setSelectedCallOutcome('answered')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="checkmark-circle" size={24} color={selectedCallOutcome === 'answered' ? THEME.colors.green : THEME.colors.muted} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.outcomeBtnTitle}>Yes, Connected & Spoke with Customer</Text>
-                  <Text style={styles.outcomeBtnSubtitle}>Conversation completed ({callDurationSec}s talk time)</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.outcomeBtn, selectedCallOutcome === 'unanswered' && styles.outcomeBtnSelected]}
-                onPress={() => setSelectedCallOutcome('unanswered')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="close-circle" size={24} color={selectedCallOutcome === 'unanswered' ? THEME.colors.signal : THEME.colors.muted} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.outcomeBtnTitle}>No Answer / Customer Did Not Pick Up</Text>
-                  <Text style={styles.outcomeBtnSubtitle}>Phone rang out with zero response</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.outcomeBtn, selectedCallOutcome === 'busy' && styles.outcomeBtnSelected]}
-                onPress={() => setSelectedCallOutcome('busy')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="alert-circle" size={24} color={selectedCallOutcome === 'busy' ? THEME.colors.signal : THEME.colors.muted} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.outcomeBtnTitle}>Line Busy / Number Switched Off</Text>
-                  <Text style={styles.outcomeBtnSubtitle}>Carrier reported line unreachable or busy tone</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-
-            <TouchableOpacity
-              style={styles.confirmCallBtn}
-              onPress={handleConfirmCallLog}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.confirmCallBtnText}>
-                {isVerifyingCallLog ? 'VERIFYING TELEMETRY...' : 'CONFIRM & SAVE CALL EVIDENCE'}
+              <Text style={styles.modalHeaderTitle}>CALL OUTCOME VERIFICATION</Text>
+              <Text style={styles.modalHeaderSub}>
+                Did customer pick up at {delivery.customer.phone}?
               </Text>
+            </View>
+
+            {/* Time / Status Banner */}
+            <View style={styles.detectedTimeBanner}>
+              <Ionicons name="time-outline" size={16} color={THEME.colors.slate} />
+              <Text style={styles.detectedTimeText}>
+                {measuredCallDuration > 0
+                  ? `Dial duration detected: ${measuredCallDuration}s`
+                  : 'Select call outcome below:'}
+              </Text>
+            </View>
+
+            <View style={styles.outcomeOptions}>
+              {/* Option 1: Answered */}
+              <TouchableOpacity
+                style={[
+                  styles.outcomeBtn,
+                  selectedCallOutcome === 'answered' && styles.outcomeBtnSelectedAnswered,
+                ]}
+                onPress={() => {
+                  setSelectedCallOutcome('answered');
+                  if (measuredCallDuration <= 0) setMeasuredCallDuration(25);
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="checkmark-circle"
+                  size={24}
+                  color={selectedCallOutcome === 'answered' ? THEME.colors.green : THEME.colors.muted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outcomeBtnTitle}>Yes, Spoke with Customer</Text>
+                  <Text style={styles.outcomeBtnSubtitle}>
+                    Call connected and conversation completed ({measuredCallDuration}s)
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Quick Duration Chips if Answered */}
+              {selectedCallOutcome === 'answered' && (
+                <View style={styles.durationChipsRow}>
+                  <Text style={styles.durationChipsLabel}>Duration:</Text>
+                  {[15, 30, 45, 60, 90].map((sec) => (
+                    <TouchableOpacity
+                      key={sec}
+                      style={[
+                        styles.durationChip,
+                        measuredCallDuration === sec && styles.durationChipSelected,
+                      ]}
+                      onPress={() => setMeasuredCallDuration(sec)}
+                    >
+                      <Text
+                        style={[
+                          styles.durationChipText,
+                          measuredCallDuration === sec && styles.durationChipTextSelected,
+                        ]}
+                      >
+                        {sec}s
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Option 2: No Answer */}
+              <TouchableOpacity
+                style={[
+                  styles.outcomeBtn,
+                  selectedCallOutcome === 'no_answer' && styles.outcomeBtnSelectedNoAnswer,
+                ]}
+                onPress={() => {
+                  setSelectedCallOutcome('no_answer');
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={24}
+                  color={selectedCallOutcome === 'no_answer' ? '#D97706' : THEME.colors.muted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outcomeBtnTitle}>No Answer / Phone Rang Out</Text>
+                  <Text style={styles.outcomeBtnSubtitle}>
+                    Customer phone rang but nobody answered
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Option 3: Busy / Switched Off */}
+              <TouchableOpacity
+                style={[
+                  styles.outcomeBtn,
+                  selectedCallOutcome === 'busy' && styles.outcomeBtnSelectedBusy,
+                ]}
+                onPress={() => {
+                  setSelectedCallOutcome('busy');
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="alert-circle"
+                  size={24}
+                  color={selectedCallOutcome === 'busy' ? '#475569' : THEME.colors.muted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outcomeBtnTitle}>Number Busy / Switched Off</Text>
+                  <Text style={styles.outcomeBtnSubtitle}>
+                    Call rejected, line busy, or network unreachable
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* Option 4: Canceled / Didn't Call */}
+              <TouchableOpacity
+                style={[
+                  styles.outcomeBtn,
+                  selectedCallOutcome === 'canceled' && styles.outcomeBtnSelectedCanceled,
+                ]}
+                onPress={() => {
+                  setSelectedCallOutcome('canceled');
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="remove-circle-outline"
+                  size={24}
+                  color={selectedCallOutcome === 'canceled' ? THEME.colors.foreground : THEME.colors.muted}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.outcomeBtnTitle}>Didn't Call / Canceled Dialing</Text>
+                  <Text style={styles.outcomeBtnSubtitle}>
+                    Clicked call button but canceled before calling (Not logged as attempt)
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Save / Confirm Button */}
+            <TouchableOpacity
+              style={[
+                styles.confirmCallBtn,
+                selectedCallOutcome === 'canceled' && styles.confirmCallBtnCanceled,
+              ]}
+              onPress={handleConfirmCallOutcome}
+              activeOpacity={0.8}
+            >
+              {isVerifyingCallLog ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.confirmCallBtnText}>
+                  {selectedCallOutcome === 'canceled'
+                    ? 'DISCARD CALL ATTEMPT'
+                    : 'RECORD & VERIFY CALL EVIDENCE'}
+                </Text>
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.cancelBtn}
+              style={styles.cancelCallBtn}
               onPress={() => setIsCallOutcomeModalVisible(false)}
             >
-              <Text style={styles.cancelBtnText}>CANCEL</Text>
+              <Text style={styles.cancelCallBtnText}>CLOSE</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Failure Reason Modal */}
+      {/* Failure Reason Picker Modal */}
       <Modal
         visible={isSubmitModalVisible}
         transparent={true}
@@ -515,7 +555,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               <Text style={styles.modalHeaderSub}>Select reason for zero-trust policy attestation</Text>
             </View>
 
-            <ScrollView style={{ maxHeight: 260, marginBottom: 12 }}>
+            <ScrollView style={{ maxHeight: 280, marginBottom: 12 }}>
               {FAILURE_REASONS.map((r) => {
                 const isSelected = failureReason === r.id;
                 return (
@@ -539,7 +579,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 
             <TextInput
               style={styles.textInput}
-              placeholder="Driver remarks (e.g. security gate refusal)..."
+              placeholder="Driver remarks (e.g. security refusal)..."
               placeholderTextColor={THEME.colors.muted}
               value={failureNotes}
               onChangeText={setFailureNotes}
@@ -548,7 +588,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             <TouchableOpacity
               style={styles.confirmSubmitBtn}
               onPress={handleSubmit}
-              activeOpacity={0.85}
+              activeOpacity={0.8}
             >
               <Text style={styles.confirmSubmitText}>TRANSMIT TELEMETRY TO BACKEND</Text>
             </TouchableOpacity>
@@ -634,6 +674,9 @@ const styles = StyleSheet.create({
     color: THEME.colors.slate,
     flex: 1,
   },
+  addressChevron: {
+    marginLeft: 'auto',
+  },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -669,146 +712,193 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     color: THEME.colors.geofenceText,
   },
-  activeCallBanner: {
-    backgroundColor: THEME.colors.slate,
-    padding: 12,
-    borderRadius: 2,
+  callButton: {
+    width: '100%',
+    minHeight: 68,
+    backgroundColor: THEME.colors.signal,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 4,
     marginTop: 8,
-    marginBottom: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  activeCallLeft: {
+  callButtonCalled: {
+    backgroundColor: THEME.colors.green,
+  },
+  callButtonCompleted: {
+    backgroundColor: THEME.colors.green,
+  },
+  callButtonNoAnswer: {
+    backgroundColor: '#D97706',
+  },
+  callButtonBusy: {
+    backgroundColor: '#475569',
+  },
+  detectedTimeBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 4,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  activeCallTitle: {
+  detectedTimeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.slate,
+    letterSpacing: 0.3,
+  },
+  outcomeOptions: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  outcomeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFB',
+    padding: 12,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    gap: 12,
+  },
+  outcomeBtnSelectedAnswered: {
+    borderColor: THEME.colors.green,
+    backgroundColor: '#F0FDF4',
+  },
+  outcomeBtnSelectedNoAnswer: {
+    borderColor: '#D97706',
+    backgroundColor: '#FFFBEB',
+  },
+  outcomeBtnSelectedBusy: {
+    borderColor: '#475569',
+    backgroundColor: '#F1F5F9',
+  },
+  outcomeBtnSelectedCanceled: {
+    borderColor: THEME.colors.slate,
+    backgroundColor: '#F8FAFC',
+  },
+  outcomeBtnTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.colors.foreground,
+  },
+  outcomeBtnSubtitle: {
     fontSize: 11,
+    color: THEME.colors.muted,
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  durationChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+    marginBottom: 6,
+    paddingLeft: 36,
+    flexWrap: 'wrap',
+  },
+  durationChipsLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.muted,
+  },
+  durationChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+  },
+  durationChipSelected: {
+    backgroundColor: THEME.colors.green,
+    borderColor: THEME.colors.green,
+  },
+  durationChipText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.colors.slate,
+  },
+  durationChipTextSelected: {
+    color: '#FFFFFF',
+  },
+  confirmCallBtn: {
+    backgroundColor: THEME.colors.green,
+    paddingVertical: 14,
+    borderRadius: 4,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  confirmCallBtnCanceled: {
+    backgroundColor: THEME.colors.slate,
+  },
+  confirmCallBtnText: {
+    fontSize: 13,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 0.8,
   },
-  activeCallSub: {
-    fontSize: 10,
-    color: '#CBD4D7',
+  cancelCallBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 4,
   },
-  finishCallBtn: {
-    backgroundColor: THEME.colors.signal,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 2,
-  },
-  finishCallBtnText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#FFFFFF',
+  cancelCallBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.muted,
     letterSpacing: 0.5,
   },
-  callActionCard: {
-    marginTop: 8,
-    marginBottom: 4,
-  },
-  bigCallBtn: {
-    width: '100%',
-    minHeight: 64,
-    backgroundColor: THEME.colors.signal,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  callBtnIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  callIconBubble: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bigCallBtnTitle: {
+  callTextCol: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  callButtonText: {
     fontSize: 15,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
-  bigCallBtnSub: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFE2DB',
-    marginTop: 2,
-  },
-  callVerifiedCard: {
-    backgroundColor: '#F3FBF5',
-    borderWidth: 1.5,
-    borderColor: '#A9D1BB',
-    borderRadius: 4,
-    padding: 14,
-    gap: 12,
-  },
-  callVerifiedTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  callVerifiedTitle: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: '#1A7047',
-    letterSpacing: 0.5,
-  },
-  callVerifiedSub: {
-    fontSize: 11,
-    color: THEME.colors.slate,
+  callButtonSubText: {
+    fontSize: 12,
     fontWeight: '600',
+    color: 'rgba(255,255,255,0.92)',
     marginTop: 2,
   },
-  callVerifiedButtons: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  reverifyBtn: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CFD7D8',
-    paddingVertical: 8,
-    borderRadius: 2,
+  callActionPill: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    gap: 4,
+    marginLeft: 8,
   },
-  reverifyBtnText: {
+  callActionPillText: {
     fontSize: 11,
     fontWeight: '900',
-    color: THEME.colors.slate,
-    letterSpacing: 0.5,
-  },
-  redialBtn: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: THEME.colors.signal,
-    paddingVertical: 8,
-    borderRadius: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  redialBtnText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: THEME.colors.signal,
+    color: '#FFFFFF',
     letterSpacing: 0.5,
   },
   attestButton: {
@@ -819,13 +909,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    borderRadius: 4,
+    borderRadius: 2,
     marginTop: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 4,
-    elevation: 3,
   },
   attestButtonText: {
     fontSize: 13,
@@ -872,168 +957,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: THEME.colors.muted,
     marginTop: 2,
-  },
-  logProofBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: THEME.colors.geofenceBg,
-    borderWidth: 1,
-    borderColor: THEME.colors.geofenceBorder,
-    padding: 10,
-    borderRadius: 4,
-    marginBottom: 14,
-  },
-  logProofTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: THEME.colors.geofenceText,
-  },
-  logProofDetail: {
-    fontSize: 11,
-    color: THEME.colors.slate,
-    fontWeight: '600',
-    marginTop: 1,
-  },
-  durationBox: {
-    backgroundColor: '#F4F6F7',
-    borderWidth: 1,
-    borderColor: '#DBE1E5',
-    borderRadius: 4,
-    padding: 12,
-    marginBottom: 14,
-  },
-  durationBoxLabel: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: THEME.colors.muted,
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  durationControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginBottom: 10,
-  },
-  durationStepBtn: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD4D7',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 2,
-  },
-  durationStepText: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: THEME.colors.slate,
-  },
-  durationDisplay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  durationNum: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: THEME.colors.foreground,
-    letterSpacing: -0.5,
-  },
-  durationUnit: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: THEME.colors.muted,
-    letterSpacing: 1,
-  },
-  presetRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  presetBtn: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#DBE1E5',
-    paddingVertical: 6,
-    alignItems: 'center',
-    borderRadius: 2,
-  },
-  presetBtnActive: {
-    backgroundColor: THEME.colors.foreground,
-    borderColor: THEME.colors.foreground,
-  },
-  presetBtnText: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: THEME.colors.slate,
-  },
-  presetBtnTextActive: {
-    color: '#FFFFFF',
-  },
-  outcomeQuestion: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: THEME.colors.muted,
-    letterSpacing: 1,
-    marginBottom: 8,
-  },
-  outcomeOptions: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  outcomeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F4F6F7',
-    padding: 12,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#DBE1E5',
-    gap: 12,
-  },
-  outcomeBtnSelected: {
-    borderColor: THEME.colors.foreground,
-    backgroundColor: '#E3E9E5',
-  },
-  outcomeBtnTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: THEME.colors.foreground,
-  },
-  outcomeBtnSubtitle: {
-    fontSize: 11,
-    color: THEME.colors.muted,
-    marginTop: 1,
-  },
-  confirmCallBtn: {
-    backgroundColor: THEME.colors.signal,
-    paddingVertical: 15,
-    borderRadius: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  confirmCallBtnText: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.8,
-  },
-  cancelBtn: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  cancelBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: THEME.colors.muted,
-    letterSpacing: 1,
   },
   reasonOption: {
     flexDirection: 'row',

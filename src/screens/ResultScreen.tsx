@@ -6,6 +6,7 @@ import { THEME } from '../constants/theme';
 import { VerificationResult } from '../types/policy';
 import { Delivery } from '../types/delivery';
 import { ResultCard } from '../components/ResultCard';
+import { SabootLogo } from '../components/SabootLogo';
 
 interface ResultScreenProps {
   result: VerificationResult;
@@ -25,6 +26,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
       <View style={styles.driverAppContainer}>
         {/* Navigation Bar */}
         <View style={styles.navBar}>
+          <SabootLogo size={32} style={{ marginRight: 10 }} />
           <View style={styles.navTitleContainer}>
             <Text style={styles.navEyebrow}>ATTESTATION CERTIFICATE</Text>
             <Text style={styles.navTitle}>

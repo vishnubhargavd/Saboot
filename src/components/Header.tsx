@@ -3,6 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { DemoScenarioPreset } from '../constants/demoData';
+import { SabootLogo } from './SabootLogo';
 
 interface HeaderProps {
   isSimulationMode: boolean;
@@ -22,23 +23,30 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Top Console Bar */}
       <View style={styles.topRow}>
         <View style={styles.brandContainer}>
-          <Text style={styles.brandTitle}>SABOOT</Text>
-          <View style={styles.unitChip}>
-            <Ionicons name="radio-outline" size={13} color={THEME.colors.slate} />
-            <Text style={styles.unitChipText}>LIVE / UNIT 24</Text>
+          <SabootLogo size={34} />
+          <View style={styles.brandTextCol}>
+            <View style={styles.brandTitleRow}>
+              <Text style={styles.brandTitle}>SABOOT</Text>
+              <View style={styles.unitChip}>
+                <Ionicons name="radio-outline" size={11} color={THEME.colors.slate} />
+                <Text style={styles.unitChipText}>UNIT 24</Text>
+              </View>
+            </View>
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.scenarioButton}
-          onPress={onOpenScenarioModal}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="layers-outline" size={14} color={THEME.colors.slate} />
-          <Text style={styles.scenarioButtonText}>
-            {isSimulationMode && activePreset ? activePreset.tag : 'SCENARIOS'}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.headerRightActions}>
+          <TouchableOpacity
+            style={styles.scenarioButton}
+            onPress={onOpenScenarioModal}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="layers-outline" size={14} color={THEME.colors.slate} />
+            <Text style={styles.scenarioButtonText}>
+              {isSimulationMode && activePreset ? activePreset.tag : 'SCENARIOS'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* GPS Mode Bar */}
@@ -89,28 +97,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  brandTextCol: {
+    justifyContent: 'center',
+  },
+  brandTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   brandTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
-    letterSpacing: 2,
+    letterSpacing: 1.5,
     color: THEME.colors.foreground,
   },
   unitChip: {
     backgroundColor: '#EEF2F3',
     borderWidth: 1,
     borderColor: '#CFD7D8',
-    height: 28,
+    height: 24,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
+    gap: 4,
+    paddingHorizontal: 6,
     borderRadius: 2,
   },
   unitChipText: {
     fontSize: 9,
     fontWeight: '900',
     color: THEME.colors.slate,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   scenarioButton: {
     backgroundColor: '#EEF2F3',

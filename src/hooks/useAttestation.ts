@@ -234,18 +234,6 @@ export function useAttestation({
     setIsSubmitting(false);
   }, [delivery.customer.phone]);
 
-  // Dedicated call log update helper that updates React state correctly
-  const updateCallLogEvidence = useCallback((evidenceData: Partial<CallEvidence>) => {
-    setCallEvidence((prev) => ({
-      ...prev,
-      ...evidenceData,
-      attempted: true,
-      recipientPhone: delivery.customer.phone,
-      timestamp: new Date().toISOString(),
-      telephonyCallId: evidenceData.telephonyCallId || `TEL-LOG-${Date.now().toString(36).toUpperCase()}`,
-    }));
-  }, [delivery.customer.phone]);
-
   return {
     dwellSeconds,
     requiredDwellSeconds,
@@ -262,7 +250,6 @@ export function useAttestation({
     verificationResult,
     error,
     setCallEvidence,
-    updateCallLogEvidence,
     setFailureReason,
     setFailureNotes,
     setIsConsentModalOpen,
@@ -276,4 +263,3 @@ export function useAttestation({
     resetAttestation,
   };
 }
-

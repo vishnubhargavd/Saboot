@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,8 +29,32 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
   onBack,
   onRecenter,
 }) => {
+  const iframeRef = useRef<any>(null);
+  const webViewRef = useRef<any>(null);
+
+  // Dispatch real-time coordinate updates to Leaflet without reloading iframe/webview
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      try {
+        iframeRef.current?.contentWindow?.postMessage(
+          JSON.stringify({
+            type: 'UPDATE_DRIVER_LOCATION',
+            lat: driverLat,
+            lng: driverLng,
+            isInsideGeofence,
+          }),
+          '*'
+        );
+      } catch {}
+    } else {
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateDriverPosition) { window.updateDriverPosition(${driverLat}, ${driverLng}, ${isInsideGeofence}); } true;`
+      );
+    }
+  }, [driverLat, driverLng, isInsideGeofence]);
+
   // Clean OpenStreetMap tiles with ZERO API key watermarks + custom road overlays
-  const mapHtml = `
+  const mapHtml = useMemo(() => `
     <!DOCTYPE html>
     <html>
       <head>
@@ -54,6 +78,7 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             justify-content: center;
             box-shadow: 0 4px 12px rgba(21, 32, 43, 0.35);
             font-size: 16px;
+            transition: transform 0.3s ease;
           }
           
           /* Customer Marker */
@@ -94,14 +119,15 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
           }).addTo(map);
 
           // 50m Geofence Circle with signal dashed boundary
-          L.circle([${destLat}, ${destLng}], {
+          const geofenceCircle = L.circle([${destLat}, ${destLng}], {
             color: '#D94A27',
             fillColor: '#D94A27',
-            fillOpacity: ${isInsideGeofence ? 0.15 : 0.06},
+            fillOpacity: ${isInsideGeofence ? 0.18 : 0.06},
             weight: 2.5,
             dashArray: '6, 6',
             radius: 50
           }).addTo(map);
+          window.geofenceCircle = geofenceCircle;
 
           // Route line between truck and customer
           const routeLine = L.polyline([
@@ -113,6 +139,7 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             opacity: 0.85,
             dashArray: '5, 8'
           }).addTo(map);
+          window.routeLine = routeLine;
 
           // Customer Pin
           const custIcon = L.divIcon({
@@ -130,18 +157,45 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             iconSize: [38, 38],
             iconAnchor: [19, 19]
           });
-          L.marker([${driverLat}, ${driverLng}], { icon: truckIcon }).addTo(map);
+          const truckMarker = L.marker([${driverLat}, ${driverLng}], { icon: truckIcon }).addTo(map);
+          window.truckMarker = truckMarker;
 
-          // Center bounds
+          // Initial bounds
           const bounds = L.latLngBounds([
             [${destLat}, ${destLng}],
             [${driverLat}, ${driverLng}]
           ]);
           map.fitBounds(bounds, { padding: [50, 50], maxZoom: 17 });
+
+          // Real-time update function without reloads
+          window.updateDriverPosition = function(lat, lng, inside) {
+            if (window.truckMarker) {
+              window.truckMarker.setLatLng([lat, lng]);
+            }
+            if (window.routeLine) {
+              window.routeLine.setLatLngs([[lat, lng], [${destLat}, ${destLng}]]);
+            }
+            if (window.geofenceCircle && inside !== undefined) {
+              window.geofenceCircle.setStyle({
+                fillOpacity: inside ? 0.22 : 0.06,
+                color: inside ? '#15803D' : '#D94A27'
+              });
+            }
+          };
+
+          // Message listener for Web postMessage
+          window.addEventListener('message', function(event) {
+            try {
+              const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+              if (data && data.type === 'UPDATE_DRIVER_LOCATION') {
+                window.updateDriverPosition(data.lat, data.lng, data.isInsideGeofence);
+              }
+            } catch(e) {}
+          });
         </script>
       </body>
     </html>
-  `;
+  `, [destLat, destLng]);
 
   return (
     <View style={styles.mapStage}>
@@ -149,12 +203,14 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
       <View style={styles.mapContainer}>
         {Platform.OS === 'web' ? (
           <iframe
+            ref={iframeRef}
             srcDoc={mapHtml}
             style={{ width: '100%', height: '100%', border: 'none' }}
             title="Live Route Map"
           />
         ) : (
           <WebView
+            ref={webViewRef}
             originWhitelist={['*']}
             source={{ html: mapHtml }}
             style={styles.webview}

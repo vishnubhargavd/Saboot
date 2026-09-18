@@ -22,6 +22,8 @@ export default function App() {
     deliveries,
     shiftMetrics,
     selectDelivery,
+    updateDelivery,
+    addDelivery,
     recordAttestationResult,
   } = useDelivery();
 
