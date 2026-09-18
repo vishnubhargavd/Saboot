@@ -13,6 +13,7 @@ interface LiveDeliveryMapProps {
   distanceMeters: number | null;
   gpsAccuracy: number;
   isInsideGeofence: boolean;
+  onBack?: () => void;
   onRecenter?: () => void;
 }
 
@@ -25,9 +26,10 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
   distanceMeters,
   gpsAccuracy,
   isInsideGeofence,
+  onBack,
   onRecenter,
 }) => {
-  // Map rendered with the exact light logistics carto theme from the design
+  // Clean OpenStreetMap tiles with ZERO API key watermarks + custom road overlays
   const mapHtml = `
     <!DOCTYPE html>
     <html>
@@ -37,40 +39,40 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          html, body, #map { width: 100%; height: 100%; background: #edf1ef; }
+          html, body, #map { width: 100%; height: 100%; background: #E8ECE9; }
           
-          /* Custom Truck Marker */
+          /* Clean custom Truck Marker */
           .truck-marker {
             width: 38px;
             height: 38px;
             border-radius: 50%;
             background: #334454;
-            border: 3px solid #ffffff;
-            color: #ffffff;
+            border: 3px solid #FFFFFF;
+            color: #FFFFFF;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 10px rgba(21, 32, 43, 0.25);
+            box-shadow: 0 4px 12px rgba(21, 32, 43, 0.35);
             font-size: 16px;
           }
           
-          /* Customer Marker (Signal Red/Orange teardrop) */
+          /* Customer Marker */
           .customer-marker {
-            width: 34px;
-            height: 34px;
+            width: 36px;
+            height: 36px;
             border-radius: 50% 50% 50% 0;
             transform: rotate(-45deg);
-            background: #d94a27;
-            border: 3px solid #ffffff;
-            color: #ffffff;
+            background: #D94A27;
+            border: 3px solid #FFFFFF;
+            color: #FFFFFF;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 10px rgba(217, 74, 39, 0.35);
+            box-shadow: 0 4px 12px rgba(217, 74, 39, 0.45);
           }
           .customer-marker span {
             transform: rotate(45deg);
-            font-size: 14px;
+            font-size: 15px;
             font-weight: bold;
           }
         </style>
@@ -85,17 +87,18 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             touchZoom: true
           });
 
-          // Light CartoDB Positron / OSM tiles matching design
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          // OpenStreetMap tile layer (100% Free, NO API key watermark)
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
+            opacity: 0.85
           }).addTo(map);
 
-          // 50m Geofence Circle with signal accent
+          // 50m Geofence Circle with signal dashed boundary
           L.circle([${destLat}, ${destLng}], {
-            color: '#d94a27',
-            fillColor: '#d94a27',
-            fillOpacity: ${isInsideGeofence ? 0.12 : 0.05},
-            weight: 2,
+            color: '#D94A27',
+            fillColor: '#D94A27',
+            fillOpacity: ${isInsideGeofence ? 0.15 : 0.06},
+            weight: 2.5,
             dashArray: '6, 6',
             radius: 50
           }).addTo(map);
@@ -105,30 +108,31 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             [${driverLat}, ${driverLng}],
             [${destLat}, ${destLng}]
           ], {
-            color: '#d94a27',
-            weight: 3,
-            opacity: 0.75,
-            dashArray: '4, 6'
+            color: '#D94A27',
+            weight: 3.5,
+            opacity: 0.85,
+            dashArray: '5, 8'
           }).addTo(map);
 
           // Customer Pin
           const custIcon = L.divIcon({
-            className: 'customer-marker-container',
+            className: 'cust-pin',
             html: '<div class="customer-marker"><span>📍</span></div>',
-            iconSize: [34, 34],
-            iconAnchor: [17, 34]
+            iconSize: [36, 36],
+            iconAnchor: [18, 36]
           });
           L.marker([${destLat}, ${destLng}], { icon: custIcon }).addTo(map);
 
           // Truck Pin
           const truckIcon = L.divIcon({
-            className: 'truck-marker-container',
+            className: 'truck-pin',
             html: '<div class="truck-marker">🚚</div>',
             iconSize: [38, 38],
             iconAnchor: [19, 19]
           });
           L.marker([${driverLat}, ${driverLng}], { icon: truckIcon }).addTo(map);
 
+          // Center bounds
           const bounds = L.latLngBounds([
             [${destLat}, ${destLng}],
             [${driverLat}, ${driverLng}]
@@ -162,23 +166,37 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
         )}
       </View>
 
-      {/* Top Header Overlay from design */}
+      {/* Top Header Overlay with Back Button & Unit Chip */}
       <View style={styles.mapHeader}>
-        <View style={styles.unitChip}>
-          <Ionicons name="radio-outline" size={14} color={THEME.colors.slate} />
-          <Text style={styles.unitChipText}>LIVE / UNIT 24</Text>
-        </View>
+        {onBack ? (
+          <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.8}>
+            <Ionicons name="arrow-back" size={16} color={THEME.colors.foreground} />
+            <Text style={styles.backButtonText}>BACK TO QUEUE</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.unitChip}>
+            <Ionicons name="radio-outline" size={14} color={THEME.colors.slate} />
+            <Text style={styles.unitChipText}>LIVE / UNIT 24</Text>
+          </View>
+        )}
 
-        <TouchableOpacity style={styles.mapIconButton} onPress={onRecenter} activeOpacity={0.8}>
-          <Ionicons name="locate-outline" size={18} color={THEME.colors.slate} />
-        </TouchableOpacity>
+        <View style={styles.headerRightGroup}>
+          <View style={styles.unitChip}>
+            <Ionicons name="radio-outline" size={13} color={THEME.colors.slate} />
+            <Text style={styles.unitChipText}>UNIT 24</Text>
+          </View>
+
+          <TouchableOpacity style={styles.mapIconButton} onPress={onRecenter || onBack} activeOpacity={0.8}>
+            <Ionicons name="locate-outline" size={18} color={THEME.colors.slate} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Bottom Readout Overlay from design */}
       <View style={styles.mapBottomReadout}>
         <Ionicons name="navigate" size={14} color={THEME.colors.signal} />
         <Text style={styles.readoutText}>
-          {distanceMeters !== null ? `${distanceMeters}m TO DOOR` : 'APPROACHING'}
+          {distanceMeters !== null ? `${distanceMeters}M TO DOOR` : 'LOCATING'}
           <Text style={styles.readoutDot}> • </Text>
           {isInsideGeofence ? 'INSIDE 50M GEOFENCE' : 'EN ROUTE'}
         </Text>
@@ -189,7 +207,7 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
 
 const styles = StyleSheet.create({
   mapStage: {
-    height: 260,
+    height: 270,
     width: '100%',
     backgroundColor: '#EDF1EF',
     position: 'relative',
@@ -206,33 +224,60 @@ const styles = StyleSheet.create({
   },
   mapHeader: {
     position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
+    top: 14,
+    left: 14,
+    right: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     zIndex: 10,
   },
-  unitChip: {
+  backButton: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#CFD7D8',
-    height: 34,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 12,
     borderRadius: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 4,
+    elevation: 3,
+  },
+  backButtonText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: THEME.colors.foreground,
+    letterSpacing: 0.8,
+  },
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  unitChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CFD7D8',
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
     elevation: 2,
   },
   unitChipText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '900',
     color: THEME.colors.slate,
     letterSpacing: 1,
   },
@@ -241,34 +286,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#CFD7D8',
     width: 36,
-    height: 34,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
     elevation: 2,
   },
   mapBottomReadout: {
     position: 'absolute',
-    bottom: 14,
-    left: 16,
+    bottom: 12,
+    left: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 2,
     borderWidth: 1,
     borderColor: '#CFD7D8',
     zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
   },
   readoutText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#52625F',
     letterSpacing: 1.2,
   },

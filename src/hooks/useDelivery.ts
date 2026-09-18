@@ -7,7 +7,7 @@ export function useDelivery() {
   const [deliveries, setDeliveries] = useState<Delivery[]>(INITIAL_DELIVERIES);
   const [activeDeliveryId, setActiveDeliveryId] = useState<string | null>(INITIAL_DELIVERIES[0].id);
 
-  const activeDelivery = deliveries.find((d) => d.id === activeDeliveryId) || null;
+  const activeDelivery = deliveries.find((d) => d.id === activeDeliveryId) || deliveries[0] || null;
 
   // Calculate shift metrics
   const shiftMetrics: ShiftMetrics = {
@@ -28,6 +28,17 @@ export function useDelivery() {
     );
   }, []);
 
+  const updateDelivery = useCallback((delivery: Delivery) => {
+    setDeliveries((prev) =>
+      prev.map((d) => (d.id === delivery.id ? delivery : d))
+    );
+  }, []);
+
+  const addDelivery = useCallback((delivery: Delivery) => {
+    setDeliveries((prev) => [delivery, ...prev]);
+    setActiveDeliveryId(delivery.id);
+  }, []);
+
   const recordAttestationResult = useCallback((id: string, result: VerificationResult) => {
     const statusMap: Record<'VERIFIED' | 'REJECTED' | 'REVIEW', DeliveryStatus> = {
       VERIFIED: 'VERIFIED',
@@ -44,6 +55,8 @@ export function useDelivery() {
     shiftMetrics,
     selectDelivery,
     updateDeliveryStatus,
+    updateDelivery,
+    addDelivery,
     recordAttestationResult,
   };
 }

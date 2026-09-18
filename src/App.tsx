@@ -8,10 +8,11 @@ import { useLocationTracking } from './hooks/useLocationTracking';
 import { HomeScreen } from './screens/HomeScreen';
 import { DeliveryDetailScreen } from './screens/DeliveryDetailScreen';
 import { ResultScreen } from './screens/ResultScreen';
+import { AdminPanel } from './components/AdminPanel';
 import { Delivery } from './types/delivery';
 import { VerificationResult } from './types/policy';
 
-type ScreenState = 'HOME' | 'DELIVERY_DETAIL' | 'RESULT';
+type ScreenState = 'HOME' | 'DELIVERY_DETAIL' | 'RESULT' | 'ADMIN';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('HOME');
@@ -22,8 +23,12 @@ export default function App() {
     deliveries,
     shiftMetrics,
     selectDelivery,
+    updateDelivery,
+    addDelivery,
     recordAttestationResult,
   } = useDelivery();
+
+  const activeTargetDelivery = selectedDelivery || deliveries[0];
 
   const {
     currentLocation,
@@ -34,8 +39,8 @@ export default function App() {
     applyDemoPreset,
     enableLiveGps,
   } = useLocationTracking({
-    targetLatitude: selectedDelivery?.address.latitude,
-    targetLongitude: selectedDelivery?.address.longitude,
+    targetLatitude: activeTargetDelivery?.address.latitude,
+    targetLongitude: activeTargetDelivery?.address.longitude,
   });
 
   const handleSelectDelivery = (delivery: Delivery) => {
@@ -61,7 +66,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <View style={styles.root}>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
 
         {currentScreen === 'HOME' && (
           <HomeScreen
@@ -72,6 +77,7 @@ export default function App() {
             activePreset={activePreset}
             onApplyPreset={applyDemoPreset}
             onEnableLiveGps={enableLiveGps}
+            onOpenAdmin={() => setCurrentScreen('ADMIN')}
           />
         )}
 
@@ -95,6 +101,15 @@ export default function App() {
             onReturnHome={handleReturnHome}
           />
         )}
+
+        {currentScreen === 'ADMIN' && (
+          <AdminPanel
+            deliveries={deliveries}
+            onUpdateDelivery={updateDelivery}
+            onCreateDelivery={addDelivery}
+            onClose={() => setCurrentScreen('HOME')}
+          />
+        )}
       </View>
     </SafeAreaProvider>
   );
@@ -103,6 +118,6 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#EEF2F3',
   },
 });
