@@ -57,9 +57,14 @@ export default function App() {
     setCurrentScreen('RESULT');
   };
 
-  const handleCompleteDelivery = (handoffType: 'direct' | 'doorstep' | 'security', notes?: string) => {
+  const handleCompleteDelivery = (
+    handoffType: 'direct' | 'doorstep' | 'security',
+    notes?: string,
+    videoProofUri?: string,
+    videoMetrics?: { luminance: number; variance: number }
+  ) => {
     if (selectedDelivery) {
-      const result = completeDelivery(selectedDelivery.id, handoffType, notes);
+      const result = completeDelivery(selectedDelivery.id, handoffType, notes, videoProofUri, videoMetrics);
       setLatestResult(result);
       setCurrentScreen('RESULT');
     }
