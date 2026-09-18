@@ -28,8 +28,8 @@ export const INITIAL_DELIVERIES: Delivery[] = [
     trackingNumber: 'SBT-BLR-882190',
     customer: {
       id: 'CUST-401',
-      name: 'Aditi Sharma',
-      phone: '+91 98450 12345',
+      name: 'Vishnu Bhargav',
+      phone: '+91 90191 44983',
       preferredLanguage: 'English / Kannada',
     },
     address: {
