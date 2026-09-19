@@ -11,9 +11,11 @@ import {
   calculateShiftMetrics,
 } from '../services/databaseService';
 import {
-  broadcastRealtimeEvent,
-  subscribeToRealtimeEvents,
   RealtimeSyncEvent,
+  subscribeToRealtimeEvents,
+  broadcastRealtimeEvent,
+  fetchServerDeliveries,
+  updateServerDelivery,
 } from '../services/realtimeSync';
 
 export function useDelivery() {
@@ -29,6 +31,49 @@ export function useDelivery() {
       const loaded = await getDeliveriesFromDB();
       if (isMounted && loaded && loaded.length > 0) {
         setDeliveries(loaded);
+      }
+
+      // Fetch from Saboot HTTP sync server to pull any orders dispatched or reassigned by Admin
+      try {
+        const serverDeliveries = await fetchServerDeliveries();
+        if (isMounted && Array.isArray(serverDeliveries) && serverDeliveries.length > 0) {
+          for (const sd of serverDeliveries) {
+            const formatted: Delivery = {
+              id: sd.id,
+              trackingNumber: sd.trackingNumber || `SBT-BLR-${Math.floor(100000 + Math.random() * 900000)}`,
+              customer: {
+                id: sd.customer?.id || `CUST-${sd.id}`,
+                name: sd.customer?.name || 'Customer',
+                phone: sd.customer?.phone || '+91 90191 44983',
+              },
+              address: {
+                street: sd.address?.street || 'Bengaluru Delivery Address',
+                city: sd.address?.city || 'Bengaluru',
+                postalCode: sd.address?.postalCode || '560038',
+                latitude: sd.address?.latitude || sd.address?.lat || 12.9719,
+                longitude: sd.address?.longitude || sd.address?.lng || 77.6412,
+                residenceCategory: sd.address?.residenceCategory || 'individual_house',
+              },
+              packageDescription: sd.packageDescription || 'Dispatch Order',
+              estimatedDeliveryWindow: sd.estimatedDeliveryWindow || '14:00 - 16:00',
+              status: (sd.status as DeliveryStatus) || 'IN_TRANSIT',
+              createdAt: sd.createdAt || new Date().toISOString(),
+              assignedDriverId: sd.assignedDriverId || sd.driver || 'DRV-BLR-09',
+              notes: sd.notes || sd.decisionReason || 'Dispatched live from Operations Console',
+              videoProofUri: sd.videoProofUri,
+              completedAt: sd.completedAt,
+              handoffType: sd.handoffType,
+              adminApprovalStatus: sd.adminApprovalStatus,
+            };
+            await insertOrUpdateDeliveryInDB(formatted);
+          }
+          const refreshed = await getDeliveriesFromDB();
+          if (isMounted && refreshed && refreshed.length > 0) {
+            setDeliveries(refreshed);
+          }
+        }
+      } catch (e) {
+        console.warn('[useDelivery] Initial server fetch error:', e);
       }
     }
 
@@ -323,6 +368,52 @@ export function useDelivery() {
     []
   );
 
+  const refreshDeliveries = useCallback(async () => {
+    try {
+      const serverDeliveries = await fetchServerDeliveries();
+      if (Array.isArray(serverDeliveries) && serverDeliveries.length > 0) {
+        for (const sd of serverDeliveries) {
+          const formatted: Delivery = {
+            id: sd.id,
+            trackingNumber: sd.trackingNumber || `SBT-BLR-${Math.floor(100000 + Math.random() * 900000)}`,
+            customer: {
+              id: sd.customer?.id || `CUST-${sd.id}`,
+              name: sd.customer?.name || 'Customer',
+              phone: sd.customer?.phone || '+91 90191 44983',
+            },
+            address: {
+              street: sd.address?.street || 'Bengaluru Delivery Address',
+              city: sd.address?.city || 'Bengaluru',
+              postalCode: sd.address?.postalCode || '560038',
+              latitude: sd.address?.latitude || sd.address?.lat || 12.9719,
+              longitude: sd.address?.longitude || sd.address?.lng || 77.6412,
+              residenceCategory: sd.address?.residenceCategory || 'individual_house',
+            },
+            packageDescription: sd.packageDescription || 'Dispatch Order',
+            estimatedDeliveryWindow: sd.estimatedDeliveryWindow || '14:00 - 16:00',
+            status: (sd.status as DeliveryStatus) || 'IN_TRANSIT',
+            createdAt: sd.createdAt || new Date().toISOString(),
+            assignedDriverId: sd.assignedDriverId || sd.driver || 'DRV-BLR-09',
+            notes: sd.notes || sd.decisionReason || 'Dispatched live from Operations Console',
+            videoProofUri: sd.videoProofUri,
+            completedAt: sd.completedAt,
+            handoffType: sd.handoffType,
+            adminApprovalStatus: sd.adminApprovalStatus,
+          };
+          await insertOrUpdateDeliveryInDB(formatted);
+        }
+      }
+      const refreshed = await getDeliveriesFromDB();
+      if (refreshed && refreshed.length > 0) {
+        setDeliveries(refreshed);
+      }
+      return refreshed;
+    } catch (err) {
+      console.warn('[useDelivery] refreshDeliveries error:', err);
+      return deliveries;
+    }
+  }, [deliveries]);
+
   return {
     deliveries,
     activeDelivery,
@@ -334,5 +425,6 @@ export function useDelivery() {
     addDelivery,
     recordAttestationResult,
     completeDelivery,
+    refreshDeliveries,
   };
 }

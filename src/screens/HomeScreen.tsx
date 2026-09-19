@@ -12,6 +12,7 @@ interface HomeScreenProps {
   onSelectDelivery: (delivery: Delivery) => void;
   deliveries: Delivery[];
   shiftMetrics: any;
+  onRefreshDeliveries?: () => Promise<any>;
   isSimulationMode?: boolean;
   activePreset?: any;
   onApplyPreset?: (preset: any) => void;
@@ -22,8 +23,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSelectDelivery,
   deliveries,
   shiftMetrics,
+  onRefreshDeliveries,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!onRefreshDeliveries) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshDeliveries();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   // Filter out completed/resolved deliveries from active route
   const TERMINAL_STATUSES = ['DELIVERED', 'VERIFIED', 'REJECTED'];
@@ -90,16 +103,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
           {/* Section Header */}
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>TODAY'S DELIVERY ROUTE</Text>
-            <Text style={styles.sectionSub}>
-              {filteredDeliveries.length} OF {activeDeliveries.length} STOPS
-            </Text>
+            <View>
+              <Text style={styles.sectionTitle}>TODAY'S DELIVERY ROUTE</Text>
+              <Text style={styles.sectionSub}>
+                {filteredDeliveries.length} OF {activeDeliveries.length} STOPS
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.syncButton}
+              onPress={handleRefresh}
+              activeOpacity={0.7}
+              disabled={isRefreshing}
+            >
+              <Ionicons
+                name="refresh"
+                size={13}
+                color={isRefreshing ? '#94A3B8' : '#0284C7'}
+              />
+              <Text style={[styles.syncButtonText, isRefreshing && { color: '#94A3B8' }]}>
+                {isRefreshing ? 'SYNCING...' : 'SYNC ADMIN'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* Deliveries Queue */}
           <FlatList
             data={filteredDeliveries}
             keyExtractor={(item) => item.id}
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
             renderItem={({ item, index }) => (
               <DeliveryCard
                 delivery={item}
@@ -229,5 +261,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 16,
+  },
+  syncButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  syncButtonText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0284C7',
+    letterSpacing: 0.5,
   },
 });

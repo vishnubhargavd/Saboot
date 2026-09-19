@@ -26,6 +26,7 @@ export default function App() {
     addDelivery,
     recordAttestationResult,
     completeDelivery,
+    refreshDeliveries,
   } = useDelivery();
 
   const activeTargetDelivery = selectedDelivery || deliveries[0];
@@ -87,6 +88,7 @@ export default function App() {
             deliveries={deliveries}
             shiftMetrics={shiftMetrics}
             onSelectDelivery={handleSelectDelivery}
+            onRefreshDeliveries={refreshDeliveries}
             isSimulationMode={isSimulationMode}
             activePreset={activePreset}
             onApplyPreset={applyDemoPreset}

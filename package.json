@@ -27,7 +27,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "admin": "npx -y serve admin -p 3000"
+    "admin": "node admin/server.js"
   },
   "private": true,
   "devDependencies": {

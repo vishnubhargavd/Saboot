@@ -45,3 +45,5 @@ yarn-error.*
 .claude/
 .idea/
 skills-lock.json
+admin/data/
+

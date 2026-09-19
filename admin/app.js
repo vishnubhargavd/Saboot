@@ -8,6 +8,7 @@ const INITIAL_ORDERS = [
     address: { street: 'Tower 4, Flat 902, Sobha Silicon Oasis', city: 'Bengaluru', residenceCategory: 'gated_society', lat: 12.8715, lng: 77.6534 },
     packageDescription: 'Electronics — Sony Wireless ANC Headphones',
     driver: 'DRV-BLR-09 (Unit 24)',
+    assignedDriverId: 'DRV-BLR-09',
     status: 'VERIFIED',
     distanceMeters: 38,
     dwellSeconds: 158,
@@ -26,6 +27,7 @@ const INITIAL_ORDERS = [
     address: { street: '12th Main Road, HAL 2nd Stage, Indiranagar', city: 'Bengaluru', residenceCategory: 'individual_house', lat: 12.9719, lng: 77.6412 },
     packageDescription: 'Apparel — Nike Running Shoes',
     driver: 'DRV-BLR-09 (Unit 24)',
+    assignedDriverId: 'DRV-BLR-09',
     status: 'REJECTED',
     distanceMeters: 3200,
     dwellSeconds: 8,
@@ -44,6 +46,7 @@ const INITIAL_ORDERS = [
     address: { street: 'Green Glen Layout, Bellandur', city: 'Bengaluru', residenceCategory: 'apartment', lat: 12.9298, lng: 77.6743 },
     packageDescription: 'Kitchenware — Espresso Machine',
     driver: 'DRV-BLR-12 (Unit 12)',
+    assignedDriverId: 'DRV-BLR-12',
     status: 'REVIEW',
     distanceMeters: 32,
     dwellSeconds: 154,
@@ -65,6 +68,7 @@ const INITIAL_ORDERS = [
     address: { street: '14th Main, 7th Sector, HSR Layout', city: 'Bengaluru', residenceCategory: 'gated_society', lat: 12.9116, lng: 77.6389 },
     packageDescription: 'Medicine / Perishables — Cold Storage Pack',
     driver: 'DRV-BLR-15 (Unit 15)',
+    assignedDriverId: 'DRV-BLR-15',
     status: 'DELIVERED',
     distanceMeters: 14,
     dwellSeconds: 140,
@@ -75,6 +79,82 @@ const INITIAL_ORDERS = [
     auditId: 'AUD-4L19-V88Z',
     decision: 'DELIVERED',
     decisionReason: 'Delivery completed & verified. Customer handoff confirmed at door.'
+  },
+  {
+    id: 'DEL-1005',
+    trackingNumber: 'SBT-BLR-882194',
+    customer: { name: 'Priya Nambiar', phone: '+91 98452 33190' },
+    address: { street: 'Prestige Falcon City, Kanakapura Road', city: 'Bengaluru', residenceCategory: 'gated_society', lat: 12.8912, lng: 77.5621 },
+    packageDescription: 'Electronics — Apple iPad Air M2 & Apple Pencil',
+    driver: 'DRV-BLR-09 (Unit 24)',
+    assignedDriverId: 'DRV-BLR-09',
+    status: 'IN_TRANSIT',
+    distanceMeters: 28,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 150,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-882194-NEW',
+    decision: 'REVIEW',
+    decisionReason: 'Requires doorstep delivery; Resident ID verification at lobby.'
+  },
+  {
+    id: 'DEL-1006',
+    trackingNumber: 'SBT-BLR-882195',
+    customer: { name: 'Arvind Swaminathan', phone: '+91 98801 77241' },
+    address: { street: 'RMZ Ecospace, Outer Ring Road, Bellandur', city: 'Bengaluru', residenceCategory: 'apartment', lat: 12.9260, lng: 77.6830 },
+    packageDescription: 'Corporate Handoff — Urgent Signed Legal Documents',
+    driver: 'DRV-BLR-09 (Unit 24)',
+    assignedDriverId: 'DRV-BLR-09',
+    status: 'ASSIGNED',
+    distanceMeters: 35,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 6,
+    auditId: 'AUD-882195-NEW',
+    decision: 'REVIEW',
+    decisionReason: 'Corporate legal documents — security desk drop allowed.'
+  },
+  {
+    id: 'DEL-1007',
+    trackingNumber: 'SBT-BLR-882196',
+    customer: { name: 'Ananya Deshmukh', phone: '+91 97310 99420' },
+    address: { street: '7th Cross, 4th Block, Koramangala', city: 'Bengaluru', residenceCategory: 'individual_house', lat: 12.9344, lng: 77.6258 },
+    packageDescription: 'Perishables — Temperature Sensitive Biological Sample Pack',
+    driver: 'DRV-BLR-09 (Unit 24)',
+    assignedDriverId: 'DRV-BLR-09',
+    status: 'ASSIGNED',
+    distanceMeters: 20,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 90,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-882196-NEW',
+    decision: 'REVIEW',
+    decisionReason: 'Keep in insulated container until doorstep handoff.'
+  },
+  {
+    id: 'DEL-1008',
+    trackingNumber: 'SBT-BLR-882197',
+    customer: { name: 'Vikramaditya Roy', phone: '+91 96118 22340' },
+    address: { street: 'Brigade Gateway, Dr. Rajkumar Road, Malleshwaram', city: 'Bengaluru', residenceCategory: 'gated_society', lat: 13.0118, lng: 77.5552 },
+    packageDescription: 'Luxury Goods — Swiss Chronograph Watch',
+    driver: 'DRV-BLR-09 (Unit 24)',
+    assignedDriverId: 'DRV-BLR-09',
+    status: 'ASSIGNED',
+    distanceMeters: 40,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 150,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-882197-NEW',
+    decision: 'REVIEW',
+    decisionReason: 'Direct customer handoff mandatory + video verification.'
   }
 ];
 
@@ -110,6 +190,23 @@ window.addEventListener('storage', (e) => {
   }
 });
 
+// Connect to Server-Sent Events (SSE) Stream from Node server
+if (typeof EventSource !== 'undefined') {
+  try {
+    const sse = new EventSource('/api/events');
+    sse.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(msg.data);
+        if (data && data.type) {
+          handleIncomingRealtimeEvent(data);
+        }
+      } catch (err) {}
+    };
+  } catch (err) {
+    console.warn('[Admin] EventSource connection warning:', err);
+  }
+}
+
 function broadcastToApp(event) {
   try {
     if (adminBroadcastChannel) {
@@ -118,6 +215,11 @@ function broadcastToApp(event) {
     if (window.localStorage) {
       window.localStorage.setItem(STORAGE_EVENT_KEY, JSON.stringify({ ...event, _t: Date.now() }));
     }
+    fetch('/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+    }).catch(() => {});
   } catch (err) {}
 }
 
@@ -184,30 +286,82 @@ function handleIncomingRealtimeEvent(event) {
   }
 }
 
-function loadPersistentDeliveries() {
-  if (typeof window === 'undefined' || !window.localStorage) return;
+async function loadPersistentDeliveries() {
+  // 1. Fetch from HTTP Sync server (pulls any fresh dispatches from admin server)
   try {
-    const raw = window.localStorage.getItem(SQLITE_STORAGE_KEY);
-    if (raw) {
-      const persisted = JSON.parse(raw);
-      if (Array.isArray(persisted)) {
-        persisted.forEach((p) => {
-          const matched = orders.find((o) => o.id === p.id);
-          if (matched) {
-            matched.status = p.status;
-            if (p.completedAt) matched.completedAt = p.completedAt;
-            if (p.videoProofUri) matched.videoProofUri = p.videoProofUri;
-            if (p.handoffType) matched.handoffType = p.handoffType;
-            if (p.status === 'DELIVERED') {
-              matched.decision = 'DELIVERED';
-              matched.decisionReason = `Delivery confirmed & verified via ${p.handoffType || 'doorstep'} handoff with video proof.`;
-            }
+    const res = await fetch('/api/deliveries');
+    if (res.ok) {
+      const serverDeliveries = await res.json();
+      if (Array.isArray(serverDeliveries) && serverDeliveries.length > 0) {
+        serverDeliveries.forEach((sd) => {
+          const idx = orders.findIndex((o) => o.id === sd.id);
+          const formatted = {
+            id: sd.id,
+            trackingNumber: sd.trackingNumber || `SBT-BLR-${Math.floor(100000 + Math.random() * 900000)}`,
+            customer: sd.customer || { name: 'Customer', phone: '+91 90191 44983' },
+            address: {
+              street: sd.address?.street || 'Bengaluru Address',
+              city: sd.address?.city || 'Bengaluru',
+              residenceCategory: sd.address?.residenceCategory || 'individual_house',
+              lat: sd.address?.latitude || sd.address?.lat || 12.9719,
+              lng: sd.address?.longitude || sd.address?.lng || 77.6412,
+            },
+            driver: sd.driver || `${sd.assignedDriverId || 'DRV-BLR-09'} (Unit)`,
+            assignedDriverId: sd.assignedDriverId || 'DRV-BLR-09',
+            status: sd.status || 'IN_TRANSIT',
+            distanceMeters: sd.distanceMeters ?? 25,
+            dwellSeconds: sd.dwellSeconds ?? 0,
+            requiredDwellSeconds: sd.requiredDwellSeconds ?? 90,
+            callAttempted: sd.callAttempted ?? false,
+            callDuration: sd.callDuration ?? 0,
+            gpsAccuracy: sd.gpsAccuracy ?? 5,
+            auditId: sd.auditId || `AUD-${sd.id}`,
+            decision: sd.decision || (sd.status === 'DELIVERED' ? 'DELIVERED' : 'REVIEW'),
+            decisionReason: sd.decisionReason || sd.notes || 'Order active on route.',
+            videoProofUri: sd.videoProofUri,
+            requiresAdminApproval: sd.requiresAdminApproval,
+            adminApprovalStatus: sd.adminApprovalStatus,
+          };
+
+          if (idx >= 0) {
+            orders[idx] = { ...orders[idx], ...formatted };
+          } else {
+            orders.unshift(formatted);
           }
         });
+        renderOrderList();
+        updateKPICounters();
       }
     }
-  } catch (e) {
-    console.warn('[Admin] Error loading persistent SQLite deliveries:', e);
+  } catch (err) {
+    console.warn('[Admin] Failed to fetch deliveries from sync server:', err);
+  }
+
+  // 2. Also check localStorage for local offline edits
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = window.localStorage.getItem(SQLITE_STORAGE_KEY);
+      if (raw) {
+        const persisted = JSON.parse(raw);
+        if (Array.isArray(persisted)) {
+          persisted.forEach((p) => {
+            const matched = orders.find((o) => o.id === p.id);
+            if (matched) {
+              matched.status = p.status;
+              if (p.completedAt) matched.completedAt = p.completedAt;
+              if (p.videoProofUri) matched.videoProofUri = p.videoProofUri;
+              if (p.handoffType) matched.handoffType = p.handoffType;
+              if (p.status === 'DELIVERED') {
+                matched.decision = 'DELIVERED';
+                matched.decisionReason = `Delivery confirmed & verified via ${p.handoffType || 'doorstep'} handoff with video proof.`;
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[Admin] Error loading persistent SQLite deliveries:', e);
+    }
   }
 }
 
@@ -802,6 +956,13 @@ function selectOrder(orderId) {
   document.getElementById('telemetryDwell').innerText = `${order.dwellSeconds}s / ${order.requiredDwellSeconds}s Target`;
   document.getElementById('telemetryCall').innerText = order.callAttempted ? `${order.customer.phone} (${order.callDuration}s)` : 'No Call Logged';
 
+  // Synchronize selectDriver dropdown
+  const selectDriverEl = document.getElementById('selectDriver');
+  if (selectDriverEl) {
+    const targetDriver = order.assignedDriverId || (order.driver?.includes('DRV-BLR-12') ? 'DRV-BLR-12' : order.driver?.includes('DRV-BLR-15') ? 'DRV-BLR-15' : 'DRV-BLR-09');
+    selectDriverEl.value = targetDriver;
+  }
+
   // Update Decision Badge
   const badge = document.getElementById('inspectorDecisionBadge');
   const title = document.getElementById('inspectorDecisionTitle');
@@ -1137,7 +1298,7 @@ document.querySelectorAll('.btn-cat').forEach((btn) => {
   };
 });
 
-document.getElementById('selectDriver').onchange = (e) => {
+document.getElementById('selectDriver').onchange = async (e) => {
   const driverId = e.target.value;
   const order = orders.find((o) => o.id === selectedOrderId);
   if (!order) return;
@@ -1147,6 +1308,22 @@ document.getElementById('selectDriver').onchange = (e) => {
   persistAdminUpdateToStorage(order);
   selectOrder(selectedOrderId);
 
+  // 1. Sync to HTTP Server (updates server state and broadcasts to all apps)
+  try {
+    await fetch(`/api/deliveries/${encodeURIComponent(order.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assignedDriverId: driverId,
+        driver: order.driver,
+        notes: `Driver assigned: ${order.driver}`
+      })
+    });
+  } catch (err) {
+    console.warn('[Admin] Failed to PUT driver update to server:', err);
+  }
+
+  // 2. Broadcast to local channels
   broadcastToApp({
     type: 'TASK_ASSIGNED',
     deliveryId: order.id,
@@ -1171,21 +1348,23 @@ document.getElementById('btnCloseCreateModal').onclick = () => {
   document.getElementById('createModal').classList.remove('open');
 };
 
-document.getElementById('btnSubmitNewOrder').onclick = () => {
+document.getElementById('btnSubmitNewOrder').onclick = async () => {
   const name = document.getElementById('inputCustName').value || 'Customer';
   const phone = document.getElementById('inputCustPhone').value || '+91 90191 44983';
   const street = document.getElementById('inputStreet').value || '100 Feet Road';
   const cat = document.getElementById('inputCategory').value;
-  const driver = document.getElementById('inputDriver').value;
+  const driverSelect = document.getElementById('inputDriver');
+  const driverId = driverSelect.value;
+  const driverName = driverSelect.options[driverSelect.selectedIndex].text;
 
   const newOrder = {
     id: `DEL-${Math.floor(1000 + Math.random() * 9000)}`,
     trackingNumber: `SBT-BLR-${Math.floor(100000 + Math.random() * 900000)}`,
-    customer: { name, phone },
-    address: { street, city: 'Bengaluru', residenceCategory: cat, lat: 12.9719, lng: 77.6412 },
+    customer: { id: `CUST-${Date.now()}`, name, phone },
+    address: { street, city: 'Bengaluru', postalCode: '560038', residenceCategory: cat, lat: 12.9719, lng: 77.6412 },
     packageDescription: 'New Dispatch Order',
-    driver: `${driver} (Unit)`,
-    assignedDriverId: driver,
+    driver: driverName,
+    assignedDriverId: driverId,
     status: 'IN_TRANSIT',
     distanceMeters: 25,
     dwellSeconds: 0,
@@ -1195,7 +1374,8 @@ document.getElementById('btnSubmitNewOrder').onclick = () => {
     gpsAccuracy: 5,
     auditId: `AUD-${Date.now().toString(36).toUpperCase()}`,
     decision: 'REVIEW',
-    decisionReason: 'Order newly dispatched — waiting for driver arrival and telemetry stream.'
+    decisionReason: 'Order newly dispatched — waiting for driver arrival and telemetry stream.',
+    createdAt: new Date().toISOString()
   };
 
   orders.unshift(newOrder);
@@ -1206,6 +1386,18 @@ document.getElementById('btnSubmitNewOrder').onclick = () => {
   selectOrder(newOrder.id);
   updateKPICounters();
 
+  // 1. Sync to HTTP Server
+  try {
+    await fetch('/api/deliveries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newOrder)
+    });
+  } catch (err) {
+    console.warn('[Admin] Server POST delivery error:', err);
+  }
+
+  // 2. Broadcast via BroadcastChannel & localStorage
   broadcastToApp({
     type: 'ORDER_DISPATCHED',
     deliveryId: newOrder.id,
@@ -1217,7 +1409,7 @@ document.getElementById('btnSubmitNewOrder').onclick = () => {
     }
   });
 
-  showNotification(`🚀 New Task Dispatched: ${newOrder.id} assigned to ${newOrder.driver}`);
+  showNotification(`🚀 New Task Dispatched: ${newOrder.id} assigned to ${driverName}`);
 };
 
 // Boot
