@@ -316,6 +316,36 @@ export async function verifyVideoProof(
 }
 
 /**
+ * Generates the raw SVG string depicting a genuine doorstep handoff / absence video frame
+ */
+export function generateRealisticThumbnailSvg(
+  target: 'delivery' | 'absence' = 'delivery',
+  details?: { trackingNumber?: string }
+): string {
+  const isDelivery = target === 'delivery';
+  const tracking = details?.trackingNumber || 'SBT-BLR-882190';
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270">
+    <defs>
+      <linearGradient id="camBg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#090D16"/>
+        <stop offset="100%" stop-color="#0F172A"/>
+      </linearGradient>
+    </defs>
+    <rect width="480" height="270" fill="url(#camBg)"/>
+    <rect x="16" y="16" width="448" height="238" fill="none" stroke="#1E293B" stroke-width="1.5" rx="6" stroke-dasharray="4 4"/>
+    <circle cx="240" cy="115" r="32" fill="#1E293B" stroke="#334155" stroke-width="2"/>
+    <polygon points="234,103 252,115 234,127" fill="${isDelivery ? '#22C55E' : '#38BDF8'}"/>
+    <text x="240" y="172" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" fill="#F8FAFC" text-anchor="middle" letter-spacing="1">
+      ${isDelivery ? 'AUTHENTIC HANDOFF VIDEO PROOF' : 'DOORSTEP ABSENCE VIDEO FOOTAGE'}
+    </text>
+    <text x="240" y="195" font-family="monospace" font-size="10" fill="#94A3B8" text-anchor="middle">
+      TRACKING: ${tracking} • RECORDED VIA CAMERA
+    </text>
+  </svg>`;
+}
+
+/**
  * Generates an SVG Data URI depicting a genuine doorstep handoff / absence video frame
  * Works universally on iOS, Android, and Web without native canvas dependencies
  */
@@ -323,70 +353,7 @@ export function generateRealisticThumbnailDataUri(
   target: 'delivery' | 'absence' = 'delivery',
   details?: { trackingNumber?: string }
 ): string {
-  const isDelivery = target === 'delivery';
-  const tracking = details?.trackingNumber || 'SBT-BLR-882190';
-
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270">
-    <defs>
-      <linearGradient id="wall" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#CBD5E1"/>
-        <stop offset="100%" stop-color="#94A3B8"/>
-      </linearGradient>
-      <linearGradient id="door" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="#5C2D12"/>
-        <stop offset="50%" stop-color="#78350F"/>
-        <stop offset="100%" stop-color="#451A03"/>
-      </linearGradient>
-      <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#475569"/>
-        <stop offset="100%" stop-color="#1E293B"/>
-      </linearGradient>
-    </defs>
-    <rect width="480" height="270" fill="url(#wall)"/>
-    <rect y="200" width="480" height="8" fill="#64748B"/>
-    <rect y="208" width="480" height="62" fill="url(#floor)"/>
-    <rect x="124" y="16" width="232" height="194" fill="#334155" rx="2"/>
-    <rect x="130" y="20" width="220" height="188" fill="url(#door)"/>
-    <rect x="146" y="36" width="85" height="65" fill="#3B1803" stroke="#92400E" stroke-width="1.5"/>
-    <rect x="245" y="36" width="85" height="65" fill="#3B1803" stroke="#92400E" stroke-width="1.5"/>
-    <rect x="146" y="115" width="85" height="75" fill="#3B1803" stroke="#92400E" stroke-width="1.5"/>
-    <rect x="245" y="115" width="85" height="75" fill="#3B1803" stroke="#92400E" stroke-width="1.5"/>
-    <rect x="142" y="125" width="14" height="28" fill="#D97706" rx="2"/>
-    <rect x="134" y="134" width="22" height="6" fill="#F59E0B" rx="1"/>
-    <circle cx="240" cy="65" r="5" fill="#D97706"/>
-    <circle cx="240" cy="65" r="2.5" fill="#000000"/>
-    <rect x="212" y="30" width="56" height="16" fill="#1E293B" stroke="#D97706" rx="2"/>
-    <text x="240" y="42" font-family="monospace" font-size="9" font-weight="bold" fill="#F8FAFC" text-anchor="middle">FLAT 902</text>
-    <rect x="65" y="100" width="24" height="38" fill="#1E293B" stroke="#475569" rx="3"/>
-    <circle cx="77" cy="118" r="7" fill="${isDelivery ? '#F8FAFC' : '#38BDF8'}"/>
-    ${isDelivery ? '' : '<circle cx="77" cy="118" r="14" fill="none" stroke="#38BDF8" stroke-width="2"/>'}
-    <rect x="145" y="210" width="190" height="45" fill="#0F172A" stroke="#334155" stroke-width="2" rx="3"/>
-    <text x="240" y="238" font-family="sans-serif" font-size="10" font-weight="bold" fill="#F59E0B" text-anchor="middle">WELCOME</text>
-    ${isDelivery ? `
-    <rect x="180" y="190" width="100" height="50" fill="#B45309" rx="2"/>
-    <rect x="222" y="190" width="16" height="50" fill="#D97706"/>
-    <rect x="195" y="200" width="48" height="28" fill="#FFFFFF" rx="1"/>
-    <rect x="198" y="204" width="2" height="12" fill="#000000"/>
-    <rect x="203" y="204" width="3" height="12" fill="#000000"/>
-    <rect x="209" y="204" width="2" height="12" fill="#000000"/>
-    <rect x="214" y="204" width="4" height="12" fill="#000000"/>
-    <text x="198" y="224" font-family="monospace" font-size="6" font-weight="bold" fill="#000000">SBT-SECURE</text>
-    <rect x="174" y="184" width="112" height="62" fill="none" stroke="#22C55E" stroke-width="2" rx="2"/>
-    <rect x="174" y="168" width="112" height="16" fill="rgba(34,197,94,0.9)" rx="2"/>
-    <text x="178" y="180" font-family="monospace" font-size="8" font-weight="bold" fill="#FFFFFF">✓ HANDOFF VERIFIED</text>
-    ` : `
-    <rect x="40" y="80" width="140" height="16" fill="rgba(15,23,42,0.85)" rx="3"/>
-    <text x="45" y="92" font-family="monospace" font-size="8" font-weight="bold" fill="#38BDF8">🔔 CHIME UNANSWERED</text>
-    `}
-    <rect width="480" height="24" fill="rgba(15,23,42,0.8)"/>
-    <circle cx="14" cy="12" r="4" fill="#EF4444"/>
-    <text x="24" y="15" font-family="monospace" font-size="9" font-weight="bold" fill="#FFFFFF">REC [00:04.0] 1080P 30FPS</text>
-    <text x="470" y="15" font-family="monospace" font-size="9" font-weight="bold" fill="#34D399" text-anchor="end">GPS LOCK: ≤38M • ACC ±6M</text>
-    <rect y="248" width="480" height="22" fill="rgba(15,23,42,0.8)"/>
-    <text x="10" y="262" font-family="monospace" font-size="8" font-weight="bold" fill="#A7F3D0">LUM: 120/255 (PASS) • DETAIL VAR: 450 (GENUINE)</text>
-    <text x="470" y="262" font-family="monospace" font-size="8" font-weight="bold" fill="#94A3B8" text-anchor="end">HASH: SHA-256 #8F4C...</text>
-  </svg>`;
-
+  const svg = generateRealisticThumbnailSvg(target, details);
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 

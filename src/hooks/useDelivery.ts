@@ -214,17 +214,26 @@ export function useDelivery() {
       const delivery = deliveries.find((d) => d.id === id);
       const nowIso = new Date().toISOString();
       const auditId = `AUD-DELIV-${Date.now().toString(36).toUpperCase()}`;
+      const hasVideo = !!videoProofUri;
 
-      // 1. Immediately update local React state for instantaneous UI responsiveness
+      // Flag for supervisor review so admin can verify legitimacy of video proof
+      const newStatus: DeliveryStatus = hasVideo ? 'REVIEW' : 'DELIVERED';
+      const decisionReason = hasVideo
+        ? `Doorstep handoff video submitted (${handoffType}). Awaiting supervisor review to confirm legitimacy.`
+        : `Package delivered and handed over (${handoffType}).`;
+
+      // 1. Immediately update local React state
       const updatedDeliveries = deliveries.map((d) =>
         d.id === id
           ? {
               ...d,
-              status: 'DELIVERED' as DeliveryStatus,
+              status: newStatus,
               handoffType,
               notes: notes || d.notes,
               videoProofUri: videoProofUri || d.videoProofUri,
               completedAt: nowIso,
+              requiresAdminApproval: hasVideo,
+              adminApprovalStatus: hasVideo ? ('PENDING' as const) : ('APPROVED' as const),
             }
           : d
       );
@@ -238,16 +247,41 @@ export function useDelivery() {
         videoProofUri,
         videoMetrics,
         auditId
-      ).catch((err) => console.warn('[useDelivery] SQLite completion save error:', err));
+      ).catch(() => {});
 
-      // 3. Broadcast real-time event to Admin operations console
+      // 3. Push update to Saboot Admin & Sync server REST API
+      updateServerDelivery(id, {
+        status: newStatus,
+        decision: newStatus,
+        handoffType,
+        videoProofUri,
+        videoStatus: hasVideo ? 'VERIFIED' : '',
+        notes,
+        requiresAdminApproval: hasVideo,
+        adminApprovalStatus: hasVideo ? 'PENDING' : 'APPROVED',
+        completedAt: nowIso,
+        auditId,
+        decisionReason,
+        extra: {
+          customerName: delivery?.customer.name,
+          driverId: delivery?.assignedDriverId,
+          packageDescription: delivery?.packageDescription,
+          thumbnail: thumbnailUri && !thumbnailUri.includes('<svg') && !thumbnailUri.includes('data:image/svg') ? thumbnailUri : undefined,
+          videoMetrics,
+          requiresAdminApproval: hasVideo,
+          adminApprovalStatus: hasVideo ? 'PENDING' : 'APPROVED',
+          decisionReason,
+        },
+      }).catch(() => {});
+
+      // 4. Broadcast real-time event to Admin operations console
       broadcastRealtimeEvent({
         type: 'DELIVERY_COMPLETED',
         deliveryId: id,
-        status: 'DELIVERED',
+        status: newStatus,
         handoffType,
         videoProofUri,
-        videoStatus: 'VERIFIED',
+        videoStatus: hasVideo ? 'VERIFIED' : '',
         notes,
         timestamp: nowIso,
         auditId,
@@ -255,15 +289,23 @@ export function useDelivery() {
           customerName: delivery?.customer.name,
           driverId: delivery?.assignedDriverId,
           packageDescription: delivery?.packageDescription,
-          thumbnail: thumbnailUri,
+          thumbnail: thumbnailUri && !thumbnailUri.includes('<svg') && !thumbnailUri.includes('data:image/svg') ? thumbnailUri : undefined,
           videoMetrics,
+          requiresAdminApproval: hasVideo,
+          adminApprovalStatus: hasVideo ? 'PENDING' : 'APPROVED',
+          decisionReason,
         },
       });
 
       const completionResult: VerificationResult = {
-        decision: 'DELIVERED',
+        decision: newStatus,
         deliveryId: id,
         timestamp: nowIso,
+        auditRecordId: auditId,
+        videoProofUri: videoProofUri || undefined,
+        requiresAdminApproval: hasVideo,
+        adminApprovalStatus: hasVideo ? 'PENDING' : 'APPROVED',
+        primaryReason: decisionReason,
         facts: {
           deliveryId: id,
           residenceCategory: delivery?.address.residenceCategory || 'individual_house',
@@ -275,7 +317,7 @@ export function useDelivery() {
           callDurationSeconds: 15,
           videoConsentRequested: false,
           videoConsentGiven: false,
-          videoEvidence: !!videoProofUri,
+          videoEvidence: hasVideo,
           gpsAccuracyMeters: 6,
           anomalyFlags: [],
         },
@@ -293,7 +335,7 @@ export function useDelivery() {
                 : 'Security Guard',
             expectedValue: 'Delivery Confirmation',
             isHardRequirement: true,
-            explanation: `Package successfully delivered and confirmed via ${handoffType.toUpperCase()} handoff.`,
+            explanation: `Package delivered via ${handoffType.toUpperCase()} handoff.${hasVideo ? ' Video proof submitted for supervisor confirmation.' : ''}`,
           },
           {
             id: 'RULE_VIDEO_PROOF_VERIFIED',
@@ -316,13 +358,10 @@ export function useDelivery() {
             explanation: 'Driver confirmed handoff within customer doorstep radius.',
           },
         ],
-        primaryReason: 'Package successfully delivered and verified with authentic video evidence',
         detailedExplanation: `Delivery confirmed at ${
           delivery?.address.street || 'destination'
         }. Handoff completed via ${handoffType} with verified video proof.`,
-        auditRecordId: auditId,
         evaluationEngine: 'Saboot-ZeroTrust-DeliveryFulfillment-Engine-v1.0',
-        videoProofUri,
       };
 
       return completionResult;
@@ -360,6 +399,21 @@ export function useDelivery() {
 
       setDeliveries(updated);
 
+      updateServerDelivery(id, {
+        status: newStatus,
+        decision: newStatus,
+        videoProofUri: result.videoProofUri,
+        requiresAdminApproval: result.requiresAdminApproval,
+        adminApprovalStatus: result.adminApprovalStatus,
+        auditId: result.auditRecordId,
+        decisionReason: result.primaryReason,
+        extra: {
+          requiresAdminApproval: result.requiresAdminApproval,
+          adminApprovalStatus: result.adminApprovalStatus,
+          decisionReason: result.primaryReason,
+        },
+      }).catch(() => {});
+
       broadcastRealtimeEvent({
         type: 'DELIVERY_ATTESTED',
         deliveryId: id,
@@ -370,6 +424,7 @@ export function useDelivery() {
         extra: {
           decisionReason: result.primaryReason,
           requiresAdminApproval: result.requiresAdminApproval,
+          adminApprovalStatus: result.adminApprovalStatus,
         },
       });
     },

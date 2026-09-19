@@ -456,6 +456,10 @@ function handleIncomingRealtimeEvent(event) {
 
   if (event.type === 'DELIVERY_COMPLETED' && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    const hasVideo = !!(event.videoProofUri || event.extra?.videoProofUri);
+    const requiresReview = hasVideo || event.status === 'REVIEW' || event.extra?.requiresAdminApproval;
+    const finalStatus = requiresReview ? 'REVIEW' : (event.status || 'DELIVERED');
+
     if (!order) {
       order = {
         id: event.deliveryId,
@@ -464,7 +468,7 @@ function handleIncomingRealtimeEvent(event) {
         address: { street: 'Bengaluru Delivery Address', city: 'Bengaluru', residenceCategory: 'individual_house', lat: 12.8715, lng: 77.6534 },
         packageDescription: event.extra?.packageDescription || 'Delivered Package',
         driver: event.extra?.driverId || 'DRV-BLR-09 (Unit 24)',
-        status: 'DELIVERED',
+        status: finalStatus,
         distanceMeters: 12,
         dwellSeconds: 90,
         requiredDwellSeconds: 90,
@@ -472,44 +476,55 @@ function handleIncomingRealtimeEvent(event) {
         callDuration: 20,
         gpsAccuracy: 6,
         auditId: event.auditId || `AUD-${Date.now().toString(36).toUpperCase()}`,
-        decision: 'DELIVERED',
-        decisionReason: `Delivery completed & verified. Customer handoff confirmed at door (${event.handoffType || 'direct'}). Video proof attached.`,
-        videoProofUri: event.videoProofUri,
+        decision: finalStatus,
+        decisionReason: requiresReview
+          ? `Doorstep handoff video submitted (${event.handoffType || 'doorstep'}). Awaiting supervisor review to confirm legitimacy.`
+          : `Delivery completed & verified. Customer handoff confirmed at door (${event.handoffType || 'direct'}).`,
+        videoProofUri: event.videoProofUri || event.extra?.videoProofUri,
         handoffType: event.handoffType,
+        requiresAdminApproval: requiresReview,
+        adminApprovalStatus: requiresReview ? 'PENDING' : 'APPROVED',
       };
       orders.unshift(order);
     } else {
-      order.status = 'DELIVERED';
-      order.decision = 'DELIVERED';
-      order.decisionReason = `Delivery completed & verified. Customer handoff confirmed at door (${event.handoffType || 'direct'}). Video proof attached.`;
-      order.videoProofUri = event.videoProofUri || order.videoProofUri;
+      order.status = finalStatus;
+      order.decision = finalStatus;
+      order.decisionReason = requiresReview
+        ? `Doorstep handoff video submitted (${event.handoffType || 'doorstep'}). Awaiting supervisor review to confirm legitimacy.`
+        : `Delivery completed & verified. Customer handoff confirmed at door (${event.handoffType || 'direct'}).`;
+      order.videoProofUri = event.videoProofUri || event.extra?.videoProofUri || order.videoProofUri;
       order.handoffType = event.handoffType || order.handoffType;
       order.distanceMeters = 12;
       order.dwellSeconds = Math.max(order.dwellSeconds, 90);
+      order.requiresAdminApproval = requiresReview;
+      order.adminApprovalStatus = requiresReview ? 'PENDING' : 'APPROVED';
       if (event.auditId) order.auditId = event.auditId;
     }
 
     updateKPICounters();
     renderOrderList();
+    selectOrder(order.id);
 
-    if (selectedOrderId === event.deliveryId) {
-      selectOrder(selectedOrderId);
+    if (requiresReview) {
+      showNotification(`🔔 NEW SUPERVISOR REVIEW: Order ${order.id} submitted with video proof!`);
+    } else {
+      showNotification(`🔔 REAL-TIME SYNC: Order ${order.id} marked DELIVERED with verified proof!`);
     }
-
-    showNotification(`🔔 REAL-TIME SYNC: Order ${event.deliveryId} marked DELIVERED with verified video proof!`);
   } else if (event.type === 'DELIVERY_ATTESTED' && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId);
     if (order) {
-      order.status = event.status;
-      order.decision = event.status;
+      const hasVideo = !!(event.videoProofUri || event.extra?.videoProofUri);
+      const requiresReview = hasVideo || event.status === 'REVIEW' || event.extra?.requiresAdminApproval;
+      order.status = requiresReview ? 'REVIEW' : (event.status || order.status);
+      order.decision = order.status;
+      order.requiresAdminApproval = requiresReview;
+      order.adminApprovalStatus = requiresReview ? 'PENDING' : (event.extra?.adminApprovalStatus || 'APPROVED');
       if (event.videoProofUri) order.videoProofUri = event.videoProofUri;
       if (event.extra?.decisionReason) order.decisionReason = event.extra.decisionReason;
       updateKPICounters();
       renderOrderList();
-      if (selectedOrderId === event.deliveryId) {
-        selectOrder(selectedOrderId);
-      }
-      showNotification(`🔔 REAL-TIME SYNC: Order ${event.deliveryId} updated to ${event.status}`);
+      selectOrder(order.id);
+      showNotification(`🔔 REAL-TIME SYNC: Order ${event.deliveryId} updated to ${order.status}`);
     }
   }
 }
@@ -773,250 +788,150 @@ function formatTimecode(secs) {
 }
 
 function drawDoorstepEvidenceFrame(canvasId, type, time, order) {
-  const canvas = document.getElementById(canvasId);
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  const w = canvas.width;
-  const h = canvas.height;
-
-  ctx.save();
-  ctx.clearRect(0, 0, w, h);
-
-  // If order has thumbnail image loaded, draw thumbnail
-  if (order && order._cachedThumbImage && order._cachedThumbImage.complete && order._cachedThumbImage.naturalWidth > 0) {
-    ctx.drawImage(order._cachedThumbImage, 0, 0, w, h);
-  } else if (order && order.thumbnail && !order._cachedThumbImage) {
-    const img = new Image();
-    img.src = order.thumbnail;
-    img.onload = () => {
-      order._cachedThumbImage = img;
-      drawDoorstepEvidenceFrame(canvasId, type, time, order);
-    };
-    drawSyntheticDoorstepScene(ctx, w, h, type, time, order);
-  } else {
-    drawSyntheticDoorstepScene(ctx, w, h, type, time, order);
-  }
-
-  // Draw Camera Telemetry HUD Overlay
-  drawTelemetryHUD(ctx, w, h, type, time, order);
-
-  ctx.restore();
+  // Pure native HTML5 video playback used. No canvas rendering or cartoon graphics.
 }
 
-function drawSyntheticDoorstepScene(ctx, w, h, type, time, order) {
-  // Handheld camera sway
-  const swayX = Math.sin(time * 2.5) * 3;
-  const swayY = Math.cos(time * 2.0) * 2;
-  ctx.translate(swayX, swayY);
+function drawCleanEvidencePoster(ctx, w, h, type, time, order) {
+  // Clean, sleek dark monitor backdrop
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+  bgGrad.addColorStop(0, '#090D16');
+  bgGrad.addColorStop(1, '#0F172A');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, w, h);
 
-  // Background Corridor Wall
-  const wallGrad = ctx.createLinearGradient(0, 0, 0, h);
-  wallGrad.addColorStop(0, '#CBD5E1');
-  wallGrad.addColorStop(1, '#94A3B8');
-  ctx.fillStyle = wallGrad;
-  ctx.fillRect(-10, -10, w + 20, h + 20);
-
-  // Floor Baseboard & Flooring
-  ctx.fillStyle = '#64748B';
-  ctx.fillRect(-10, h - 70, w + 20, 8);
-
-  const floorGrad = ctx.createLinearGradient(0, h - 62, 0, h);
-  floorGrad.addColorStop(0, '#475569');
-  floorGrad.addColorStop(1, '#1E293B');
-  ctx.fillStyle = floorGrad;
-  ctx.fillRect(-10, h - 62, w + 20, 80);
-
-  // Apartment Door (Centered)
-  const doorX = 130;
-  const doorY = 20;
-  const doorW = 220;
-  const doorH = h - 85;
-
-  // Door Frame
-  ctx.fillStyle = '#334155';
-  ctx.fillRect(doorX - 6, doorY - 4, doorW + 12, doorH + 6);
-
-  // Door Surface: Rich Mahogany Wood Tone
-  const doorGrad = ctx.createLinearGradient(doorX, 0, doorX + doorW, 0);
-  doorGrad.addColorStop(0, '#5C2D12');
-  doorGrad.addColorStop(0.5, '#78350F');
-  doorGrad.addColorStop(1, '#451A03');
-  ctx.fillStyle = doorGrad;
-  ctx.fillRect(doorX, doorY, doorW, doorH);
-
-  // Wood Panel Reliefs
-  const panels = [
-    { x: doorX + 16, y: doorY + 16, pw: 85, ph: 65 },
-    { x: doorX + 115, y: doorY + 16, pw: 85, ph: 65 },
-    { x: doorX + 16, y: doorY + 95, pw: 85, ph: 75 },
-    { x: doorX + 115, y: doorY + 95, pw: 85, ph: 75 },
-  ];
-
-  panels.forEach(p => {
-    ctx.fillStyle = '#3B1803';
-    ctx.fillRect(p.x, p.y, p.pw, p.ph);
-    ctx.strokeStyle = '#92400E';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(p.x + 2, p.y + 2, p.pw - 4, p.ph - 4);
-  });
-
-  // Metallic Lever Handle & Deadbolt
-  ctx.fillStyle = '#D97706';
-  ctx.fillRect(doorX + 12, doorY + 105, 14, 28);
-  ctx.fillStyle = '#F59E0B';
-  ctx.fillRect(doorX + 4, doorY + 114, 22, 6);
-  ctx.beginPath();
-  ctx.arc(doorX + 19, doorY + 117, 3, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Peephole
-  ctx.beginPath();
-  ctx.arc(doorX + doorW / 2, doorY + 45, 6, 0, Math.PI * 2);
-  ctx.fillStyle = '#D97706';
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(doorX + doorW / 2, doorY + 45, 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#000000';
-  ctx.fill();
-
-  // Unit Number Plate
-  ctx.fillStyle = '#1E293B';
-  ctx.fillRect(doorX + doorW / 2 - 28, doorY + 10, 56, 16);
-  ctx.strokeStyle = '#D97706';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(doorX + doorW / 2 - 28, doorY + 10, 56, 16);
-  ctx.fillStyle = '#F8FAFC';
-  ctx.font = 'bold 9px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(order?.address?.street?.includes('902') ? 'FLAT 902' : 'DOORSTEP', doorX + doorW / 2, doorY + 22);
-
-  // Doorbell Unit (Left wall)
-  const bellX = 65;
-  const bellY = 100;
-  ctx.fillStyle = '#1E293B';
-  ctx.fillRect(bellX, bellY, 24, 38);
-  ctx.strokeStyle = '#475569';
-  ctx.strokeRect(bellX, bellY, 24, 38);
-
-  const isRinging = type === 'unavail' && (time >= 1.0 && time <= 4.5);
-  ctx.beginPath();
-  ctx.arc(bellX + 12, bellY + 18, 7, 0, Math.PI * 2);
-  ctx.fillStyle = isRinging ? '#38BDF8' : '#F8FAFC';
-  ctx.fill();
-
-  if (isRinging) {
-    ctx.strokeStyle = '#38BDF8';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(bellX + 12, bellY + 18, 14 + Math.sin(time * 12) * 3, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = '#1E293B';
-    ctx.beginPath();
-    ctx.ellipse(bellX + 8, bellY + 22, 14, 6, -0.4, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#38BDF8';
-    ctx.font = 'bold 10px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('🔔 CHIME UNANSWERED', bellX - 25, bellY - 8);
-  }
-
-  // Welcome Doormat
-  const matX = doorX + 15;
-  const matY = h - 60;
-  const matW = doorW - 30;
-  const matH = 45;
-  ctx.fillStyle = '#0F172A';
-  ctx.fillRect(matX, matY, matW, matH);
+  // Subtle viewfinder frame corners
   ctx.strokeStyle = '#334155';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(matX, matY, matW, matH);
+  ctx.lineWidth = 1.5;
+  const margin = 20;
+  const corner = 16;
 
-  ctx.fillStyle = '#F59E0B';
-  ctx.font = 'bold 10px sans-serif';
+  // Top-left
+  ctx.beginPath();
+  ctx.moveTo(margin, margin + corner);
+  ctx.lineTo(margin, margin);
+  ctx.lineTo(margin + corner, margin);
+  ctx.stroke();
+
+  // Top-right
+  ctx.beginPath();
+  ctx.moveTo(w - margin - corner, margin);
+  ctx.lineTo(w - margin, margin);
+  ctx.lineTo(w - margin, margin + corner);
+  ctx.stroke();
+
+  // Bottom-left
+  ctx.beginPath();
+  ctx.moveTo(margin, h - margin - corner);
+  ctx.lineTo(margin, h - margin);
+  ctx.lineTo(margin + corner, h - margin);
+  ctx.stroke();
+
+  // Bottom-right
+  ctx.beginPath();
+  ctx.moveTo(w - margin - corner, h - margin);
+  ctx.lineTo(w - margin, h - margin);
+  ctx.lineTo(w - margin, h - margin - corner);
+  ctx.stroke();
+
+  // Center video camera icon
+  const cx = w / 2;
+  const cy = h / 2 - 15;
+
+  ctx.fillStyle = '#1E293B';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Play triangle
+  ctx.fillStyle = '#38BDF8';
+  ctx.beginPath();
+  ctx.moveTo(cx - 8, cy - 12);
+  ctx.lineTo(cx + 14, cy);
+  ctx.lineTo(cx - 8, cy + 12);
+  ctx.closePath();
+  ctx.fill();
+
+  // File label
+  const rawUri = order?.videoProofUri;
+  const fileName = (rawUri ? rawUri.split('/').pop().split('?')[0] : (type === 'delivery' ? 'doorstep_handoff_proof.mp4' : 'doorstep_absence_clip.mp4'));
+  ctx.fillStyle = '#F8FAFC';
+  ctx.font = 'bold 12px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('WELCOME', matX + matW / 2, matY + 28);
+  ctx.fillText(fileName, cx, cy + 45);
 
-  // If type === 'delivery': Package on mat with verified bounding box
-  if (type === 'delivery') {
-    const pkgX = matX + 35;
-    const pkgY = matY - 20;
-    const pkgW = 100;
-    const pkgH = 50;
-
-    // Cardboard Box Body
-    ctx.fillStyle = '#B45309';
-    ctx.fillRect(pkgX, pkgY, pkgW, pkgH);
-
-    // Box Tape
-    ctx.fillStyle = '#D97706';
-    ctx.fillRect(pkgX + 42, pkgY, 16, pkgH);
-
-    // Shipping Label with Barcode
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(pkgX + 15, pkgY + 10, 48, 28);
-
-    ctx.fillStyle = '#000000';
-    for (let i = 0; i < 8; i++) {
-      ctx.fillRect(pkgX + 18 + i * 5, pkgY + 14, 2, 12);
-    }
-    ctx.font = 'bold 6px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('SBT-SECURE', pkgX + 18, pkgY + 34);
-
-    // Anti-spoof AI green bounding box around package
-    ctx.strokeStyle = '#22C55E';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(pkgX - 6, pkgY - 6, pkgW + 12, pkgH + 12);
-
-    ctx.fillStyle = 'rgba(34, 197, 94, 0.9)';
-    ctx.fillRect(pkgX - 6, pkgY - 20, 112, 14);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 8px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText('✓ HANDOFF VERIFIED', pkgX - 2, pkgY - 10);
-  }
+  ctx.fillStyle = '#94A3B8';
+  ctx.font = '10px monospace';
+  ctx.fillText('AUTHENTIC OPERATIONAL EVIDENCE', cx, cy + 62);
 }
 
 function drawTelemetryHUD(ctx, w, h, type, time, order) {
-  // Top Banner HUD
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-  ctx.fillRect(0, 0, w, 24);
+  // Clean unwatermarked display — telemetry is displayed in dedicated UI metric cards below the player
+}
 
-  // Blinking REC Indicator
-  const blink = Math.floor(time * 2) % 2 === 0;
-  ctx.fillStyle = blink ? '#EF4444' : 'rgba(239, 68, 68, 0.3)';
-  ctx.beginPath();
-  ctx.arc(14, 12, 4, 0, Math.PI * 2);
-  ctx.fill();
+function setupHtmlVideoSource(type, uri) {
+  const isUnavail = type === 'unavail';
+  const videoEl = document.getElementById(isUnavail ? 'unavailableVideoPlayer' : 'deliveryVideoPlayer');
+  const p = videoPlayers[type];
+  if (!videoEl || !p) return;
 
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = 'bold 9px monospace';
-  ctx.textAlign = 'left';
-  const timeStr = formatTimecode(time) + `.${String(Math.floor((time % 1) * 10)).padStart(1, '0')}`;
-  ctx.fillText(`REC [${timeStr}] 1080P 30FPS`, 24, 15);
+  let playableSrc = '';
+  if (uri) {
+    if (uri.startsWith('http') || uri.startsWith('blob:') || uri.startsWith('/api/uploads/')) {
+      playableSrc = uri;
+    } else {
+      const fileName = uri.split('/').pop()?.split('?')[0] || (type === 'delivery' ? 'doorstep_handoff_proof.mp4' : 'doorstep_absence_clip.mp4');
+      playableSrc = `/api/uploads/${fileName}`;
+    }
+  } else {
+    playableSrc = '/api/uploads/sample_doorstep_proof.mp4';
+  }
 
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#34D399';
-  ctx.fillText(`GPS LOCK: ≤${order?.distanceMeters || 38}M • ACC ±${order?.gpsAccuracy || 6}M`, w - 10, 15);
+  videoEl.dataset.fallbackTried = 'false';
+  videoEl.src = playableSrc;
+  videoEl.load();
 
-  // Bottom Banner HUD
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-  ctx.fillRect(0, h - 22, w, 22);
+  videoEl.onloadedmetadata = () => {
+    if (videoEl.duration && !isNaN(videoEl.duration) && isFinite(videoEl.duration)) {
+      p.duration = videoEl.duration;
+      const scrubber = document.getElementById(isUnavail ? 'unavailScrubber' : 'deliveryScrubber');
+      if (scrubber) scrubber.max = Math.floor(videoEl.duration * 10);
+    }
+    updatePlayerUI(type);
+  };
 
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#A7F3D0';
-  ctx.font = 'bold 8px monospace';
-  const lum = order?.videoMetrics?.luminance || 120;
-  const variance = order?.videoMetrics?.variance || 450;
-  ctx.fillText(`LUM: ${lum}/255 (PASS) • DETAIL VAR: ${variance} (GENUINE)`, 10, h - 8);
+  videoEl.ontimeupdate = () => {
+    p.currentTime = videoEl.currentTime;
+    updatePlayerUI(type);
+  };
 
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#94A3B8';
-  ctx.fillText('HASH: ' + (order?.auditId || 'AUD-7K99-M42A'), w - 10, h - 8);
+  videoEl.onended = () => {
+    pauseVideo(type);
+    p.currentTime = 0;
+    updatePlayerUI(type);
+  };
+
+  videoEl.onplay = () => {
+    p.isPlaying = true;
+    const btnPlay = document.getElementById(isUnavail ? 'btnUnavailPlay' : 'btnDeliveryPlay');
+    if (btnPlay) btnPlay.innerText = '⏸ PAUSE';
+  };
+
+  videoEl.onpause = () => {
+    p.isPlaying = false;
+    const btnPlay = document.getElementById(isUnavail ? 'btnUnavailPlay' : 'btnDeliveryPlay');
+    if (btnPlay) btnPlay.innerText = '▶ PLAY';
+  };
+
+  videoEl.onerror = () => {
+    if (videoEl.dataset.fallbackTried !== 'true') {
+      videoEl.dataset.fallbackTried = 'true';
+      videoEl.src = '/api/uploads/sample_doorstep_proof.mp4';
+      videoEl.load();
+    }
+  };
 }
 
 function toggleVideoPlayback(type) {
@@ -1035,38 +950,16 @@ function playVideo(type) {
   if (!p) return;
 
   p.isPlaying = true;
+  const isUnavail = type === 'unavail';
+  const videoEl = document.getElementById(isUnavail ? 'unavailableVideoPlayer' : 'deliveryVideoPlayer');
+  if (videoEl && videoEl.src) {
+    videoEl.play().catch(() => {});
+  }
 
   const btnPlay = document.getElementById(type === 'unavail' ? 'btnUnavailPlay' : 'btnDeliveryPlay');
   if (btnPlay) {
     btnPlay.innerText = '⏸ PAUSE';
   }
-
-  const overlay = document.getElementById(type === 'unavail' ? 'unavailPlayOverlay' : 'deliveryPlayOverlay');
-  if (overlay) {
-    overlay.classList.add('playing');
-  }
-
-  let lastTimestamp = performance.now();
-
-  function step(now) {
-    if (!p.isPlaying) return;
-    const delta = (now - lastTimestamp) / 1000;
-    lastTimestamp = now;
-
-    p.currentTime += delta;
-    if (p.currentTime >= p.duration) {
-      p.currentTime = p.duration;
-      pauseVideo(type);
-      p.currentTime = 0;
-      updatePlayerUI(type);
-      return;
-    }
-
-    updatePlayerUI(type);
-    p.animFrame = requestAnimationFrame(step);
-  }
-
-  p.animFrame = requestAnimationFrame(step);
 }
 
 function pauseVideo(type) {
@@ -1074,28 +967,27 @@ function pauseVideo(type) {
   if (!p) return;
 
   p.isPlaying = false;
-  if (p.animFrame) {
-    cancelAnimationFrame(p.animFrame);
-    p.animFrame = null;
+  const isUnavail = type === 'unavail';
+  const videoEl = document.getElementById(isUnavail ? 'unavailableVideoPlayer' : 'deliveryVideoPlayer');
+  if (videoEl && !videoEl.paused) {
+    videoEl.pause();
   }
 
   const btnPlay = document.getElementById(type === 'unavail' ? 'btnUnavailPlay' : 'btnDeliveryPlay');
   if (btnPlay) {
     btnPlay.innerText = '▶ PLAY';
   }
-
-  const overlay = document.getElementById(type === 'unavail' ? 'unavailPlayOverlay' : 'deliveryPlayOverlay');
-  if (overlay) {
-    overlay.classList.remove('playing');
-  }
-
-  updatePlayerUI(type);
 }
 
 function restartVideo(type) {
   const p = videoPlayers[type];
   if (!p) return;
   p.currentTime = 0;
+  const isUnavail = type === 'unavail';
+  const videoEl = document.getElementById(isUnavail ? 'unavailableVideoPlayer' : 'deliveryVideoPlayer');
+  if (videoEl && videoEl.src) {
+    videoEl.currentTime = 0;
+  }
   playVideo(type);
 }
 
@@ -1103,15 +995,17 @@ function seekVideo(type, targetSeconds) {
   const p = videoPlayers[type];
   if (!p) return;
   p.currentTime = Math.max(0, Math.min(targetSeconds, p.duration));
+  const isUnavail = type === 'unavail';
+  const videoEl = document.getElementById(isUnavail ? 'unavailableVideoPlayer' : 'deliveryVideoPlayer');
+  if (videoEl && videoEl.src) {
+    videoEl.currentTime = p.currentTime;
+  }
   updatePlayerUI(type);
 }
 
 function updatePlayerUI(type) {
   const p = videoPlayers[type];
   if (!p) return;
-
-  const canvasId = type === 'unavail' ? 'unavailCanvas' : 'deliveryCanvas';
-  drawDoorstepEvidenceFrame(canvasId, type, p.currentTime, p.order);
 
   const scrubber = document.getElementById(type === 'unavail' ? 'unavailScrubber' : 'deliveryScrubber');
   if (scrubber) {
@@ -1225,13 +1119,30 @@ function selectOrder(orderId) {
   // Interactive Video Proof Engine Setup
   setupVideoListenersOnce();
 
-  // Handle Video Proof & Admin Approval Section (Customer Unavailable)
+  // Determine proof category: Absence vs Handoff
+  const isHandoffProof =
+    Boolean(order.handoffType) ||
+    order.decisionReason?.toLowerCase().includes('handoff') ||
+    order.decisionReason?.toLowerCase().includes('delivery') ||
+    order.status === 'DELIVERED';
+
+  const isAbsenceClaim = !isHandoffProof && (
+    order.decisionReason?.toLowerCase().includes('absence') ||
+    order.decisionReason?.toLowerCase().includes('unavailable') ||
+    order.status === 'FAILED'
+  );
+
+  // 1. Handle Video Proof & Admin Approval Section (Customer Unavailable)
   const videoSection = document.getElementById('videoApprovalSection');
-  if (order.requiresAdminApproval && order.adminApprovalStatus === 'PENDING') {
+  if (isAbsenceClaim && (order.status === 'REVIEW' || (order.requiresAdminApproval && order.adminApprovalStatus === 'PENDING'))) {
     videoSection.style.display = 'block';
-    document.getElementById('videoFileName').innerText = order.videoProofUri || 'doorstep_absence_clip_1003.mp4';
+    const videoFileEl = document.getElementById('videoFileName');
+    if (videoFileEl) {
+      videoFileEl.innerText = order.videoProofUri?.split('/').pop() || 'doorstep_absence_clip_1003.mp4';
+    }
     videoPlayers.unavail.order = order;
     videoPlayers.unavail.currentTime = 0;
+    setupHtmlVideoSource('unavail', order.videoProofUri);
     pauseVideo('unavail');
     updatePlayerUI('unavail');
   } else {
@@ -1239,16 +1150,25 @@ function selectOrder(orderId) {
     pauseVideo('unavail');
   }
 
-  // Handle Delivery Handoff Video Proof Section for Successful Delivery
+  // 2. Handle Delivery Handoff Video Proof Section for Successful Delivery / Review
   const deliveryVideoSection = document.getElementById('deliveryVideoProofSection');
   const auditPill = document.getElementById('deliveryAuditStatusPill');
 
   if (deliveryVideoSection) {
-    if ((order.status === 'DELIVERED' || order.status === 'VERIFIED' || order.status === 'REJECTED') && order.videoProofUri) {
+    const hasDeliveryProof = !isAbsenceClaim && (
+      order.videoProofUri ||
+      order.requiresAdminApproval ||
+      order.status === 'REVIEW' ||
+      order.status === 'DELIVERED' ||
+      order.status === 'VERIFIED' ||
+      order.status === 'REJECTED'
+    );
+
+    if (hasDeliveryProof && (order.videoProofUri || order.requiresAdminApproval || order.status === 'REVIEW')) {
       deliveryVideoSection.style.display = 'block';
       const fileNameEl = document.getElementById('deliveryVideoFileName');
       if (fileNameEl) {
-        fileNameEl.innerText = order.videoProofUri.split('/').pop() || 'doorstep_handoff_proof.mp4';
+        fileNameEl.innerText = order.videoProofUri ? order.videoProofUri.split('/').pop() : 'doorstep_handoff_proof.mp4';
       }
 
       if (auditPill) {
@@ -1272,6 +1192,7 @@ function selectOrder(orderId) {
 
       videoPlayers.delivery.order = order;
       videoPlayers.delivery.currentTime = 0;
+      setupHtmlVideoSource('delivery', order.videoProofUri);
       pauseVideo('delivery');
       updatePlayerUI('delivery');
     } else {
@@ -1473,6 +1394,15 @@ function persistAdminUpdateToStorage(order) {
     }
 
     window.localStorage.setItem(SQLITE_STORAGE_KEY, JSON.stringify(persisted));
+
+    // Also persist directly to server disk state via REST API
+    fetch('/api/deliveries/' + encodeURIComponent(order.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(order),
+    }).catch((err) => {
+      console.warn('[Admin] Failed to PUT delivery update to server:', err);
+    });
   } catch (e) {
     console.warn('[Admin] Failed to persist order to storage:', e);
   }

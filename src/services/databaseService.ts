@@ -1,7 +1,7 @@
 /**
  * Saboot SQLite Database Service
  * 
- * Local persistence using expo-sqlite (Expo SDK 57) with universal Web fallback.
+ * Local persistence using expo-sqlite (Expo SDK 57) with universal Web/In-Memory fallback.
  * Persists deliveries, completed handoffs, verification facts, and video proof records.
  */
 
@@ -15,17 +15,16 @@ const LOCAL_STORAGE_KEY = 'saboot_sqlite_deliveries_v1';
 let inMemoryDeliveriesCache: Delivery[] = [...INITIAL_DELIVERIES];
 
 /**
- * Initialize SQLite database tables
+ * Initialize SQLite database tables safely
  */
 export async function initDatabase(): Promise<void> {
-  try {
-    if (Platform.OS !== 'web') {
+  if (Platform.OS !== 'web') {
+    try {
       const SQLite = await import('expo-sqlite');
-      sqliteDbInstance = await SQLite.openDatabaseAsync(DB_NAME);
+      const db = await SQLite.openDatabaseAsync(DB_NAME);
 
       // Create Deliveries table
-      await sqliteDbInstance.execAsync(`
-        PRAGMA journal_mode = WAL;
+      await db.execAsync(`
         CREATE TABLE IF NOT EXISTS deliveries (
           id TEXT PRIMARY KEY NOT NULL,
           tracking_number TEXT NOT NULL,
@@ -46,7 +45,10 @@ export async function initDatabase(): Promise<void> {
           completed_at TEXT,
           created_at TEXT
         );
+      `);
 
+      // Create handoff_records table
+      await db.execAsync(`
         CREATE TABLE IF NOT EXISTS handoff_records (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           delivery_id TEXT NOT NULL,
@@ -57,7 +59,10 @@ export async function initDatabase(): Promise<void> {
           video_variance REAL,
           recorded_at TEXT NOT NULL
         );
+      `);
 
+      // Create verification_facts table
+      await db.execAsync(`
         CREATE TABLE IF NOT EXISTS verification_facts (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           delivery_id TEXT NOT NULL,
@@ -71,15 +76,22 @@ export async function initDatabase(): Promise<void> {
         );
       `);
 
-      // Ensure all INITIAL_DELIVERIES exist in SQLite DB without overwriting completed deliveries
-      await seedInitialDeliveriesSQLite(sqliteDbInstance);
+      // Seed initial deliveries if needed
+      await seedInitialDeliveriesSQLite(db);
+
+      // Verified working instance
+      sqliteDbInstance = db;
       return;
+    } catch (err: any) {
+      // Invalidate broken handle immediately to prevent prepareAsync NullPointerExceptions
+      sqliteDbInstance = null;
+      if (__DEV__) {
+        console.log('[SQLite] Native DB init error, using universal memory store:', err?.message || err);
+      }
     }
-  } catch (err) {
-    console.warn('[SQLite] Native openDatabaseAsync fallback to universal local storage:', err);
   }
 
-  // Web & Universal fallback: persist to localStorage with identical SQLite relational schema
+  // Web & Universal fallback
   initWebStorage();
 }
 
@@ -88,33 +100,35 @@ export async function initDatabase(): Promise<void> {
  */
 async function seedInitialDeliveriesSQLite(db: any): Promise<void> {
   for (const d of INITIAL_DELIVERIES) {
-    await db.runAsync(
-      `INSERT OR IGNORE INTO deliveries (
-        id, tracking_number, customer_name, customer_phone, street, city,
-        residence_category, lat, lng, package_desc, driver_id, status,
-        notes, handoff_type, video_proof_uri, video_status, completed_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        d.id,
-        d.trackingNumber,
-        d.customer.name,
-        d.customer.phone,
-        d.address.street,
-        d.address.city,
-        d.address.residenceCategory,
-        d.address.latitude,
-        d.address.longitude,
-        d.packageDescription,
-        d.assignedDriverId,
-        d.status,
-        d.notes || '',
-        d.handoffType || '',
-        d.videoProofUri || '',
-        '',
-        d.completedAt || '',
-        d.createdAt,
-      ]
-    );
+    try {
+      await db.runAsync(
+        `INSERT OR IGNORE INTO deliveries (
+          id, tracking_number, customer_name, customer_phone, street, city,
+          residence_category, lat, lng, package_desc, driver_id, status,
+          notes, handoff_type, video_proof_uri, video_status, completed_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          d.id,
+          d.trackingNumber,
+          d.customer.name,
+          d.customer.phone,
+          d.address.street,
+          d.address.city,
+          d.address.residenceCategory,
+          d.address.latitude,
+          d.address.longitude,
+          d.packageDescription,
+          d.assignedDriverId,
+          d.status,
+          d.notes || '',
+          d.handoffType || '',
+          d.videoProofUri || '',
+          '',
+          d.completedAt || '',
+          d.createdAt,
+        ]
+      );
+    } catch {}
   }
 }
 
@@ -144,14 +158,14 @@ function initWebStorage(): void {
 }
 
 /**
- * Fetch all deliveries from SQLite database
+ * Fetch all deliveries from SQLite database or memory cache
  */
 export async function getDeliveriesFromDB(): Promise<Delivery[]> {
-  try {
-    if (sqliteDbInstance && Platform.OS !== 'web') {
+  if (sqliteDbInstance && Platform.OS !== 'web') {
+    try {
       const rows = await sqliteDbInstance.getAllAsync('SELECT * FROM deliveries ORDER BY id ASC');
       if (rows && rows.length > 0) {
-        return rows.map((r: any): Delivery => ({
+        const parsed = rows.map((r: any): Delivery => ({
           id: r.id,
           trackingNumber: r.tracking_number,
           customer: {
@@ -177,10 +191,16 @@ export async function getDeliveriesFromDB(): Promise<Delivery[]> {
           videoProofUri: r.video_proof_uri || undefined,
           completedAt: r.completed_at || undefined,
         }));
+        inMemoryDeliveriesCache = parsed;
+        return parsed;
+      }
+    } catch (err) {
+      // Invalidate broken handle to prevent repeated crashes
+      sqliteDbInstance = null;
+      if (__DEV__) {
+        console.log('[SQLite] getAllAsync query fallback to memory cache');
       }
     }
-  } catch (err) {
-    console.warn('[SQLite] Failed to query deliveries, using web storage:', err);
   }
 
   // Web fallback
@@ -191,9 +211,7 @@ export async function getDeliveriesFromDB(): Promise<Delivery[]> {
         const parsed = JSON.parse(data);
         inMemoryDeliveriesCache = parsed;
         return parsed;
-      } catch (e) {
-        console.error('[SQLite Web] Failed to parse deliveries from localStorage:', e);
-      }
+      } catch (e) {}
     }
   }
 
@@ -201,7 +219,7 @@ export async function getDeliveriesFromDB(): Promise<Delivery[]> {
 }
 
 /**
- * Save / update delivery completion in SQLite database
+ * Save / update delivery completion in SQLite database or memory store
  */
 export async function saveDeliveryCompletionInDB(
   deliveryId: string,
@@ -213,8 +231,8 @@ export async function saveDeliveryCompletionInDB(
 ): Promise<Delivery[]> {
   const completedAt = new Date().toISOString();
 
-  try {
-    if (sqliteDbInstance && Platform.OS !== 'web') {
+  if (sqliteDbInstance && Platform.OS !== 'web') {
+    try {
       await sqliteDbInstance.runAsync(
         `UPDATE deliveries 
          SET status = 'DELIVERED', 
@@ -252,12 +270,15 @@ export async function saveDeliveryCompletionInDB(
       }
 
       return await getDeliveriesFromDB();
+    } catch (err) {
+      sqliteDbInstance = null;
+      if (__DEV__) {
+        console.log('[SQLite] saveDeliveryCompletion fallback to memory update');
+      }
     }
-  } catch (err) {
-    console.warn('[SQLite] Failed to update delivery in SQLite, falling back to web storage:', err);
   }
 
-  // Web fallback
+  // In-memory update
   let deliveries = await getDeliveriesFromDB();
   deliveries = deliveries.map((d) =>
     d.id === deliveryId
@@ -291,8 +312,8 @@ export async function updateDeliveryStatusInDB(
   status: DeliveryStatus,
   extra?: { videoProofUri?: string; requiresAdminApproval?: boolean; adminApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED' }
 ): Promise<Delivery[]> {
-  try {
-    if (sqliteDbInstance && Platform.OS !== 'web') {
+  if (sqliteDbInstance && Platform.OS !== 'web') {
+    try {
       await sqliteDbInstance.runAsync(
         `UPDATE deliveries 
          SET status = ?, 
@@ -301,9 +322,12 @@ export async function updateDeliveryStatusInDB(
         [status, extra?.videoProofUri || null, deliveryId]
       );
       return await getDeliveriesFromDB();
+    } catch (err) {
+      sqliteDbInstance = null;
+      if (__DEV__) {
+        console.log('[SQLite] updateDeliveryStatus fallback to memory');
+      }
     }
-  } catch (err) {
-    console.warn('[SQLite] updateDeliveryStatusInDB error:', err);
   }
 
   let deliveries = await getDeliveriesFromDB();
@@ -335,8 +359,8 @@ export async function updateDeliveryStatusInDB(
  * Insert or update a newly dispatched / assigned delivery in SQLite DB
  */
 export async function insertOrUpdateDeliveryInDB(delivery: Delivery): Promise<Delivery[]> {
-  try {
-    if (sqliteDbInstance && Platform.OS !== 'web') {
+  if (sqliteDbInstance && Platform.OS !== 'web') {
+    try {
       await sqliteDbInstance.runAsync(
         `INSERT OR REPLACE INTO deliveries (
           id, tracking_number, customer_name, customer_phone, street, city,
@@ -365,9 +389,12 @@ export async function insertOrUpdateDeliveryInDB(delivery: Delivery): Promise<De
         ]
       );
       return await getDeliveriesFromDB();
+    } catch (err) {
+      sqliteDbInstance = null;
+      if (__DEV__) {
+        console.log('[SQLite] insertOrUpdate fallback to memory');
+      }
     }
-  } catch (err) {
-    console.warn('[SQLite] insertOrUpdateDeliveryInDB error:', err);
   }
 
   let deliveries = await getDeliveriesFromDB();

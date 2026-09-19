@@ -8,6 +8,8 @@
  */
 
 import { Platform, NativeModules } from 'react-native';
+import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export type RealtimeEventType = 
   | 'DELIVERY_COMPLETED'
@@ -42,12 +44,13 @@ if (Platform.OS === 'web' && typeof window !== 'undefined' && 'BroadcastChannel'
   try {
     broadcastChannel = new (window as any).BroadcastChannel(CHANNEL_NAME);
   } catch (err) {
-    console.warn('[RealtimeSync] BroadcastChannel not supported:', err);
+    // silently ignore
   }
 }
 
 /**
  * Determine the Saboot Admin & Sync server base URL dynamically
+ * Automatically resolves physical Android phone Wi-Fi connection to host machine
  */
 export function getSyncServerUrl(): string {
   if (Platform.OS === 'web') {
@@ -58,18 +61,35 @@ export function getSyncServerUrl(): string {
   }
 
   // React Native Native (iOS / Android / Expo Go)
+  // 1. Try extracting Metro bundler host IP from Expo Constants
+  try {
+    const hostUri =
+      Constants.expoConfig?.hostUri ||
+      (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ||
+      (Constants as any).experienceUrl;
+    if (hostUri) {
+      const cleaned = hostUri.replace(/^[a-z]+:\/\//, '');
+      const ip = cleaned.split(':')[0];
+      if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+        return `http://${ip}:3000`;
+      }
+    }
+  } catch (e) {}
+
+  // 2. Try SourceCode scriptURL
   try {
     const scriptURL = NativeModules.SourceCode?.scriptURL;
     if (scriptURL) {
       const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
-      if (match && match[1]) {
+      if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
         return `http://${match[1]}:3000`;
       }
     }
   } catch (e) {}
 
+  // 3. Fallback for physical device on LAN
   if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:3000';
+    return 'http://192.168.1.6:3000';
   }
   return 'http://localhost:3000';
 }
@@ -79,13 +99,19 @@ export function getSyncServerUrl(): string {
  */
 export async function fetchServerDeliveries(): Promise<any[]> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
     const url = `${getSyncServerUrl()}/api/deliveries`;
-    const res = await fetch(url, { method: 'GET' });
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    clearTimeout(timeoutId);
     if (res.ok) {
       return await res.json();
     }
   } catch (err) {
-    console.warn('[RealtimeSync] fetchServerDeliveries error:', err);
+    // Server unreachable or offline — silently fallback to local database
+    if (__DEV__) {
+      console.log('[RealtimeSync] Sync server offline or unreachable (using local storage)');
+    }
   }
   return [];
 }
@@ -95,15 +121,18 @@ export async function fetchServerDeliveries(): Promise<any[]> {
  */
 export async function postServerDelivery(delivery: any): Promise<boolean> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
     const url = `${getSyncServerUrl()}/api/deliveries`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(delivery),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     return res.ok;
   } catch (err) {
-    console.warn('[RealtimeSync] postServerDelivery error:', err);
     return false;
   }
 }
@@ -113,15 +142,18 @@ export async function postServerDelivery(delivery: any): Promise<boolean> {
  */
 export async function updateServerDelivery(id: string, updates: any): Promise<boolean> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
     const url = `${getSyncServerUrl()}/api/deliveries/${encodeURIComponent(id)}`;
     const res = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     return res.ok;
   } catch (err) {
-    console.warn('[RealtimeSync] updateServerDelivery error:', err);
     return false;
   }
 }
@@ -287,3 +319,66 @@ export function subscribeToRealtimeEvents(
     }
   };
 }
+
+/**
+ * Upload raw authentic video proof file to the server for persistent backend storage without watermarks
+ */
+export async function uploadVideoProofFile(
+  fileUri: string,
+  preferredFileName?: string
+): Promise<string | null> {
+  try {
+    const serverUrl = `${getSyncServerUrl()}/api/upload`;
+    const fileName = preferredFileName || fileUri.split('/').pop()?.split('?')[0] || `proof_${Date.now()}.mp4`;
+
+    // 1. On native mobile (iOS/Android), use FileSystem.uploadAsync for streaming local file:// URIs
+    if (Platform.OS !== 'web' && typeof FileSystem.uploadAsync === 'function') {
+      const response = await FileSystem.uploadAsync(serverUrl, fileUri, {
+        fieldName: 'file',
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        parameters: { filename: fileName },
+      });
+      if (response.status >= 200 && response.status < 300) {
+        try {
+          const data = JSON.parse(response.body);
+          if (data && data.url) {
+            return data.url;
+          }
+        } catch (e) {}
+        return `/api/uploads/${fileName}`;
+      }
+    }
+
+    // 2. Web or fallback: standard fetch with FormData
+    const formData = new FormData();
+    formData.append('file', {
+      uri: fileUri,
+      name: fileName,
+      type: 'video/mp4',
+    } as any);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(serverUrl, {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.url) {
+        return data.url;
+      }
+    }
+  } catch (err) {
+    if (__DEV__) {
+      console.log('[RealtimeSync] Video proof stored locally (server upload deferred):', err);
+    }
+  }
+  return null;
+}
+

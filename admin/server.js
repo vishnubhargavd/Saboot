@@ -21,6 +21,11 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
 // Initial 8 deliveries (rich dataset for both driver app and admin portal)
 const DEFAULT_DELIVERIES = [
   {
@@ -504,7 +509,7 @@ function broadcastEvent(event) {
   });
 }
 
-// MIME Types for Admin static files
+// MIME Types for Admin static files & video streams
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
@@ -512,7 +517,10 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml',
   '.json': 'application/json',
   '.png': 'image/png',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm'
 };
 
 const server = http.createServer((req, res) => {
@@ -567,13 +575,31 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 3. Post Event
+  // 3. Post Event (Updates delivery state and broadcasts to all clients)
   if (pathname === '/api/events' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
       try {
         const event = JSON.parse(body);
+
+        // Update in-memory deliveries array & persist to disk
+        if (event.deliveryId) {
+          const order = deliveries.find((d) => d.id === event.deliveryId || d.trackingNumber === event.deliveryId);
+          if (order) {
+            order.status = event.status || 'REVIEW';
+            order.decision = event.status || 'REVIEW';
+            order.requiresAdminApproval = event.extra?.requiresAdminApproval !== undefined ? event.extra.requiresAdminApproval : true;
+            order.adminApprovalStatus = event.extra?.adminApprovalStatus || 'PENDING';
+            if (event.videoProofUri) order.videoProofUri = event.videoProofUri;
+            if (event.handoffType) order.handoffType = event.handoffType;
+            if (event.auditId) order.auditId = event.auditId;
+            if (event.extra?.decisionReason) order.decisionReason = event.extra.decisionReason;
+            if (event.extra?.videoMetrics) order.videoMetrics = event.extra.videoMetrics;
+            saveDeliveries();
+          }
+        }
+
         broadcastEvent(event);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true }));
@@ -583,6 +609,159 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // Video Proof Upload API (Zero-dependency Multipart + JSON + Raw stream parser)
+  if (pathname === '/api/upload' && req.method === 'POST') {
+    let chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const buffer = Buffer.concat(chunks);
+        const contentType = req.headers['content-type'] || '';
+        let fileName = (parsedUrl.query && parsedUrl.query.filename) || (req.headers['x-filename']) || `proof_${Date.now()}.mp4`;
+        let fileBuffer = buffer;
+
+        if (contentType.includes('application/json')) {
+          const json = JSON.parse(buffer.toString('utf8'));
+          fileName = (json.fileName || json.name || fileName).replace(/[^a-zA-Z0-9._-]/g, '');
+          if (json.base64) {
+            fileBuffer = Buffer.from(json.base64, 'base64');
+          } else {
+            fileBuffer = Buffer.from(json.content || '', 'utf8');
+          }
+        } else if (contentType.includes('multipart/form-data')) {
+          const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+          const boundary = boundaryMatch ? (boundaryMatch[1] || boundaryMatch[2]).trim() : null;
+
+          if (boundary) {
+            const boundaryBuffer = Buffer.from(`--${boundary}`);
+            const startIdx = buffer.indexOf(boundaryBuffer);
+            if (startIdx !== -1) {
+              const headerStart = startIdx + boundaryBuffer.length;
+              let bodyStart = -1;
+              const crlfIdx = buffer.indexOf(Buffer.from('\r\n\r\n'), headerStart);
+              const lfIdx = buffer.indexOf(Buffer.from('\n\n'), headerStart);
+
+              if (crlfIdx !== -1 && (lfIdx === -1 || crlfIdx < lfIdx)) {
+                bodyStart = crlfIdx + 4;
+              } else if (lfIdx !== -1) {
+                bodyStart = lfIdx + 2;
+              }
+
+              if (bodyStart !== -1) {
+                const headerText = buffer.slice(headerStart, bodyStart).toString('utf8');
+                const fnMatch = headerText.match(/filename="?([^";\r\n]+)"?/i);
+                if (fnMatch && fnMatch[1]) {
+                  fileName = fnMatch[1].trim().replace(/[^a-zA-Z0-9._-]/g, '');
+                }
+
+                const nextBoundaryIdx = buffer.indexOf(boundaryBuffer, bodyStart);
+                let bodyEnd = buffer.length;
+                if (nextBoundaryIdx !== -1) {
+                  bodyEnd = nextBoundaryIdx;
+                  if (bodyEnd >= 2 && buffer[bodyEnd - 2] === 13 && buffer[bodyEnd - 1] === 10) {
+                    bodyEnd -= 2;
+                  } else if (bodyEnd >= 1 && buffer[bodyEnd - 1] === 10) {
+                    bodyEnd -= 1;
+                  }
+                }
+                fileBuffer = buffer.slice(bodyStart, bodyEnd);
+              }
+            }
+          }
+        }
+
+        if (!fileName.toLowerCase().endsWith('.mp4') && !fileName.toLowerCase().endsWith('.mov')) {
+          fileName = `${fileName}.mp4`;
+        }
+        fileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '');
+
+        const targetPath = path.join(UPLOADS_DIR, fileName);
+        fs.writeFileSync(targetPath, fileBuffer);
+
+        const videoUrl = `/api/uploads/${fileName}`;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, url: videoUrl, fileName }));
+      } catch (err) {
+        console.error('[Upload API] Error saving file:', err);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Failed to upload video' }));
+      }
+    });
+    return;
+  }
+
+  // Stream Uploaded Videos with HTTP Range Support (HTML5 Video seeking & fast buffer)
+  if (pathname.startsWith('/api/uploads/') && (req.method === 'GET' || req.method === 'HEAD')) {
+    const filename = path.basename(pathname.replace('/api/uploads/', '')).split('?')[0];
+    let targetFile = path.join(UPLOADS_DIR, filename);
+
+    if (!fs.existsSync(targetFile)) {
+      const fallbackFile = path.join(UPLOADS_DIR, 'sample_doorstep_proof.mp4');
+      if (fs.existsSync(fallbackFile)) {
+        targetFile = fallbackFile;
+      }
+    }
+
+    if (fs.existsSync(targetFile)) {
+      const ext = path.extname(targetFile).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'video/mp4';
+      const stat = fs.statSync(targetFile);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      if (req.method === 'HEAD') {
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Content-Type': contentType,
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end();
+        return;
+      }
+
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+        if (start >= fileSize) {
+          res.writeHead(416, {
+            'Content-Range': `bytes */${fileSize}`,
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end();
+          return;
+        }
+
+        const chunksize = end - start + 1;
+        const fileStream = fs.createReadStream(targetFile, { start, end });
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunksize,
+          'Content-Type': contentType,
+          'Access-Control-Allow-Origin': '*'
+        });
+        fileStream.pipe(res);
+        return;
+      } else {
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Content-Type': contentType,
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*'
+        });
+        fs.createReadStream(targetFile).pipe(res);
+        return;
+      }
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Video file not found' }));
+      return;
+    }
   }
 
   // 4. Deliveries REST API
@@ -643,7 +822,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const updates = JSON.parse(body);
-        const order = deliveries.find((d) => d.id === id);
+        const order = deliveries.find((d) => d.id === id || d.trackingNumber === id);
         if (!order) {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: `Delivery ${id} not found` }));
@@ -656,15 +835,15 @@ const server = http.createServer((req, res) => {
         // Determine event type
         const eventType = updates.assignedDriverId || updates.driver
           ? 'TASK_ASSIGNED'
-          : updates.status === 'VERIFIED' || updates.status === 'REJECTED' || updates.adminApprovalStatus
+          : updates.status === 'VERIFIED' || updates.status === 'REJECTED' || updates.adminApprovalStatus === 'APPROVED'
           ? 'ADMIN_DECISION_UPDATED'
           : 'ORDER_UPDATED';
 
         broadcastEvent({
           type: eventType,
-          deliveryId: id,
+          deliveryId: order.id,
           status: order.status,
-          notes: updates.notes || `Task ${id} updated`,
+          notes: updates.notes || `Task ${order.id} updated`,
           timestamp: new Date().toISOString(),
           extra: {
             ...updates,

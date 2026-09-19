@@ -142,13 +142,8 @@
               </div>
             </div>
             <div class="admin-video-player" id="adminVideoPlayer">
-              <div class="canvas-video-wrapper" id="unavailVideoWrapper">
-                <canvas id="unavailCanvas" width="480" height="270" class="evidence-canvas"></canvas>
-                <video id="unavailableVideoPlayer" playsinline style="width: 100%; height: 100%; display: none; background: #000;"></video>
-                <div class="canvas-video-overlay" id="unavailPlayOverlay">
-                  <div class="play-btn-circle" id="unavailCircleBtn">▶</div>
-                  <span class="video-length-tag" id="unavailOverlayTag">CLICK TO PLAY 00:06 DOORSTEP CLIP</span>
-                </div>
+              <div style="position: relative; width: 100%; height: 220px; background: #000; border-radius: 6px; overflow: hidden;">
+                <video id="unavailableVideoPlayer" controls playsinline muted preload="auto" style="width: 100%; height: 100%; display: block; background: #000; object-fit: contain;"></video>
               </div>
               <div class="video-playback-controls">
                 <button class="btn-ctrl-play" id="btnUnavailPlay">▶ PLAY</button>
@@ -183,13 +178,8 @@
               </div>
             </div>
             <div class="admin-video-player" style="border-color: #86EFAC;">
-              <div class="canvas-video-wrapper" id="deliveryVideoWrapper">
-                <canvas id="deliveryCanvas" width="480" height="270" class="evidence-canvas"></canvas>
-                <video id="deliveryVideoPlayer" playsinline style="width: 100%; height: 100%; display: none; background: #000;"></video>
-                <div class="canvas-video-overlay" id="deliveryPlayOverlay">
-                  <div class="play-btn-circle" id="deliveryCircleBtn" style="background: #22C55E; color: #FFFFFF;">▶</div>
-                  <span class="video-length-tag" id="deliveryOverlayTag" style="background: rgba(0,0,0,0.7);">CLICK TO PLAY 00:04 HANDOFF PROOF</span>
-                </div>
+              <div style="position: relative; width: 100%; height: 220px; background: #000; border-radius: 6px; overflow: hidden;">
+                <video id="deliveryVideoPlayer" controls playsinline muted preload="auto" style="width: 100%; height: 100%; display: block; background: #000; object-fit: contain;"></video>
               </div>
               <div class="video-playback-controls" style="background: #14532D; border-color: #166534;">
                 <button class="btn-ctrl-play" id="btnDeliveryPlay" style="background: #22C55E; color: #FFFFFF;">▶ PLAY</button>

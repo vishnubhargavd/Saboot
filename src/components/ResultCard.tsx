@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Image } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { VerificationResult } from '../types/policy';
-import { generateRealisticThumbnailDataUri } from '../services/videoVerificationService';
+import { VideoProofThumbnail } from './VideoProofThumbnail';
 
 interface ResultCardProps {
   result: VerificationResult;
@@ -96,27 +96,26 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
 
             {/* Genuine Video Proof Footage Preview */}
             <View style={styles.videoPlayerPreview}>
-              <View style={styles.videoThumbnailOverlay}>
-                <Image
-                  source={{
-                    uri: generateRealisticThumbnailDataUri(
-                      result.decision === 'DELIVERED' ? 'delivery' : 'absence',
-                      { trackingNumber: result.deliveryId }
-                    ),
-                  }}
+              <View style={[styles.videoThumbnailOverlay, { height: 180 }]}>
+                <VideoProofThumbnail
+                  uri={result.videoProofUri}
+                  target={result.decision === 'DELIVERED' ? 'delivery' : 'absence'}
+                  trackingNumber={result.deliveryId}
                   style={StyleSheet.absoluteFill}
-                  resizeMode="cover"
+                  allowPlayback={true}
                 />
-                <View style={styles.videoPlayOverlayBadge}>
-                  <Ionicons name="play-circle" size={40} color="#FFFFFF" />
-                  <Text style={styles.videoDurationText}>00:06 • 1080p Recorded Footage</Text>
-                </View>
+                {!result.videoProofUri && (
+                  <View style={styles.videoPlayOverlayBadge}>
+                    <Ionicons name="play-circle" size={40} color="#FFFFFF" />
+                    <Text style={styles.videoDurationText}>00:06 • 1080p Recorded Footage</Text>
+                  </View>
+                )}
               </View>
               <View style={styles.videoMetaBar}>
                 <Text style={styles.videoFileName}>
-                  {result.videoProofUri ? result.videoProofUri.split('/').pop() : 'doorstep_footage_proof.mp4'}
+                  {result.videoProofUri ? result.videoProofUri.split('/').pop()?.split('?')[0] : 'doorstep_footage_proof.mp4'}
                 </Text>
-                <Text style={styles.videoStatusTag}>UPLOADED & ENCRYPTED ✓</Text>
+                <Text style={styles.videoStatusTag}>AUTHENTIC VIDEO PROOF ✓</Text>
               </View>
             </View>
 

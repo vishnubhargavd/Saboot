@@ -36,6 +36,8 @@ import {
   generateRealisticThumbnailDataUri,
   VideoAnalysisMetrics,
 } from '../services/videoVerificationService';
+import { VideoProofThumbnail } from '../components/VideoProofThumbnail';
+import { uploadVideoProofFile } from '../services/realtimeSync';
 
 interface DeliveryDetailScreenProps {
   delivery: Delivery;
@@ -327,8 +329,12 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
       if (result.isValid) {
         const uri = typeof videoInput === 'string' ? videoInput : (typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(videoInput) : String(videoInput));
         setVideoProofUri(uri);
-        setVideoProofThumbnail(result.thumbnailUri || generateRealisticThumbnailDataUri('absence', { trackingNumber: delivery.trackingNumber }));
+        setVideoProofThumbnail(result.thumbnailUri || null);
         recordVideoClip(uri, result.metrics.durationSeconds);
+        // Persist clean video file to backend storage
+        uploadVideoProofFile(uri, fileName).then((uploadedUrl) => {
+          if (uploadedUrl) setVideoProofUri(uploadedUrl);
+        }).catch(() => {});
         Alert.alert('Doorstep Proof Attached ✓', `Video (${fileName || 'clip'}) verified and attached for supervisor audit.`);
       } else {
         Alert.alert('Video Verification Failed', result.reason);
@@ -344,7 +350,11 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
       if (result.isValid) {
         const uri = typeof videoInput === 'string' ? videoInput : (typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(videoInput) : String(videoInput));
         setDeliveryVideoUri(uri);
-        setDeliveryVideoThumbnail(result.thumbnailUri || generateRealisticThumbnailDataUri('delivery', { trackingNumber: delivery.trackingNumber }));
+        setDeliveryVideoThumbnail(result.thumbnailUri || null);
+        // Persist clean video file to backend storage
+        uploadVideoProofFile(uri, fileName).then((uploadedUrl) => {
+          if (uploadedUrl) setDeliveryVideoUri(uploadedUrl);
+        }).catch(() => {});
       } else {
         setDeliveryVideoUri(null);
       }
@@ -569,26 +579,40 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   };
 
   // Confirm and record successful delivery completion
-  const handleConfirmCompleteDelivery = () => {
+  const handleConfirmCompleteDelivery = async () => {
     if (deliveryVideoStatus !== 'VERIFIED') {
       return;
     }
 
     setIsCompleting(true);
-    setTimeout(() => {
-      setIsCompleting(false);
-      setIsCompleteModalVisible(false);
+    let finalVideoUri = deliveryVideoUri || `file:///evidence/doorstep_handoff_${delivery.id}.mp4`;
 
-      if (onCompleteDelivery) {
-        onCompleteDelivery(
-          selectedHandoff,
-          handoffNotes,
-          deliveryVideoUri || `file:///evidence/doorstep_handoff_${delivery.id}.mp4`,
-          deliveryVideoMetrics
-            ? { luminance: deliveryVideoMetrics.meanLuminance, variance: deliveryVideoMetrics.variance }
-            : { luminance: 120, variance: 450 },
-          deliveryVideoThumbnail || generateRealisticThumbnailDataUri('delivery', { trackingNumber: delivery.trackingNumber })
-        );
+    // Ensure raw video is uploaded to server before completing delivery
+    if (deliveryVideoUri && (deliveryVideoUri.startsWith('file://') || deliveryVideoUri.startsWith('content://') || deliveryVideoUri.startsWith('blob:'))) {
+      try {
+        const uploaded = await uploadVideoProofFile(deliveryVideoUri);
+        if (uploaded) {
+          finalVideoUri = uploaded;
+          setDeliveryVideoUri(uploaded);
+        }
+      } catch (e) {
+        console.warn('Video upload before delivery completion error:', e);
+      }
+    }
+
+    setIsCompleting(false);
+    setIsCompleteModalVisible(false);
+
+    if (onCompleteDelivery) {
+      onCompleteDelivery(
+        selectedHandoff,
+        handoffNotes,
+        finalVideoUri,
+        deliveryVideoMetrics
+          ? { luminance: deliveryVideoMetrics.meanLuminance, variance: deliveryVideoMetrics.variance }
+          : { luminance: 120, variance: 450 },
+        deliveryVideoThumbnail || undefined
+      );
       } else {
         const nowIso = new Date().toISOString();
         const auditId = `AUD-DELIV-${Date.now().toString(36).toUpperCase()}`;
@@ -657,7 +681,6 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 
         onVerificationComplete(completionResult);
       }
-    }, 400);
   };
 
   const handleSubmit = async () => {
@@ -1066,15 +1089,18 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 
                     {/* Visual Doorstep Video Thumbnail Footage */}
                     <View style={styles.appVideoPreviewContainer}>
-                      <Image
-                        source={{ uri: videoProofThumbnail || generateRealisticThumbnailDataUri('absence', { trackingNumber: delivery.trackingNumber }) }}
+                      <VideoProofThumbnail
+                        uri={videoProofUri || videoProofThumbnail}
+                        target="absence"
+                        trackingNumber={delivery.trackingNumber}
                         style={styles.appVideoThumbnailImg}
-                        resizeMode="cover"
                       />
-                      <View style={styles.appVideoOverlayBadge}>
-                        <Ionicons name="play-circle" size={24} color="#FFFFFF" />
-                        <Text style={styles.appVideoBadgeText}>00:06 • 1080p Absence Doorstep Clip</Text>
-                      </View>
+                      {!videoProofUri && (
+                        <View style={styles.appVideoOverlayBadge}>
+                          <Ionicons name="play-circle" size={24} color="#FFFFFF" />
+                          <Text style={styles.appVideoBadgeText}>00:06 • Doorstep Absence Video Clip</Text>
+                        </View>
+                      )}
                     </View>
                   </View>
                 ) : (
@@ -1280,15 +1306,18 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 
                   {/* Visual Video Thumbnail Footage Preview */}
                   <View style={styles.appVideoPreviewContainer}>
-                    <Image
-                      source={{ uri: deliveryVideoThumbnail || generateRealisticThumbnailDataUri('delivery', { trackingNumber: delivery.trackingNumber }) }}
+                    <VideoProofThumbnail
+                      uri={deliveryVideoUri || deliveryVideoThumbnail}
+                      target="delivery"
+                      trackingNumber={delivery.trackingNumber}
                       style={styles.appVideoThumbnailImg}
-                      resizeMode="cover"
                     />
-                    <View style={styles.appVideoOverlayBadge}>
-                      <Ionicons name="play-circle" size={24} color="#FFFFFF" />
-                      <Text style={styles.appVideoBadgeText}>00:04 • 1080p Handoff Footage Preview</Text>
-                    </View>
+                    {!deliveryVideoUri && (
+                      <View style={styles.appVideoOverlayBadge}>
+                        <Ionicons name="play-circle" size={24} color="#FFFFFF" />
+                        <Text style={styles.appVideoBadgeText}>00:04 • 1080p Handoff Footage Preview</Text>
+                      </View>
+                    )}
                   </View>
 
                   <Text style={styles.videoStatusVerifiedDetail}>
@@ -2541,7 +2570,7 @@ const styles = StyleSheet.create({
   },
   appVideoPreviewContainer: {
     width: '100%',
-    height: 125,
+    height: 175,
     borderRadius: 4,
     overflow: 'hidden',
     marginTop: 6,
