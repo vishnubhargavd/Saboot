@@ -12,6 +12,8 @@ export type RealtimeEventType =
   | 'DELIVERY_COMPLETED'
   | 'DELIVERY_ATTESTED'
   | 'ADMIN_DECISION_UPDATED'
+  | 'ORDER_DISPATCHED'
+  | 'TASK_ASSIGNED'
   | 'DATABASE_RESET';
 
 export interface RealtimeSyncEvent {

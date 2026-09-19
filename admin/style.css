@@ -416,6 +416,11 @@ body {
   background: #EDF1EF;
 }
 
+/* Overture Maps Silver/Modern Tile Pane Filter */
+.admin-map .leaflet-tile-pane {
+  filter: saturate(0.38) brightness(1.04) contrast(0.96);
+}
+
 .telemetry-bar {
   height: 52px;
   background: #FFFFFF;

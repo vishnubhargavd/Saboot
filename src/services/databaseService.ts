@@ -327,6 +327,64 @@ export async function updateDeliveryStatusInDB(
 }
 
 /**
+ * Insert or update a newly dispatched / assigned delivery in SQLite DB
+ */
+export async function insertOrUpdateDeliveryInDB(delivery: Delivery): Promise<Delivery[]> {
+  try {
+    if (sqliteDbInstance && Platform.OS !== 'web') {
+      await sqliteDbInstance.runAsync(
+        `INSERT OR REPLACE INTO deliveries (
+          id, tracking_number, customer_name, customer_phone, street, city,
+          residence_category, lat, lng, package_desc, driver_id, status,
+          notes, handoff_type, video_proof_uri, video_status, completed_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          delivery.id,
+          delivery.trackingNumber,
+          delivery.customer.name,
+          delivery.customer.phone,
+          delivery.address.street,
+          delivery.address.city,
+          delivery.address.residenceCategory,
+          delivery.address.latitude,
+          delivery.address.longitude,
+          delivery.packageDescription,
+          delivery.assignedDriverId,
+          delivery.status,
+          delivery.notes || '',
+          delivery.handoffType || '',
+          delivery.videoProofUri || '',
+          delivery.videoProofUri ? 'RECORDED' : '',
+          delivery.completedAt || '',
+          delivery.createdAt || new Date().toISOString(),
+        ]
+      );
+      return await getDeliveriesFromDB();
+    }
+  } catch (err) {
+    console.warn('[SQLite] insertOrUpdateDeliveryInDB error:', err);
+  }
+
+  let deliveries = await getDeliveriesFromDB();
+  const index = deliveries.findIndex((d) => d.id === delivery.id);
+  if (index >= 0) {
+    deliveries[index] = { ...deliveries[index], ...delivery };
+  } else {
+    deliveries = [delivery, ...deliveries];
+  }
+
+  inMemoryDeliveriesCache = deliveries;
+
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(deliveries));
+    } catch (e) {}
+  }
+
+  return deliveries;
+}
+
+/**
  * Compute real-time shift metrics from SQLite database records
  */
 export function calculateShiftMetrics(deliveries: Delivery[]): ShiftMetrics {

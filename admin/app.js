@@ -232,11 +232,11 @@ function initMap() {
       attributionControl: true
     }).setView([defaultOrder.address.lat, defaultOrder.address.lng], 16);
 
-    // Open-Source Carto Positron / OSM clean vector-rendered raster tiles
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
+    // Open-Source Overture Maps Foundation Tile Layer (OpenFreeMap / Overture Data)
+    L.tileLayer('https://tile.openfreemap.org/styles/liberty/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://overturemaps.org" target="_blank">Overture Maps Foundation</a> &copy; <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+      opacity: 0.96
     }).addTo(lMap);
 
     renderSelectedOrderMap(defaultOrder);
@@ -1051,16 +1051,42 @@ function persistAdminUpdateToStorage(order) {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     const raw = window.localStorage.getItem(SQLITE_STORAGE_KEY);
-    if (raw) {
-      let persisted = JSON.parse(raw);
-      if (Array.isArray(persisted)) {
-        persisted = persisted.map((p) =>
-          p.id === order.id ? { ...p, status: order.status, notes: order.decisionReason } : p
-        );
-        window.localStorage.setItem(SQLITE_STORAGE_KEY, JSON.stringify(persisted));
-      }
+    let persisted = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(persisted)) persisted = [];
+
+    const index = persisted.findIndex((p) => p.id === order.id);
+    if (index >= 0) {
+      persisted[index] = {
+        ...persisted[index],
+        ...order,
+        status: order.status,
+        notes: order.decisionReason || persisted[index].notes,
+        driver_id: order.assignedDriverId || order.driver || persisted[index].driver_id,
+        assignedDriverId: order.assignedDriverId || order.driver || persisted[index].assignedDriverId,
+      };
+    } else {
+      persisted.unshift({
+        id: order.id,
+        trackingNumber: order.trackingNumber,
+        customer: order.customer,
+        address: {
+          ...order.address,
+          latitude: order.address?.lat || order.address?.latitude || 12.9719,
+          longitude: order.address?.lng || order.address?.longitude || 77.6412,
+        },
+        packageDescription: order.packageDescription,
+        driver: order.driver,
+        assignedDriverId: order.assignedDriverId || order.driver,
+        status: order.status || 'IN_TRANSIT',
+        notes: order.decisionReason || 'Dispatched live from Operations Console',
+        createdAt: order.createdAt || new Date().toISOString(),
+      });
     }
-  } catch (e) {}
+
+    window.localStorage.setItem(SQLITE_STORAGE_KEY, JSON.stringify(persisted));
+  } catch (e) {
+    console.warn('[Admin] Failed to persist order to storage:', e);
+  }
 }
 
 // Track Task input listeners
@@ -1117,7 +1143,23 @@ document.getElementById('selectDriver').onchange = (e) => {
   if (!order) return;
 
   order.driver = e.target.options[e.target.selectedIndex].text;
+  order.assignedDriverId = driverId;
+  persistAdminUpdateToStorage(order);
   selectOrder(selectedOrderId);
+
+  broadcastToApp({
+    type: 'TASK_ASSIGNED',
+    deliveryId: order.id,
+    status: order.status,
+    notes: `Driver assigned: ${order.driver}`,
+    timestamp: new Date().toISOString(),
+    extra: {
+      driver: order.driver,
+      assignedDriverId: driverId,
+      order: order
+    }
+  });
+  showNotification(`✓ Reassigned ${order.id} to ${order.driver}`);
 };
 
 // Create Order Modal Handlers
@@ -1143,7 +1185,8 @@ document.getElementById('btnSubmitNewOrder').onclick = () => {
     address: { street, city: 'Bengaluru', residenceCategory: cat, lat: 12.9719, lng: 77.6412 },
     packageDescription: 'New Dispatch Order',
     driver: `${driver} (Unit)`,
-    status: 'ASSIGNED',
+    assignedDriverId: driver,
+    status: 'IN_TRANSIT',
     distanceMeters: 25,
     dwellSeconds: 0,
     requiredDwellSeconds: cat === 'gated_society' ? 150 : cat === 'apartment' ? 120 : 90,
@@ -1157,9 +1200,24 @@ document.getElementById('btnSubmitNewOrder').onclick = () => {
 
   orders.unshift(newOrder);
   selectedOrderId = newOrder.id;
+  persistAdminUpdateToStorage(newOrder);
   document.getElementById('createModal').classList.remove('open');
   renderOrderList();
   selectOrder(newOrder.id);
+  updateKPICounters();
+
+  broadcastToApp({
+    type: 'ORDER_DISPATCHED',
+    deliveryId: newOrder.id,
+    status: newOrder.status,
+    notes: `New task dispatched: ${newOrder.id} to ${newOrder.customer.name}`,
+    timestamp: new Date().toISOString(),
+    extra: {
+      order: newOrder
+    }
+  });
+
+  showNotification(`🚀 New Task Dispatched: ${newOrder.id} assigned to ${newOrder.driver}`);
 };
 
 // Boot

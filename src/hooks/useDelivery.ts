@@ -7,6 +7,7 @@ import {
   getDeliveriesFromDB,
   saveDeliveryCompletionInDB,
   updateDeliveryStatusInDB,
+  insertOrUpdateDeliveryInDB,
   calculateShiftMetrics,
 } from '../services/databaseService';
 import {
@@ -37,7 +38,62 @@ export function useDelivery() {
     const unsubscribe = subscribeToRealtimeEvents((event: RealtimeSyncEvent) => {
       if (!isMounted) return;
 
-      if (event.type === 'ADMIN_DECISION_UPDATED' && event.deliveryId) {
+      if (event.type === 'ORDER_DISPATCHED' && event.extra?.order) {
+        const o = event.extra.order;
+        const newDelivery: Delivery = {
+          id: o.id || event.deliveryId,
+          trackingNumber: o.trackingNumber || `SBT-BLR-${Math.floor(100000 + Math.random() * 900000)}`,
+          customer: {
+            id: o.customer?.id || `CUST-${o.id}`,
+            name: o.customer?.name || 'Customer',
+            phone: o.customer?.phone || '+91 90191 44983',
+          },
+          address: {
+            street: o.address?.street || 'Bengaluru Delivery Address',
+            city: o.address?.city || 'Bengaluru',
+            postalCode: o.address?.postalCode || '560038',
+            latitude: o.address?.latitude || o.address?.lat || 12.9719,
+            longitude: o.address?.longitude || o.address?.lng || 77.6412,
+            residenceCategory: o.address?.residenceCategory || 'individual_house',
+          },
+          packageDescription: o.packageDescription || 'New Dispatch Order',
+          estimatedDeliveryWindow: o.estimatedDeliveryWindow || '14:00 - 16:00',
+          status: (o.status as DeliveryStatus) || 'IN_TRANSIT',
+          createdAt: o.createdAt || new Date().toISOString(),
+          assignedDriverId: o.assignedDriverId || o.driver || 'DRV-BLR-09',
+          notes: o.notes || 'Dispatched live from Operations Console',
+        };
+
+        // Persist to local SQLite DB
+        insertOrUpdateDeliveryInDB(newDelivery).catch((err) =>
+          console.warn('[useDelivery] Error persisting new dispatch to SQLite:', err)
+        );
+
+        setDeliveries((prev) => {
+          const exists = prev.some((d) => d.id === newDelivery.id);
+          if (exists) {
+            return prev.map((d) => (d.id === newDelivery.id ? newDelivery : d));
+          }
+          return [newDelivery, ...prev];
+        });
+      } else if (event.type === 'TASK_ASSIGNED' && event.deliveryId) {
+        setDeliveries((prev) =>
+          prev.map((d) => {
+            if (d.id === event.deliveryId) {
+              const updatedDelivery = {
+                ...d,
+                assignedDriverId: event.extra?.assignedDriverId || event.extra?.driver || d.assignedDriverId,
+                notes: event.notes || d.notes,
+              };
+              insertOrUpdateDeliveryInDB(updatedDelivery).catch((err) =>
+                console.warn('[useDelivery] Error persisting reassignment to SQLite:', err)
+              );
+              return updatedDelivery;
+            }
+            return d;
+          })
+        );
+      } else if (event.type === 'ADMIN_DECISION_UPDATED' && event.deliveryId) {
         setDeliveries((prev) =>
           prev.map((d) =>
             d.id === event.deliveryId
