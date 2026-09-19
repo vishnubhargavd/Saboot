@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Saboot — Zero-Trust Delivery Operations Console</title>
-  <!-- Google Maps JavaScript API with Leaflet fallback -->
-  <script src="https://maps.googleapis.com/maps/api/js?libraries=geometry" async defer></script>
+  <!-- Open-Source Maps (Leaflet + OpenStreetMap / Carto) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link rel="stylesheet" href="style.css">
@@ -142,10 +141,19 @@
               </div>
             </div>
             <div class="admin-video-player" id="adminVideoPlayer">
-              <video id="unavailableVideoPlayer" controls playsinline style="width: 100%; border-radius: 6px; display: none; background: #000; max-height: 220px;"></video>
-              <div class="admin-video-preview" id="unavailableVideoMock">
-                <div class="play-btn-circle">▶</div>
-                <span class="video-length-tag">00:06 • 1080p Doorstep Clip</span>
+              <div class="canvas-video-wrapper" id="unavailVideoWrapper">
+                <canvas id="unavailCanvas" width="480" height="270" class="evidence-canvas"></canvas>
+                <video id="unavailableVideoPlayer" playsinline style="width: 100%; height: 100%; display: none; background: #000;"></video>
+                <div class="canvas-video-overlay" id="unavailPlayOverlay">
+                  <div class="play-btn-circle" id="unavailCircleBtn">▶</div>
+                  <span class="video-length-tag" id="unavailOverlayTag">CLICK TO PLAY 00:06 DOORSTEP CLIP</span>
+                </div>
+              </div>
+              <div class="video-playback-controls">
+                <button class="btn-ctrl-play" id="btnUnavailPlay">▶ PLAY</button>
+                <input type="range" id="unavailScrubber" class="video-scrubber" min="0" max="60" value="0" />
+                <span class="timecode-badge" id="unavailTimecode">00:00 / 00:06</span>
+                <button class="btn-ctrl-icon" id="btnUnavailRestart" title="Restart Footage">↺</button>
               </div>
               <div class="video-proof-details">
                 <span>File: <strong id="videoFileName">doorstep_absence_clip.mp4</strong></span>
@@ -174,19 +182,28 @@
               </div>
             </div>
             <div class="admin-video-player" style="border-color: #86EFAC;">
-              <video id="deliveryVideoPlayer" controls playsinline style="width: 100%; border-radius: 6px; display: none; background: #000; max-height: 220px; margin-bottom: 8px;"></video>
-              <div class="admin-video-preview" id="deliveryVideoMock" style="background: #14532D;">
-                <div class="play-btn-circle" style="background: #22C55E; color: #FFFFFF;">▶</div>
-                <span class="video-length-tag" style="background: rgba(0,0,0,0.7);">00:04 • 1080p Doorstep Handoff</span>
+              <div class="canvas-video-wrapper" id="deliveryVideoWrapper">
+                <canvas id="deliveryCanvas" width="480" height="270" class="evidence-canvas"></canvas>
+                <video id="deliveryVideoPlayer" playsinline style="width: 100%; height: 100%; display: none; background: #000;"></video>
+                <div class="canvas-video-overlay" id="deliveryPlayOverlay">
+                  <div class="play-btn-circle" id="deliveryCircleBtn" style="background: #22C55E; color: #FFFFFF;">▶</div>
+                  <span class="video-length-tag" id="deliveryOverlayTag" style="background: rgba(0,0,0,0.7);">CLICK TO PLAY 00:04 HANDOFF PROOF</span>
+                </div>
               </div>
-              <div class="video-proof-details">
+              <div class="video-playback-controls" style="background: #14532D; border-color: #166534;">
+                <button class="btn-ctrl-play" id="btnDeliveryPlay" style="background: #22C55E; color: #FFFFFF;">▶ PLAY</button>
+                <input type="range" id="deliveryScrubber" class="video-scrubber" min="0" max="40" value="0" />
+                <span class="timecode-badge" id="deliveryTimecode">00:00 / 00:04</span>
+                <button class="btn-ctrl-icon" id="btnDeliveryRestart" title="Restart Footage">↺</button>
+              </div>
+              <div class="video-proof-details" style="background: #0D3E1E;">
                 <span>File: <strong id="deliveryVideoFileName">doorstep_handoff_proof.mp4</strong></span>
                 <span class="encrypted-badge" style="background: #DCFCE7; color: #15803D; border-color: #86EFAC;">✓ STORED IN SQLITE</span>
               </div>
             </div>
             <div style="margin-top: 8px; padding: 8px 10px; background: #FFFFFF; border-radius: 6px; border: 1px solid #BBF7D0; font-size: 11px; display: flex; gap: 12px; flex-wrap: wrap;">
-              <span>💡 Luminance: <strong style="color: #15803D;">120/255 (PASS)</strong></span>
-              <span>🔍 Detail Variance: <strong style="color: #15803D;">450 (GENUINE)</strong></span>
+              <span>💡 Luminance: <strong style="color: #15803D;" id="deliveryLuminanceBadge">120/255 (PASS)</strong></span>
+              <span>🔍 Detail Variance: <strong style="color: #15803D;" id="deliveryVarianceBadge">450 (GENUINE)</strong></span>
               <span>📍 GPS Lock: <strong style="color: #15803D;">≤ 50m Doorstep</strong></span>
             </div>
             <p class="approval-prompt" style="color: #166534; font-weight: 600; margin-top: 8px;">

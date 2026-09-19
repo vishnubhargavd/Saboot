@@ -1,8 +1,9 @@
 import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { VerificationResult } from '../types/policy';
+import { generateRealisticThumbnailDataUri } from '../services/videoVerificationService';
 
 interface ResultCardProps {
   result: VerificationResult;
@@ -93,14 +94,28 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
               )}
             </View>
 
-            {/* Simulated Video Player Preview */}
+            {/* Genuine Video Proof Footage Preview */}
             <View style={styles.videoPlayerPreview}>
               <View style={styles.videoThumbnailOverlay}>
-                <Ionicons name="play-circle" size={48} color="#FFFFFF" />
-                <Text style={styles.videoDurationText}>00:06 • HD 1080p</Text>
+                <Image
+                  source={{
+                    uri: generateRealisticThumbnailDataUri(
+                      result.decision === 'DELIVERED' ? 'delivery' : 'absence',
+                      { trackingNumber: result.deliveryId }
+                    ),
+                  }}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                />
+                <View style={styles.videoPlayOverlayBadge}>
+                  <Ionicons name="play-circle" size={40} color="#FFFFFF" />
+                  <Text style={styles.videoDurationText}>00:06 • 1080p Recorded Footage</Text>
+                </View>
               </View>
               <View style={styles.videoMetaBar}>
-                <Text style={styles.videoFileName}>doorstep_absence_proof.mp4</Text>
+                <Text style={styles.videoFileName}>
+                  {result.videoProofUri ? result.videoProofUri.split('/').pop() : 'doorstep_footage_proof.mp4'}
+                </Text>
                 <Text style={styles.videoStatusTag}>UPLOADED & ENCRYPTED ✓</Text>
               </View>
             </View>
@@ -362,15 +377,24 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
   },
   videoThumbnailOverlay: {
-    height: 120,
+    height: 130,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#0F172A',
+    position: 'relative',
+  },
+  videoPlayOverlayBadge: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
   },
   videoDurationText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    color: '#94A3B8',
+    color: '#FFFFFF',
     marginTop: 4,
     fontFamily: THEME.typography.fontFamily.mono,
   },

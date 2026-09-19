@@ -61,10 +61,11 @@ export default function App() {
     handoffType: 'direct' | 'doorstep' | 'security',
     notes?: string,
     videoProofUri?: string,
-    videoMetrics?: { luminance: number; variance: number }
+    videoMetrics?: { luminance: number; variance: number },
+    thumbnailUri?: string
   ) => {
     if (selectedDelivery) {
-      const result = completeDelivery(selectedDelivery.id, handoffType, notes, videoProofUri, videoMetrics);
+      const result = completeDelivery(selectedDelivery.id, handoffType, notes, videoProofUri, videoMetrics, thumbnailUri);
       setLatestResult(result);
       setCurrentScreen('RESULT');
     }

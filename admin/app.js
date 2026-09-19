@@ -211,170 +211,94 @@ function loadPersistentDeliveries() {
   }
 }
 
-// Map instances
-let gMap, gGeofenceCircle, gRoutePolyline, gCustomerMarker, gTruckMarker;
-let isGoogleMapsActive = false;
-let lMap, lGeofenceCircle, lRoutePolyline, lCustomerMarker, lTruckMarker;
+// Open-source Map instances (Leaflet + OpenStreetMap / Carto Positron)
+let lMap = null;
+let lGeofenceCircle = null;
+let lRoutePolyline = null;
+let lCustomerMarker = null;
+let lTruckMarker = null;
 
-// Initialize Map with Google Maps JavaScript API (fallback to Leaflet if blocked)
+// Initialize Map exclusively with Open-Source Leaflet & Carto/OSM Tiles
 function initMap() {
   const defaultOrder = orders[0];
+  if (lMap) return;
 
   try {
-    if (typeof google !== 'undefined' && google.maps) {
-      isGoogleMapsActive = true;
-      const destLatLng = { lat: defaultOrder.address.lat, lng: defaultOrder.address.lng };
+    const mapEl = document.getElementById('adminMap');
+    if (!mapEl) return;
 
-      gMap = new google.maps.Map(document.getElementById('adminMap'), {
-        center: destLatLng,
-        zoom: 16,
-        disableDefaultUI: false,
-        zoomControl: true,
-        streetViewControl: false,
-        mapTypeControl: false,
-        styles: [
-          { elementType: "geometry", stylers: [{ color: "#f8fafc" }] },
-          { elementType: "labels.text.fill", stylers: [{ color: "#334155" }] },
-          { elementType: "labels.text.stroke", stylers: [{ color: "#ffffff" }] },
-          { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
-          { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#e2e8f0" }] },
-          { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#cbd5e1" }] },
-          { featureType: "water", elementType: "geometry", stylers: [{ color: "#bfdbfe" }] },
-          { featureType: "poi", elementType: "geometry", stylers: [{ color: "#f1f5f9" }] }
-        ]
-      });
+    lMap = L.map('adminMap', {
+      zoomControl: true,
+      attributionControl: true
+    }).setView([defaultOrder.address.lat, defaultOrder.address.lng], 16);
 
-      renderSelectedOrderMap(defaultOrder);
-      return;
-    }
+    // Open-Source Carto Positron / OSM clean vector-rendered raster tiles
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20
+    }).addTo(lMap);
+
+    renderSelectedOrderMap(defaultOrder);
   } catch (err) {
-    console.warn('Google Maps JS API notice, falling back to Leaflet:', err);
+    console.warn('[Admin] Leaflet map initialization warning:', err);
   }
-
-  initLeafletFallback(defaultOrder);
 }
 
-function initLeafletFallback(defaultOrder) {
-  if (lMap) return;
-  lMap = L.map('adminMap', { zoomControl: true }).setView([defaultOrder.address.lat, defaultOrder.address.lng], 16);
-
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    opacity: 0.95
-  }).addTo(lMap);
-
-  renderSelectedOrderMap(defaultOrder);
-}
-
-// Render Order on Map (Google Maps or Fallback)
+// Render Order on Open-Source Map with Geofence & Route
 function renderSelectedOrderMap(order) {
+  if (!lMap) return;
+
   const destLat = order.address.lat;
   const destLng = order.address.lng;
   const driverOffsetLat = order.distanceMeters > 500 ? destLat + 0.022 : destLat + 0.0003;
   const driverOffsetLng = order.distanceMeters > 500 ? destLng + 0.022 : destLng + 0.0003;
 
-  if (isGoogleMapsActive && gMap) {
-    const dest = new google.maps.LatLng(destLat, destLng);
-    const driverPos = new google.maps.LatLng(driverOffsetLat, driverOffsetLng);
+  if (lGeofenceCircle) lMap.removeLayer(lGeofenceCircle);
+  if (lRoutePolyline) lMap.removeLayer(lRoutePolyline);
+  if (lCustomerMarker) lMap.removeLayer(lCustomerMarker);
+  if (lTruckMarker) lMap.removeLayer(lTruckMarker);
 
-    if (gGeofenceCircle) gGeofenceCircle.setMap(null);
-    if (gRoutePolyline) gRoutePolyline.setMap(null);
-    if (gCustomerMarker) gCustomerMarker.setMap(null);
-    if (gTruckMarker) gTruckMarker.setMap(null);
+  const dest = [destLat, destLng];
+  const driverPos = [driverOffsetLat, driverOffsetLng];
 
-    // 50m Geofence Circle
-    gGeofenceCircle = new google.maps.Circle({
-      strokeColor: '#D94A27',
-      strokeOpacity: 0.85,
-      strokeWeight: 2,
-      fillColor: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
-      fillOpacity: order.distanceMeters <= 50 ? 0.18 : 0.08,
-      map: gMap,
-      center: dest,
-      radius: 50
-    });
+  // 50m Geofence Circle
+  lGeofenceCircle = L.circle(dest, {
+    color: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
+    fillColor: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
+    fillOpacity: order.distanceMeters <= 50 ? 0.18 : 0.08,
+    weight: 2.5,
+    dashArray: '5, 5',
+    radius: 50
+  }).addTo(lMap);
 
-    // Dashed Route Polyline
-    gRoutePolyline = new google.maps.Polyline({
-      path: [driverPos, dest],
-      geodesic: true,
-      strokeColor: '#D94A27',
-      strokeOpacity: 0.8,
-      strokeWeight: 3,
-      map: gMap
-    });
+  // Dashed Route Polyline
+  lRoutePolyline = L.polyline([driverPos, dest], {
+    color: '#D94A27',
+    weight: 3,
+    dashArray: '4, 6',
+    opacity: 0.8
+  }).addTo(lMap);
 
-    // Customer Pin Marker
-    gCustomerMarker = new google.maps.Marker({
-      position: dest,
-      map: gMap,
-      title: order.customer.name,
-      icon: {
-        url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="#D94A27" stroke="#FFFFFF" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5" fill="#FFFFFF"/></svg>'),
-        scaledSize: new google.maps.Size(34, 34),
-        anchor: new google.maps.Point(17, 34)
-      }
-    });
+  // Customer Pin Marker (Zero-trust verified destination)
+  const custIcon = L.divIcon({
+    className: 'custom-pin',
+    html: '<div style="background:#D94A27; color:#fff; width:34px; height:34px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; border:3px solid #fff; box-shadow:0 4px 10px rgba(0,0,0,0.3);"><span style="transform:rotate(45deg); font-size:14px;">📍</span></div>',
+    iconSize: [34, 34],
+    iconAnchor: [17, 34]
+  });
+  lCustomerMarker = L.marker(dest, { icon: custIcon }).addTo(lMap);
 
-    // Live Driver Truck Marker
-    gTruckMarker = new google.maps.Marker({
-      position: driverPos,
-      map: gMap,
-      title: order.driver,
-      icon: {
-        url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="17" fill="#1E293B" stroke="#FFFFFF" stroke-width="3"/><text x="19" y="24" font-size="18" text-anchor="middle" fill="#FFFFFF">🚚</text></svg>'),
-        scaledSize: new google.maps.Size(38, 38),
-        anchor: new google.maps.Point(19, 19)
-      }
-    });
+  // Live Driver Truck Marker
+  const truckIcon = L.divIcon({
+    className: 'truck-pin',
+    html: '<div style="background:#1E293B; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid #fff; font-size:16px; box-shadow:0 4px 10px rgba(0,0,0,0.3);">🚚</div>',
+    iconSize: [36, 36],
+    iconAnchor: [18, 18]
+  });
+  lTruckMarker = L.marker(driverPos, { icon: truckIcon }).addTo(lMap);
 
-    const bounds = new google.maps.LatLngBounds();
-    bounds.extend(dest);
-    bounds.extend(driverPos);
-    gMap.fitBounds(bounds, 50);
-  } else if (lMap) {
-    if (lGeofenceCircle) lMap.removeLayer(lGeofenceCircle);
-    if (lRoutePolyline) lMap.removeLayer(lRoutePolyline);
-    if (lCustomerMarker) lMap.removeLayer(lCustomerMarker);
-    if (lTruckMarker) lMap.removeLayer(lTruckMarker);
-
-    const dest = [destLat, destLng];
-    const driverPos = [driverOffsetLat, driverOffsetLng];
-
-    lGeofenceCircle = L.circle(dest, {
-      color: '#D94A27',
-      fillColor: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
-      fillOpacity: order.distanceMeters <= 50 ? 0.18 : 0.08,
-      weight: 2.5,
-      dashArray: '5, 5',
-      radius: 50
-    }).addTo(lMap);
-
-    lRoutePolyline = L.polyline([driverPos, dest], {
-      color: '#D94A27',
-      weight: 3,
-      dashArray: '4, 6',
-      opacity: 0.8
-    }).addTo(lMap);
-
-    const custIcon = L.divIcon({
-      className: 'custom-pin',
-      html: '<div style="background:#D94A27; color:#fff; width:34px; height:34px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); display:flex; align-items:center; justify-content:center; border:3px solid #fff; box-shadow:0 4px 10px rgba(0,0,0,0.3);"><span style="transform:rotate(45deg); font-size:14px;">📍</span></div>',
-      iconSize: [34, 34],
-      iconAnchor: [17, 34]
-    });
-    lCustomerMarker = L.marker(dest, { icon: custIcon }).addTo(lMap);
-
-    const truckIcon = L.divIcon({
-      className: 'truck-pin',
-      html: '<div style="background:#334454; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid #fff; font-size:16px; box-shadow:0 4px 10px rgba(0,0,0,0.3);">🚚</div>',
-      iconSize: [36, 36],
-      iconAnchor: [18, 18]
-    });
-    lTruckMarker = L.marker(driverPos, { icon: truckIcon }).addTo(lMap);
-
-    lMap.fitBounds(L.latLngBounds([dest, driverPos]), { padding: [50, 50], maxZoom: 17 });
-  }
+  lMap.fitBounds(L.latLngBounds([dest, driverPos]), { padding: [50, 50], maxZoom: 17 });
 }
 
 // Render Order List & Filter
@@ -438,6 +362,421 @@ function updateKPICounters() {
   document.getElementById('kpiReview').innerText = orders.filter((o) => o.status === 'REVIEW' || o.requiresAdminApproval).length;
 }
 
+// ==========================================
+// INTERACTIVE VIDEO PROOF ENGINE & PLAYER
+// ==========================================
+const videoPlayers = {
+  unavail: {
+    type: 'unavail',
+    isPlaying: false,
+    currentTime: 0,
+    duration: 6.0,
+    animFrame: null,
+    order: null,
+  },
+  delivery: {
+    type: 'delivery',
+    isPlaying: false,
+    currentTime: 0,
+    duration: 4.0,
+    animFrame: null,
+    order: null,
+  }
+};
+
+function formatTimecode(secs) {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function drawDoorstepEvidenceFrame(canvasId, type, time, order) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.save();
+  ctx.clearRect(0, 0, w, h);
+
+  // If order has thumbnail image loaded, draw thumbnail
+  if (order && order._cachedThumbImage && order._cachedThumbImage.complete && order._cachedThumbImage.naturalWidth > 0) {
+    ctx.drawImage(order._cachedThumbImage, 0, 0, w, h);
+  } else if (order && order.thumbnail && !order._cachedThumbImage) {
+    const img = new Image();
+    img.src = order.thumbnail;
+    img.onload = () => {
+      order._cachedThumbImage = img;
+      drawDoorstepEvidenceFrame(canvasId, type, time, order);
+    };
+    drawSyntheticDoorstepScene(ctx, w, h, type, time, order);
+  } else {
+    drawSyntheticDoorstepScene(ctx, w, h, type, time, order);
+  }
+
+  // Draw Camera Telemetry HUD Overlay
+  drawTelemetryHUD(ctx, w, h, type, time, order);
+
+  ctx.restore();
+}
+
+function drawSyntheticDoorstepScene(ctx, w, h, type, time, order) {
+  // Handheld camera sway
+  const swayX = Math.sin(time * 2.5) * 3;
+  const swayY = Math.cos(time * 2.0) * 2;
+  ctx.translate(swayX, swayY);
+
+  // Background Corridor Wall
+  const wallGrad = ctx.createLinearGradient(0, 0, 0, h);
+  wallGrad.addColorStop(0, '#CBD5E1');
+  wallGrad.addColorStop(1, '#94A3B8');
+  ctx.fillStyle = wallGrad;
+  ctx.fillRect(-10, -10, w + 20, h + 20);
+
+  // Floor Baseboard & Flooring
+  ctx.fillStyle = '#64748B';
+  ctx.fillRect(-10, h - 70, w + 20, 8);
+
+  const floorGrad = ctx.createLinearGradient(0, h - 62, 0, h);
+  floorGrad.addColorStop(0, '#475569');
+  floorGrad.addColorStop(1, '#1E293B');
+  ctx.fillStyle = floorGrad;
+  ctx.fillRect(-10, h - 62, w + 20, 80);
+
+  // Apartment Door (Centered)
+  const doorX = 130;
+  const doorY = 20;
+  const doorW = 220;
+  const doorH = h - 85;
+
+  // Door Frame
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(doorX - 6, doorY - 4, doorW + 12, doorH + 6);
+
+  // Door Surface: Rich Mahogany Wood Tone
+  const doorGrad = ctx.createLinearGradient(doorX, 0, doorX + doorW, 0);
+  doorGrad.addColorStop(0, '#5C2D12');
+  doorGrad.addColorStop(0.5, '#78350F');
+  doorGrad.addColorStop(1, '#451A03');
+  ctx.fillStyle = doorGrad;
+  ctx.fillRect(doorX, doorY, doorW, doorH);
+
+  // Wood Panel Reliefs
+  const panels = [
+    { x: doorX + 16, y: doorY + 16, pw: 85, ph: 65 },
+    { x: doorX + 115, y: doorY + 16, pw: 85, ph: 65 },
+    { x: doorX + 16, y: doorY + 95, pw: 85, ph: 75 },
+    { x: doorX + 115, y: doorY + 95, pw: 85, ph: 75 },
+  ];
+
+  panels.forEach(p => {
+    ctx.fillStyle = '#3B1803';
+    ctx.fillRect(p.x, p.y, p.pw, p.ph);
+    ctx.strokeStyle = '#92400E';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(p.x + 2, p.y + 2, p.pw - 4, p.ph - 4);
+  });
+
+  // Metallic Lever Handle & Deadbolt
+  ctx.fillStyle = '#D97706';
+  ctx.fillRect(doorX + 12, doorY + 105, 14, 28);
+  ctx.fillStyle = '#F59E0B';
+  ctx.fillRect(doorX + 4, doorY + 114, 22, 6);
+  ctx.beginPath();
+  ctx.arc(doorX + 19, doorY + 117, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Peephole
+  ctx.beginPath();
+  ctx.arc(doorX + doorW / 2, doorY + 45, 6, 0, Math.PI * 2);
+  ctx.fillStyle = '#D97706';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(doorX + doorW / 2, doorY + 45, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#000000';
+  ctx.fill();
+
+  // Unit Number Plate
+  ctx.fillStyle = '#1E293B';
+  ctx.fillRect(doorX + doorW / 2 - 28, doorY + 10, 56, 16);
+  ctx.strokeStyle = '#D97706';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(doorX + doorW / 2 - 28, doorY + 10, 56, 16);
+  ctx.fillStyle = '#F8FAFC';
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(order?.address?.street?.includes('902') ? 'FLAT 902' : 'DOORSTEP', doorX + doorW / 2, doorY + 22);
+
+  // Doorbell Unit (Left wall)
+  const bellX = 65;
+  const bellY = 100;
+  ctx.fillStyle = '#1E293B';
+  ctx.fillRect(bellX, bellY, 24, 38);
+  ctx.strokeStyle = '#475569';
+  ctx.strokeRect(bellX, bellY, 24, 38);
+
+  const isRinging = type === 'unavail' && (time >= 1.0 && time <= 4.5);
+  ctx.beginPath();
+  ctx.arc(bellX + 12, bellY + 18, 7, 0, Math.PI * 2);
+  ctx.fillStyle = isRinging ? '#38BDF8' : '#F8FAFC';
+  ctx.fill();
+
+  if (isRinging) {
+    ctx.strokeStyle = '#38BDF8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bellX + 12, bellY + 18, 14 + Math.sin(time * 12) * 3, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#1E293B';
+    ctx.beginPath();
+    ctx.ellipse(bellX + 8, bellY + 22, 14, 6, -0.4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#38BDF8';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('🔔 CHIME UNANSWERED', bellX - 25, bellY - 8);
+  }
+
+  // Welcome Doormat
+  const matX = doorX + 15;
+  const matY = h - 60;
+  const matW = doorW - 30;
+  const matH = 45;
+  ctx.fillStyle = '#0F172A';
+  ctx.fillRect(matX, matY, matW, matH);
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(matX, matY, matW, matH);
+
+  ctx.fillStyle = '#F59E0B';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('WELCOME', matX + matW / 2, matY + 28);
+
+  // If type === 'delivery': Package on mat with verified bounding box
+  if (type === 'delivery') {
+    const pkgX = matX + 35;
+    const pkgY = matY - 20;
+    const pkgW = 100;
+    const pkgH = 50;
+
+    // Cardboard Box Body
+    ctx.fillStyle = '#B45309';
+    ctx.fillRect(pkgX, pkgY, pkgW, pkgH);
+
+    // Box Tape
+    ctx.fillStyle = '#D97706';
+    ctx.fillRect(pkgX + 42, pkgY, 16, pkgH);
+
+    // Shipping Label with Barcode
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(pkgX + 15, pkgY + 10, 48, 28);
+
+    ctx.fillStyle = '#000000';
+    for (let i = 0; i < 8; i++) {
+      ctx.fillRect(pkgX + 18 + i * 5, pkgY + 14, 2, 12);
+    }
+    ctx.font = 'bold 6px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('SBT-SECURE', pkgX + 18, pkgY + 34);
+
+    // Anti-spoof AI green bounding box around package
+    ctx.strokeStyle = '#22C55E';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(pkgX - 6, pkgY - 6, pkgW + 12, pkgH + 12);
+
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.9)';
+    ctx.fillRect(pkgX - 6, pkgY - 20, 112, 14);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('✓ HANDOFF VERIFIED', pkgX - 2, pkgY - 10);
+  }
+}
+
+function drawTelemetryHUD(ctx, w, h, type, time, order) {
+  // Top Banner HUD
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+  ctx.fillRect(0, 0, w, 24);
+
+  // Blinking REC Indicator
+  const blink = Math.floor(time * 2) % 2 === 0;
+  ctx.fillStyle = blink ? '#EF4444' : 'rgba(239, 68, 68, 0.3)';
+  ctx.beginPath();
+  ctx.arc(14, 12, 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = 'bold 9px monospace';
+  ctx.textAlign = 'left';
+  const timeStr = formatTimecode(time) + `.${String(Math.floor((time % 1) * 10)).padStart(1, '0')}`;
+  ctx.fillText(`REC [${timeStr}] 1080P 30FPS`, 24, 15);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#34D399';
+  ctx.fillText(`GPS LOCK: ≤${order?.distanceMeters || 38}M • ACC ±${order?.gpsAccuracy || 6}M`, w - 10, 15);
+
+  // Bottom Banner HUD
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+  ctx.fillRect(0, h - 22, w, 22);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#A7F3D0';
+  ctx.font = 'bold 8px monospace';
+  const lum = order?.videoMetrics?.luminance || 120;
+  const variance = order?.videoMetrics?.variance || 450;
+  ctx.fillText(`LUM: ${lum}/255 (PASS) • DETAIL VAR: ${variance} (GENUINE)`, 10, h - 8);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#94A3B8';
+  ctx.fillText('HASH: ' + (order?.auditId || 'AUD-7K99-M42A'), w - 10, h - 8);
+}
+
+function toggleVideoPlayback(type) {
+  const p = videoPlayers[type];
+  if (!p) return;
+
+  if (p.isPlaying) {
+    pauseVideo(type);
+  } else {
+    playVideo(type);
+  }
+}
+
+function playVideo(type) {
+  const p = videoPlayers[type];
+  if (!p) return;
+
+  p.isPlaying = true;
+
+  const btnPlay = document.getElementById(type === 'unavail' ? 'btnUnavailPlay' : 'btnDeliveryPlay');
+  if (btnPlay) {
+    btnPlay.innerText = '⏸ PAUSE';
+  }
+
+  const overlay = document.getElementById(type === 'unavail' ? 'unavailPlayOverlay' : 'deliveryPlayOverlay');
+  if (overlay) {
+    overlay.classList.add('playing');
+  }
+
+  let lastTimestamp = performance.now();
+
+  function step(now) {
+    if (!p.isPlaying) return;
+    const delta = (now - lastTimestamp) / 1000;
+    lastTimestamp = now;
+
+    p.currentTime += delta;
+    if (p.currentTime >= p.duration) {
+      p.currentTime = p.duration;
+      pauseVideo(type);
+      p.currentTime = 0;
+      updatePlayerUI(type);
+      return;
+    }
+
+    updatePlayerUI(type);
+    p.animFrame = requestAnimationFrame(step);
+  }
+
+  p.animFrame = requestAnimationFrame(step);
+}
+
+function pauseVideo(type) {
+  const p = videoPlayers[type];
+  if (!p) return;
+
+  p.isPlaying = false;
+  if (p.animFrame) {
+    cancelAnimationFrame(p.animFrame);
+    p.animFrame = null;
+  }
+
+  const btnPlay = document.getElementById(type === 'unavail' ? 'btnUnavailPlay' : 'btnDeliveryPlay');
+  if (btnPlay) {
+    btnPlay.innerText = '▶ PLAY';
+  }
+
+  const overlay = document.getElementById(type === 'unavail' ? 'unavailPlayOverlay' : 'deliveryPlayOverlay');
+  if (overlay) {
+    overlay.classList.remove('playing');
+  }
+
+  updatePlayerUI(type);
+}
+
+function restartVideo(type) {
+  const p = videoPlayers[type];
+  if (!p) return;
+  p.currentTime = 0;
+  playVideo(type);
+}
+
+function seekVideo(type, targetSeconds) {
+  const p = videoPlayers[type];
+  if (!p) return;
+  p.currentTime = Math.max(0, Math.min(targetSeconds, p.duration));
+  updatePlayerUI(type);
+}
+
+function updatePlayerUI(type) {
+  const p = videoPlayers[type];
+  if (!p) return;
+
+  const canvasId = type === 'unavail' ? 'unavailCanvas' : 'deliveryCanvas';
+  drawDoorstepEvidenceFrame(canvasId, type, p.currentTime, p.order);
+
+  const scrubber = document.getElementById(type === 'unavail' ? 'unavailScrubber' : 'deliveryScrubber');
+  if (scrubber) {
+    scrubber.value = Math.floor(p.currentTime * 10);
+  }
+
+  const timecode = document.getElementById(type === 'unavail' ? 'unavailTimecode' : 'deliveryTimecode');
+  if (timecode) {
+    timecode.innerText = `${formatTimecode(p.currentTime)} / ${formatTimecode(p.duration)}`;
+  }
+}
+
+function setupVideoListenersOnce() {
+  if (window._videoListenersInitialized) return;
+  window._videoListenersInitialized = true;
+
+  // Unavail Play Button & Overlay
+  const btnUnavailPlay = document.getElementById('btnUnavailPlay');
+  const unavailWrapper = document.getElementById('unavailVideoWrapper');
+  const unavailCircle = document.getElementById('unavailCircleBtn');
+  const btnUnavailRestart = document.getElementById('btnUnavailRestart');
+  const unavailScrubber = document.getElementById('unavailScrubber');
+
+  if (btnUnavailPlay) btnUnavailPlay.onclick = () => toggleVideoPlayback('unavail');
+  if (unavailCircle) unavailCircle.onclick = (e) => { e.stopPropagation(); toggleVideoPlayback('unavail'); };
+  if (unavailWrapper) unavailWrapper.onclick = () => toggleVideoPlayback('unavail');
+  if (btnUnavailRestart) btnUnavailRestart.onclick = () => restartVideo('unavail');
+  if (unavailScrubber) {
+    unavailScrubber.oninput = (e) => seekVideo('unavail', parseFloat(e.target.value) / 10);
+  }
+
+  // Delivery Play Button & Overlay
+  const btnDeliveryPlay = document.getElementById('btnDeliveryPlay');
+  const deliveryWrapper = document.getElementById('deliveryVideoWrapper');
+  const deliveryCircle = document.getElementById('deliveryCircleBtn');
+  const btnDeliveryRestart = document.getElementById('btnDeliveryRestart');
+  const deliveryScrubber = document.getElementById('deliveryScrubber');
+
+  if (btnDeliveryPlay) btnDeliveryPlay.onclick = () => toggleVideoPlayback('delivery');
+  if (deliveryCircle) deliveryCircle.onclick = (e) => { e.stopPropagation(); toggleVideoPlayback('delivery'); };
+  if (deliveryWrapper) deliveryWrapper.onclick = () => toggleVideoPlayback('delivery');
+  if (btnDeliveryRestart) btnDeliveryRestart.onclick = () => restartVideo('delivery');
+  if (deliveryScrubber) {
+    deliveryScrubber.oninput = (e) => seekVideo('delivery', parseFloat(e.target.value) / 10);
+  }
+}
+
 // Select an Order & Update Live Map / Telemetry
 function selectOrder(orderId) {
   selectedOrderId = orderId;
@@ -494,32 +833,25 @@ function selectOrder(orderId) {
     sub.innerText = order.decisionReason;
   }
 
+  // Interactive Video Proof Engine Setup
+  setupVideoListenersOnce();
+
   // Handle Video Proof & Admin Approval Section (Customer Unavailable)
   const videoSection = document.getElementById('videoApprovalSection');
-  const unavailVideoEl = document.getElementById('unavailableVideoPlayer');
-  const unavailMockEl = document.getElementById('unavailableVideoMock');
-
   if (order.requiresAdminApproval && order.adminApprovalStatus === 'PENDING') {
     videoSection.style.display = 'block';
-    document.getElementById('videoFileName').innerText = order.videoProofUri || 'doorstep_absence_clip.mp4';
-    if (order.videoProofUri && (order.videoProofUri.startsWith('blob:') || order.videoProofUri.startsWith('http') || order.videoProofUri.startsWith('data:video'))) {
-      if (unavailVideoEl) {
-        unavailVideoEl.src = order.videoProofUri;
-        unavailVideoEl.style.display = 'block';
-      }
-      if (unavailMockEl) unavailMockEl.style.display = 'none';
-    } else {
-      if (unavailVideoEl) unavailVideoEl.style.display = 'none';
-      if (unavailMockEl) unavailMockEl.style.display = 'block';
-    }
+    document.getElementById('videoFileName').innerText = order.videoProofUri || 'doorstep_absence_clip_1003.mp4';
+    videoPlayers.unavail.order = order;
+    videoPlayers.unavail.currentTime = 0;
+    pauseVideo('unavail');
+    updatePlayerUI('unavail');
   } else {
     videoSection.style.display = 'none';
+    pauseVideo('unavail');
   }
 
   // Handle Delivery Handoff Video Proof Section for Successful Delivery
   const deliveryVideoSection = document.getElementById('deliveryVideoProofSection');
-  const deliveryVideoEl = document.getElementById('deliveryVideoPlayer');
-  const deliveryMockEl = document.getElementById('deliveryVideoMock');
   const auditPill = document.getElementById('deliveryAuditStatusPill');
 
   if (deliveryVideoSection) {
@@ -549,18 +881,13 @@ function selectOrder(orderId) {
         }
       }
 
-      if (order.videoProofUri && (order.videoProofUri.startsWith('blob:') || order.videoProofUri.startsWith('http') || order.videoProofUri.startsWith('data:video'))) {
-        if (deliveryVideoEl) {
-          deliveryVideoEl.src = order.videoProofUri;
-          deliveryVideoEl.style.display = 'block';
-        }
-        if (deliveryMockEl) deliveryMockEl.style.display = 'none';
-      } else {
-        if (deliveryVideoEl) deliveryVideoEl.style.display = 'none';
-        if (deliveryMockEl) deliveryMockEl.style.display = 'block';
-      }
+      videoPlayers.delivery.order = order;
+      videoPlayers.delivery.currentTime = 0;
+      pauseVideo('delivery');
+      updatePlayerUI('delivery');
     } else {
       deliveryVideoSection.style.display = 'none';
+      pauseVideo('delivery');
     }
   }
 

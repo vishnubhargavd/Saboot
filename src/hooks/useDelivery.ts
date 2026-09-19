@@ -99,7 +99,8 @@ export function useDelivery() {
       handoffType: 'direct' | 'doorstep' | 'security' = 'direct',
       notes?: string,
       videoProofUri?: string,
-      videoMetrics?: { luminance: number; variance: number }
+      videoMetrics?: { luminance: number; variance: number },
+      thumbnailUri?: string
     ): VerificationResult => {
       const delivery = deliveries.find((d) => d.id === id);
       const nowIso = new Date().toISOString();
@@ -145,6 +146,8 @@ export function useDelivery() {
           customerName: delivery?.customer.name,
           driverId: delivery?.assignedDriverId,
           packageDescription: delivery?.packageDescription,
+          thumbnail: thumbnailUri,
+          videoMetrics,
         },
       });
 
