@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useCallback } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,27 +32,52 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
 }) => {
   const iframeRef = useRef<any>(null);
   const webViewRef = useRef<any>(null);
+  const mapReadyRef = useRef<boolean>(false);
+  const pendingUpdateRef = useRef<{ lat: number; lng: number; isInsideGeofence: boolean } | null>(null);
 
-  // Dispatch real-time coordinate updates to Google Map without reloading
-  useEffect(() => {
+  // Send position update to the map (only when map is ready)
+  const sendPositionUpdate = useCallback((lat: number, lng: number, inside: boolean) => {
+    if (!mapReadyRef.current) {
+      // Queue the update — will be flushed when map loads
+      pendingUpdateRef.current = { lat, lng, isInsideGeofence: inside };
+      return;
+    }
+
     if (Platform.OS === 'web') {
       try {
         iframeRef.current?.contentWindow?.postMessage(
           JSON.stringify({
             type: 'UPDATE_DRIVER_LOCATION',
-            lat: driverLat,
-            lng: driverLng,
-            isInsideGeofence,
+            lat,
+            lng,
+            isInsideGeofence: inside,
           }),
           '*'
         );
       } catch {}
     } else {
       webViewRef.current?.injectJavaScript(
-        `if (window.updateDriverPosition) { window.updateDriverPosition(${driverLat}, ${driverLng}, ${isInsideGeofence}); } true;`
+        `if (window.updateDriverPosition) { window.updateDriverPosition(${lat}, ${lng}, ${inside}); } true;`
       );
     }
-  }, [driverLat, driverLng, isInsideGeofence]);
+  }, []);
+
+  // Handle map iframe/webview load — flush any pending position updates
+  const handleMapLoaded = useCallback(() => {
+    mapReadyRef.current = true;
+    // Flush any queued position update that arrived before map was ready
+    if (pendingUpdateRef.current) {
+      const { lat, lng, isInsideGeofence: inside } = pendingUpdateRef.current;
+      pendingUpdateRef.current = null;
+      // Small delay to ensure JS inside iframe is fully initialized
+      setTimeout(() => sendPositionUpdate(lat, lng, inside), 200);
+    }
+  }, [sendPositionUpdate]);
+
+  // Dispatch real-time coordinate updates to map without reloading
+  useEffect(() => {
+    sendPositionUpdate(driverLat, driverLng, isInsideGeofence);
+  }, [driverLat, driverLng, isInsideGeofence, sendPositionUpdate]);
 
   // Request location permission & recenter map properly
   const handleLocateAndRecenter = async () => {
@@ -94,7 +119,7 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
     }
   };
 
-  // Google Maps JavaScript API with Clean Silver theme and SVG markers
+  // Open source Leaflet map with OpenFreeMap (Overture Maps) tiles — clean silver theme
   const mapHtml = useMemo(() => `
     <!DOCTYPE html>
     <html>
@@ -105,6 +130,8 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           html, body, #map { width: 100%; height: 100%; background: #F1F5F9; font-family: -apple-system, sans-serif; }
+          /* Silver theme filter applied to tile layer for clean look */
+          .leaflet-tile-pane { filter: saturate(0.35) brightness(1.05) contrast(0.95); }
           .truck-marker {
             width: 38px; height: 38px; border-radius: 50%;
             background: #1E293B; border: 3px solid #FFFFFF; color: #FFFFFF;
@@ -123,132 +150,53 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
       <body>
         <div id="map"></div>
         <script>
-          let gMap, gDriverMarker, gDestMarker, gCircle, gRouteLine;
-          let isGoogleReady = false;
           let lMap, lTruckMarker, lCircle, lRouteLine;
 
           const driverCoord = { lat: ${driverLat}, lng: ${driverLng} };
           const destCoord = { lat: ${destLat}, lng: ${destLng} };
 
-          // Try Google Maps first; gracefully fallback to Leaflet if network/API key restricts it
-          function initGoogleMap() {
-            try {
-              if (typeof google !== 'undefined' && google.maps) {
-                isGoogleReady = true;
-                gMap = new google.maps.Map(document.getElementById('map'), {
-                  center: driverCoord,
-                  zoom: 16,
-                  disableDefaultUI: true,
-                  gestureHandling: 'greedy',
-                  styles: [
-                    { elementType: "geometry", stylers: [{ color: "#f8fafc" }] },
-                    { elementType: "labels.text.fill", stylers: [{ color: "#475569" }] },
-                    { elementType: "labels.text.stroke", stylers: [{ color: "#ffffff" }] },
-                    { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
-                    { featureType: "road.arterial", elementType: "geometry", stylers: [{ color: "#e2e8f0" }] },
-                    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#cbd5e1" }] },
-                    { featureType: "water", elementType: "geometry", stylers: [{ color: "#bfdbfe" }] },
-                    { featureType: "poi", elementType: "geometry", stylers: [{ color: "#f1f5f9" }] }
-                  ]
-                });
-
-                // 50m Geofence Circle
-                gCircle = new google.maps.Circle({
-                  strokeColor: '#D94A27',
-                  strokeOpacity: 0.85,
-                  strokeWeight: 2,
-                  fillColor: '#D94A27',
-                  fillOpacity: ${isInsideGeofence ? 0.2 : 0.08},
-                  map: gMap,
-                  center: destCoord,
-                  radius: 50
-                });
-
-                // Route Polyline
-                gRouteLine = new google.maps.Polyline({
-                  path: [driverCoord, destCoord],
-                  geodesic: true,
-                  strokeColor: '#D94A27',
-                  strokeOpacity: 0.85,
-                  strokeWeight: 3.5,
-                  map: gMap
-                });
-
-                // Customer Pin
-                gDestMarker = new google.maps.Marker({
-                  position: destCoord,
-                  map: gMap,
-                  title: "Destination",
-                  icon: {
-                    url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="#D94A27" stroke="#FFFFFF" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5" fill="#FFFFFF"/></svg>'),
-                    scaledSize: new google.maps.Size(36, 36),
-                    anchor: new google.maps.Point(18, 36)
-                  }
-                });
-
-                // Live Truck Marker
-                gDriverMarker = new google.maps.Marker({
-                  position: driverCoord,
-                  map: gMap,
-                  title: "Live Unit 24",
-                  icon: {
-                    url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="17" fill="#1E293B" stroke="#FFFFFF" stroke-width="3"/><text x="19" y="24" font-size="18" text-anchor="middle" fill="#FFFFFF">🚚</text></svg>'),
-                    scaledSize: new google.maps.Size(38, 38),
-                    anchor: new google.maps.Point(19, 19)
-                  }
-                });
-
-                const bounds = new google.maps.LatLngBounds();
-                bounds.extend(destCoord);
-                bounds.extend(driverCoord);
-                gMap.fitBounds(bounds, 40);
-                return;
-              }
-            } catch (e) {
-              console.warn('Google Maps init notice, using fallback:', e);
-            }
-
-            initLeafletFallback();
-          }
-
-          function initLeafletFallback() {
+          function initMap() {
             if (lMap) return;
             lMap = L.map('map', { zoomControl: false, attributionControl: false });
-            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, opacity: 0.9 }).addTo(lMap);
 
-            lCircle = L.circle([${destLat}, ${destLng}], {
+            // OpenFreeMap tiles (powered by Overture Maps data) — open source, no API key required
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              maxZoom: 19,
+              opacity: 0.95,
+              attribution: '© OpenStreetMap contributors | Overture Maps'
+            }).addTo(lMap);
+
+            // 50m Geofence Circle
+            lCircle = L.circle([destCoord.lat, destCoord.lng], {
               color: '#D94A27', fillColor: '#D94A27',
               fillOpacity: ${isInsideGeofence ? 0.18 : 0.06}, weight: 2.5, radius: 50
             }).addTo(lMap);
 
-            lRouteLine = L.polyline([[${driverLat}, ${driverLng}], [${destLat}, ${destLng}]], {
+            // Route line connecting driver to destination
+            lRouteLine = L.polyline([[driverCoord.lat, driverCoord.lng], [destCoord.lat, destCoord.lng]], {
               color: '#D94A27', weight: 3.5, opacity: 0.85
             }).addTo(lMap);
 
+            // Customer destination pin
             const custIcon = L.divIcon({ className: 'c-pin', html: '<div class="customer-marker"><span>📍</span></div>', iconSize: [36, 36], iconAnchor: [18, 36] });
-            L.marker([${destLat}, ${destLng}], { icon: custIcon }).addTo(lMap);
+            L.marker([destCoord.lat, destCoord.lng], { icon: custIcon }).addTo(lMap);
 
+            // Live driver truck marker
             const truckIcon = L.divIcon({ className: 't-pin', html: '<div class="truck-marker">🚚</div>', iconSize: [38, 38], iconAnchor: [19, 19] });
-            lTruckMarker = L.marker([${driverLat}, ${driverLng}], { icon: truckIcon }).addTo(lMap);
+            lTruckMarker = L.marker([driverCoord.lat, driverCoord.lng], { icon: truckIcon }).addTo(lMap);
 
-            lMap.fitBounds([[${destLat}, ${destLng}], [${driverLat}, ${driverLng}]], { padding: [40, 40] });
+            // Fit both markers in view
+            lMap.fitBounds([[destCoord.lat, destCoord.lng], [driverCoord.lat, driverCoord.lng]], { padding: [40, 40] });
+
+            // Signal that map is ready
+            window._mapReady = true;
           }
 
-          // Smooth update without page reload
+          // Smooth update without page reload — called from React Native
           window.updateDriverPosition = function(lat, lng, inside) {
-            if (isGoogleReady && gDriverMarker) {
-              const newPos = new google.maps.LatLng(lat, lng);
-              gDriverMarker.setPosition(newPos);
-              if (gRouteLine) gRouteLine.setPath([newPos, destCoord]);
-              if (gCircle && inside !== undefined) {
-                gCircle.setOptions({
-                  fillColor: inside ? '#15803D' : '#D94A27',
-                  fillOpacity: inside ? 0.22 : 0.08
-                });
-              }
-            } else if (lTruckMarker) {
+            if (lTruckMarker) {
               lTruckMarker.setLatLng([lat, lng]);
-              if (lRouteLine) lRouteLine.setLatLngs([[lat, lng], [${destLat}, ${destLng}]]);
+              if (lRouteLine) lRouteLine.setLatLngs([[lat, lng], [destCoord.lat, destCoord.lng]]);
               if (lCircle && inside !== undefined) {
                 lCircle.setStyle({ fillColor: inside ? '#15803D' : '#D94A27', fillOpacity: inside ? 0.22 : 0.06 });
               }
@@ -257,19 +205,15 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
 
           // Smooth recenter on locate trigger
           window.recenterMap = function(dLat, dLng, cLat, cLng) {
-            const driverP = dLat && dLng ? { lat: dLat, lng: dLng } : driverCoord;
-            const destP = cLat && cLng ? { lat: cLat, lng: cLng } : destCoord;
+            const driverP = dLat && dLng ? [dLat, dLng] : [driverCoord.lat, driverCoord.lng];
+            const destP = cLat && cLng ? [cLat, cLng] : [destCoord.lat, destCoord.lng];
 
-            if (isGoogleReady && gMap) {
-              const b = new google.maps.LatLngBounds();
-              b.extend(destP);
-              b.extend(driverP);
-              gMap.fitBounds(b, 40);
-            } else if (lMap) {
-              lMap.fitBounds([[destP.lat, destP.lng], [driverP.lat, driverP.lng]], { padding: [40, 40] });
+            if (lMap) {
+              lMap.fitBounds([destP, driverP], { padding: [40, 40] });
             }
           };
 
+          // Listen for postMessage updates from React Native
           window.addEventListener('message', function(event) {
             try {
               const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
@@ -280,9 +224,10 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
               }
             } catch(e) {}
           });
+
+          // Initialize map immediately
+          initMap();
         </script>
-        <!-- Google Maps JS API script with callback and automatic fallback -->
-        <script src="https://maps.googleapis.com/maps/api/js?key=&callback=initGoogleMap" async defer onerror="initLeafletFallback()"></script>
       </body>
     </html>
   `, [destLat, destLng]);
@@ -297,6 +242,7 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             srcDoc={mapHtml}
             style={{ width: '100%', height: '100%', border: 'none' }}
             title="Live Route Map"
+            onLoad={handleMapLoaded}
           />
         ) : (
           <WebView
@@ -308,6 +254,7 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             nestedScrollEnabled={false}
             javaScriptEnabled={true}
             domStorageEnabled={true}
+            onLoad={handleMapLoaded}
           />
         )}
       </View>

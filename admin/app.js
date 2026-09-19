@@ -494,23 +494,70 @@ function selectOrder(orderId) {
     sub.innerText = order.decisionReason;
   }
 
-  // Handle Video Proof & Admin Approval Section
+  // Handle Video Proof & Admin Approval Section (Customer Unavailable)
   const videoSection = document.getElementById('videoApprovalSection');
+  const unavailVideoEl = document.getElementById('unavailableVideoPlayer');
+  const unavailMockEl = document.getElementById('unavailableVideoMock');
+
   if (order.requiresAdminApproval && order.adminApprovalStatus === 'PENDING') {
     videoSection.style.display = 'block';
     document.getElementById('videoFileName').innerText = order.videoProofUri || 'doorstep_absence_clip.mp4';
+    if (order.videoProofUri && (order.videoProofUri.startsWith('blob:') || order.videoProofUri.startsWith('http') || order.videoProofUri.startsWith('data:video'))) {
+      if (unavailVideoEl) {
+        unavailVideoEl.src = order.videoProofUri;
+        unavailVideoEl.style.display = 'block';
+      }
+      if (unavailMockEl) unavailMockEl.style.display = 'none';
+    } else {
+      if (unavailVideoEl) unavailVideoEl.style.display = 'none';
+      if (unavailMockEl) unavailMockEl.style.display = 'block';
+    }
   } else {
     videoSection.style.display = 'none';
   }
 
   // Handle Delivery Handoff Video Proof Section for Successful Delivery
   const deliveryVideoSection = document.getElementById('deliveryVideoProofSection');
+  const deliveryVideoEl = document.getElementById('deliveryVideoPlayer');
+  const deliveryMockEl = document.getElementById('deliveryVideoMock');
+  const auditPill = document.getElementById('deliveryAuditStatusPill');
+
   if (deliveryVideoSection) {
-    if (order.status === 'DELIVERED' && order.videoProofUri) {
+    if ((order.status === 'DELIVERED' || order.status === 'VERIFIED' || order.status === 'REJECTED') && order.videoProofUri) {
       deliveryVideoSection.style.display = 'block';
       const fileNameEl = document.getElementById('deliveryVideoFileName');
       if (fileNameEl) {
         fileNameEl.innerText = order.videoProofUri.split('/').pop() || 'doorstep_handoff_proof.mp4';
+      }
+
+      if (auditPill) {
+        if (order.adminApprovalStatus === 'APPROVED' || order.status === 'VERIFIED') {
+          auditPill.innerText = 'SUPERVISOR VERIFIED ✓';
+          auditPill.style.background = '#DCFCE7';
+          auditPill.style.color = '#15803D';
+          auditPill.style.borderColor = '#86EFAC';
+        } else if (order.adminApprovalStatus === 'REJECTED' || order.status === 'REJECTED') {
+          auditPill.innerText = 'FLAGGED / REJECTED ✕';
+          auditPill.style.background = '#FEE2E2';
+          auditPill.style.color = '#DC2626';
+          auditPill.style.borderColor = '#FCA5A5';
+        } else {
+          auditPill.innerText = 'PENDING SUPERVISOR AUDIT';
+          auditPill.style.background = '#FEF3C7';
+          auditPill.style.color = '#D97706';
+          auditPill.style.borderColor = '#FCD34D';
+        }
+      }
+
+      if (order.videoProofUri && (order.videoProofUri.startsWith('blob:') || order.videoProofUri.startsWith('http') || order.videoProofUri.startsWith('data:video'))) {
+        if (deliveryVideoEl) {
+          deliveryVideoEl.src = order.videoProofUri;
+          deliveryVideoEl.style.display = 'block';
+        }
+        if (deliveryMockEl) deliveryMockEl.style.display = 'none';
+      } else {
+        if (deliveryVideoEl) deliveryVideoEl.style.display = 'none';
+        if (deliveryMockEl) deliveryMockEl.style.display = 'block';
       }
     } else {
       deliveryVideoSection.style.display = 'none';
@@ -575,8 +622,10 @@ document.getElementById('btnApproveClaim').onclick = () => {
   order.decision = 'VERIFIED';
   order.decisionReason = 'Customer Unavailable claim verified and approved by operations supervisor.';
 
+  persistAdminUpdateToStorage(order);
   selectOrder(selectedOrderId);
   updateKPICounters();
+  renderOrderList();
   broadcastToApp({
     type: 'ADMIN_DECISION_UPDATED',
     deliveryId: order.id,
@@ -597,8 +646,10 @@ document.getElementById('btnRejectClaim').onclick = () => {
   order.decision = 'REJECTED';
   order.decisionReason = 'Claim rejected by operations supervisor: Doorstep footage does not substantiate absence.';
 
+  persistAdminUpdateToStorage(order);
   selectOrder(selectedOrderId);
   updateKPICounters();
+  renderOrderList();
   broadcastToApp({
     type: 'ADMIN_DECISION_UPDATED',
     deliveryId: order.id,
@@ -609,6 +660,81 @@ document.getElementById('btnRejectClaim').onclick = () => {
   });
   showNotification(`✕ Claim REJECTED: False claim flagged for ${order.id}`);
 };
+
+// Supervisor Actions for Delivery Handoff Video Verification
+const btnVerifyDeliveryProof = document.getElementById('btnVerifyDeliveryProof');
+if (btnVerifyDeliveryProof) {
+  btnVerifyDeliveryProof.onclick = () => {
+    const order = orders.find((o) => o.id === selectedOrderId);
+    if (!order) return;
+
+    order.status = 'VERIFIED';
+    order.decision = 'VERIFIED';
+    order.adminApprovalStatus = 'APPROVED';
+    order.decisionReason = 'Delivery verified & confirmed by supervisor. Video proof inspected & authenticated.';
+
+    persistAdminUpdateToStorage(order);
+    selectOrder(selectedOrderId);
+    updateKPICounters();
+    renderOrderList();
+
+    broadcastToApp({
+      type: 'ADMIN_DECISION_UPDATED',
+      deliveryId: order.id,
+      status: 'VERIFIED',
+      notes: 'Delivery handoff video proof approved by supervisor',
+      timestamp: new Date().toISOString(),
+      extra: { adminApprovalStatus: 'APPROVED' },
+    });
+
+    showNotification(`✓ DELIVERY CONFIRMED: Handoff video proof for ${order.id} approved by supervisor.`);
+  };
+}
+
+const btnRejectDeliveryProof = document.getElementById('btnRejectDeliveryProof');
+if (btnRejectDeliveryProof) {
+  btnRejectDeliveryProof.onclick = () => {
+    const order = orders.find((o) => o.id === selectedOrderId);
+    if (!order) return;
+
+    order.status = 'REJECTED';
+    order.decision = 'REJECTED';
+    order.adminApprovalStatus = 'REJECTED';
+    order.decisionReason = 'Delivery rejected by supervisor: Video proof flagged as inconclusive or irregular.';
+
+    persistAdminUpdateToStorage(order);
+    selectOrder(selectedOrderId);
+    updateKPICounters();
+    renderOrderList();
+
+    broadcastToApp({
+      type: 'ADMIN_DECISION_UPDATED',
+      deliveryId: order.id,
+      status: 'REJECTED',
+      notes: 'Delivery rejected: Video proof flagged by supervisor',
+      timestamp: new Date().toISOString(),
+      extra: { adminApprovalStatus: 'REJECTED' },
+    });
+
+    showNotification(`✕ DELIVERY REJECTED: Order ${order.id} flagged for supervisor review.`);
+  };
+}
+
+function persistAdminUpdateToStorage(order) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const raw = window.localStorage.getItem(SQLITE_STORAGE_KEY);
+    if (raw) {
+      let persisted = JSON.parse(raw);
+      if (Array.isArray(persisted)) {
+        persisted = persisted.map((p) =>
+          p.id === order.id ? { ...p, status: order.status, notes: order.decisionReason } : p
+        );
+        window.localStorage.setItem(SQLITE_STORAGE_KEY, JSON.stringify(persisted));
+      }
+    }
+  } catch (e) {}
+}
 
 // Track Task input listeners
 const trackInput = document.getElementById('adminTrackInput');

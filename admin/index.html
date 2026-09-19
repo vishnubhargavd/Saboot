@@ -142,7 +142,8 @@
               </div>
             </div>
             <div class="admin-video-player" id="adminVideoPlayer">
-              <div class="admin-video-preview">
+              <video id="unavailableVideoPlayer" controls playsinline style="width: 100%; border-radius: 6px; display: none; background: #000; max-height: 220px;"></video>
+              <div class="admin-video-preview" id="unavailableVideoMock">
                 <div class="play-btn-circle">▶</div>
                 <span class="video-length-tag">00:06 • 1080p Doorstep Clip</span>
               </div>
@@ -160,28 +161,41 @@
             </div>
           </div>
 
-          <!-- Successful Delivery Verified Video Proof Display -->
+          <!-- Successful Delivery Verified Video Proof Display & Admin Controls -->
           <div class="video-approval-card" id="deliveryVideoProofSection" style="display: none; background: #F0FDF4; border-color: #86EFAC;">
             <div class="video-approval-header">
               <span class="video-icon">🎥</span>
-              <div>
-                <strong style="color: #15803D;">DELIVERY HANDOFF VIDEO EVIDENCE</strong>
-                <span class="video-sub" style="color: #166534;">Anti-Spoof Verified • Stored in SQLite</span>
+              <div style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <strong style="color: #15803D;">DELIVERY HANDOFF VIDEO EVIDENCE</strong>
+                  <span id="deliveryAuditStatusPill" style="font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 12px; background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC;">PENDING AUDIT</span>
+                </div>
+                <span class="video-sub" style="color: #166534;">Anti-Spoof Verified • Persisted to SQLite Backend</span>
               </div>
             </div>
             <div class="admin-video-player" style="border-color: #86EFAC;">
-              <div class="admin-video-preview" style="background: #14532D;">
+              <video id="deliveryVideoPlayer" controls playsinline style="width: 100%; border-radius: 6px; display: none; background: #000; max-height: 220px; margin-bottom: 8px;"></video>
+              <div class="admin-video-preview" id="deliveryVideoMock" style="background: #14532D;">
                 <div class="play-btn-circle" style="background: #22C55E; color: #FFFFFF;">▶</div>
                 <span class="video-length-tag" style="background: rgba(0,0,0,0.7);">00:04 • 1080p Doorstep Handoff</span>
               </div>
               <div class="video-proof-details">
                 <span>File: <strong id="deliveryVideoFileName">doorstep_handoff_proof.mp4</strong></span>
-                <span class="encrypted-badge" style="background: #DCFCE7; color: #15803D; border-color: #86EFAC;">VERIFIED AUTHENTIC</span>
+                <span class="encrypted-badge" style="background: #DCFCE7; color: #15803D; border-color: #86EFAC;">✓ STORED IN SQLITE</span>
               </div>
             </div>
-            <p class="approval-prompt" style="color: #166534; font-weight: 600;">
-              ✓ Camera proof verified: Luminance & detail variance confirmed genuine (no covered camera or blank footage).
+            <div style="margin-top: 8px; padding: 8px 10px; background: #FFFFFF; border-radius: 6px; border: 1px solid #BBF7D0; font-size: 11px; display: flex; gap: 12px; flex-wrap: wrap;">
+              <span>💡 Luminance: <strong style="color: #15803D;">120/255 (PASS)</strong></span>
+              <span>🔍 Detail Variance: <strong style="color: #15803D;">450 (GENUINE)</strong></span>
+              <span>📍 GPS Lock: <strong style="color: #15803D;">≤ 50m Doorstep</strong></span>
+            </div>
+            <p class="approval-prompt" style="color: #166534; font-weight: 600; margin-top: 8px;">
+              Admin Verification: Review footage to verify parcel handoff. Confirm delivery verification or flag for investigation.
             </p>
+            <div class="approval-btn-group" style="margin-top: 10px;">
+              <button class="btn-approve-claim" id="btnVerifyDeliveryProof" style="background: #15803D; border-color: #166534;">✓ VERIFY & CONFIRM DELIVERY</button>
+              <button class="btn-reject-claim" id="btnRejectDeliveryProof">✕ FLAG / REJECT PROOF</button>
+            </div>
           </div>
 
           <div class="order-config-section">

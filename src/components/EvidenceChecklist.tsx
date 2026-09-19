@@ -46,7 +46,7 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
   const [isCallOutcomeModalVisible, setIsCallOutcomeModalVisible] = useState(false);
   const [isVerifyingCallLog, setIsVerifyingCallLog] = useState(false);
   const [selectedCallOutcome, setSelectedCallOutcome] = useState<'answered' | 'no_answer' | 'busy' | 'canceled'>('answered');
-  const [measuredCallDuration, setMeasuredCallDuration] = useState<number>(25);
+  const [measuredCallDuration, setMeasuredCallDuration] = useState<number>(0);
 
   const callStartTimeRef = useRef<number | null>(null);
   const isWaitingForDialerReturn = useRef<boolean>(false);
@@ -55,14 +55,20 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
   const isDwellValid = dwellSeconds >= requiredDwellSeconds;
   const isCallValid = callEvidence.attempted;
 
+  // FIXED: Only show call outcome modal when driver RETURNS from dialer.
+  // Auto-detect outcome from actual elapsed time.
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active' && isWaitingForDialerReturn.current && callStartTimeRef.current) {
         const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
         isWaitingForDialerReturn.current = false;
-        if (elapsed > 0) setMeasuredCallDuration(elapsed);
+
+        setMeasuredCallDuration(elapsed);
+
         if (elapsed < 3) {
           setSelectedCallOutcome('canceled');
+        } else if (elapsed <= 10) {
+          setSelectedCallOutcome('no_answer');
         } else {
           setSelectedCallOutcome('answered');
         }
@@ -70,10 +76,37 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
       }
     };
     const sub = AppState.addEventListener('change', handleAppStateChange);
-    return () => sub.remove();
+
+    // Web window focus fallback
+    const handleWebFocus = () => {
+      if (isWaitingForDialerReturn.current && callStartTimeRef.current) {
+        const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
+        isWaitingForDialerReturn.current = false;
+        setMeasuredCallDuration(elapsed);
+        if (elapsed < 3) {
+          setSelectedCallOutcome('canceled');
+        } else if (elapsed <= 10) {
+          setSelectedCallOutcome('no_answer');
+        } else {
+          setSelectedCallOutcome('answered');
+        }
+        setIsCallOutcomeModalVisible(true);
+      }
+    };
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.addEventListener('focus', handleWebFocus);
+    }
+
+    return () => {
+      sub.remove();
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleWebFocus);
+      }
+    };
   }, []);
 
-  // Real phone dialer trigger - tracks start timestamp and prompts outcome verification
+  // FIXED: Removed premature 1s setTimeout. Modal only shows when AppState returns.
   const handleDialCustomer = () => {
     const rawNumber = customerPhone.replace(/[^0-9+]/g, '');
     const telUrl = `tel:${rawNumber}`;
@@ -87,18 +120,32 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
       } catch {
         window.open(telUrl, '_self');
       }
+      // Web fallback: 15s timeout in case focus event doesn't fire
+      setTimeout(() => {
+        if (isWaitingForDialerReturn.current && callStartTimeRef.current) {
+          const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
+          isWaitingForDialerReturn.current = false;
+          setMeasuredCallDuration(elapsed);
+          if (elapsed < 3) {
+            setSelectedCallOutcome('canceled');
+          } else if (elapsed <= 10) {
+            setSelectedCallOutcome('no_answer');
+          } else {
+            setSelectedCallOutcome('answered');
+          }
+          setIsCallOutcomeModalVisible(true);
+        }
+      }, 15000);
     } else {
       Linking.openURL(telUrl).catch((err) => {
         console.warn('Dialer launch notice:', err);
+        isWaitingForDialerReturn.current = false;
+        callStartTimeRef.current = null;
       });
     }
-
-    setTimeout(() => {
-      setIsCallOutcomeModalVisible(true);
-    }, 1000);
   };
 
-  // Confirm genuine call outcome
+  // FIXED: Use actual OS-measured elapsed time. No manual duration override.
   const handleConfirmCallOutcome = () => {
     setIsVerifyingCallLog(true);
     setTimeout(() => {
@@ -111,13 +158,33 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
           recipientPhone: customerPhone,
           simulated: false,
         });
+      } else if (selectedCallOutcome === 'no_answer') {
+        if (measuredCallDuration < 8) {
+          onCallLogged({
+            attempted: false,
+            durationSeconds: measuredCallDuration,
+            status: 'not_attempted',
+            recipientPhone: customerPhone,
+            simulated: false,
+          });
+        } else {
+          onCallLogged({
+            attempted: true,
+            timestamp: new Date().toISOString(),
+            durationSeconds: measuredCallDuration,
+            status: 'no_answer',
+            recipientPhone: customerPhone,
+            simulated: false,
+            telephonyCallId: `LOG-${Date.now().toString(36).toUpperCase()}`,
+          });
+        }
       } else {
-        const duration = selectedCallOutcome === 'answered' ? Math.max(measuredCallDuration, 5) : 0;
+        const duration = measuredCallDuration;
         onCallLogged({
           attempted: true,
           timestamp: new Date().toISOString(),
           durationSeconds: duration,
-          status: selectedCallOutcome === 'answered' ? 'completed' : selectedCallOutcome === 'no_answer' ? 'no_answer' : 'busy',
+          status: selectedCallOutcome === 'answered' ? 'completed' : 'busy',
           recipientPhone: customerPhone,
           simulated: false,
           telephonyCallId: `LOG-${Date.now().toString(36).toUpperCase()}`,
@@ -337,28 +404,29 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
               </Text>
             </View>
 
-            {/* Time / Status Banner */}
+            {/* Time / Status Banner — actual OS-measured elapsed time */}
             <View style={styles.detectedTimeBanner}>
               <Ionicons name="time-outline" size={16} color={THEME.colors.slate} />
               <Text style={styles.detectedTimeText}>
                 {measuredCallDuration > 0
-                  ? `Dial duration detected: ${measuredCallDuration}s`
-                  : 'Select call outcome below:'}
+                  ? `OS-measured dial duration: ${measuredCallDuration}s`
+                  : 'Call duration: measuring...'}
               </Text>
             </View>
 
             <View style={styles.outcomeOptions}>
-              {/* Option 1: Answered */}
+              {/* Option 1: Answered — only if elapsed > 10s */}
               <TouchableOpacity
                 style={[
                   styles.outcomeBtn,
                   selectedCallOutcome === 'answered' && styles.outcomeBtnSelectedAnswered,
+                  measuredCallDuration <= 10 && { opacity: 0.4 },
                 ]}
                 onPress={() => {
-                  setSelectedCallOutcome('answered');
-                  if (measuredCallDuration <= 0) setMeasuredCallDuration(25);
+                  if (measuredCallDuration > 10) setSelectedCallOutcome('answered');
                 }}
                 activeOpacity={0.8}
+                disabled={measuredCallDuration <= 10}
               >
                 <Ionicons
                   name="checkmark-circle"
@@ -373,42 +441,30 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
                 </View>
               </TouchableOpacity>
 
-              {/* Quick Duration Chips if Answered */}
+              {/* Duration is now read-only */}
               {selectedCallOutcome === 'answered' && (
                 <View style={styles.durationChipsRow}>
-                  <Text style={styles.durationChipsLabel}>Duration:</Text>
-                  {[15, 30, 45, 60, 90].map((sec) => (
-                    <TouchableOpacity
-                      key={sec}
-                      style={[
-                        styles.durationChip,
-                        measuredCallDuration === sec && styles.durationChipSelected,
-                      ]}
-                      onPress={() => setMeasuredCallDuration(sec)}
-                    >
-                      <Text
-                        style={[
-                          styles.durationChipText,
-                          measuredCallDuration === sec && styles.durationChipTextSelected,
-                        ]}
-                      >
-                        {sec}s
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  <Text style={styles.durationChipsLabel}>Verified Duration:</Text>
+                  <View style={[styles.durationChip, styles.durationChipSelected]}>
+                    <Text style={[styles.durationChipText, styles.durationChipTextSelected]}>
+                      {measuredCallDuration}s (OS measured)
+                    </Text>
+                  </View>
                 </View>
               )}
 
-              {/* Option 2: No Answer */}
+              {/* Option 2: No Answer — only valid if elapsed >= 3s */}
               <TouchableOpacity
                 style={[
                   styles.outcomeBtn,
                   selectedCallOutcome === 'no_answer' && styles.outcomeBtnSelectedNoAnswer,
+                  measuredCallDuration < 3 && { opacity: 0.4 },
                 ]}
                 onPress={() => {
-                  setSelectedCallOutcome('no_answer');
+                  if (measuredCallDuration >= 3) setSelectedCallOutcome('no_answer');
                 }}
                 activeOpacity={0.8}
+                disabled={measuredCallDuration < 3}
               >
                 <Ionicons
                   name="close-circle"
@@ -418,21 +474,24 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.outcomeBtnTitle}>No Answer / Phone Rang Out</Text>
                   <Text style={styles.outcomeBtnSubtitle}>
-                    Customer phone rang but nobody answered
+                    Customer phone rang but nobody answered ({measuredCallDuration}s elapsed)
+                    {measuredCallDuration < 8 ? ' — insufficient ring time' : ''}
                   </Text>
                 </View>
               </TouchableOpacity>
 
-              {/* Option 3: Busy / Switched Off */}
+              {/* Option 3: Busy / Switched Off — only valid if elapsed >= 3s */}
               <TouchableOpacity
                 style={[
                   styles.outcomeBtn,
                   selectedCallOutcome === 'busy' && styles.outcomeBtnSelectedBusy,
+                  measuredCallDuration < 3 && { opacity: 0.4 },
                 ]}
                 onPress={() => {
-                  setSelectedCallOutcome('busy');
+                  if (measuredCallDuration >= 3) setSelectedCallOutcome('busy');
                 }}
                 activeOpacity={0.8}
+                disabled={measuredCallDuration < 3}
               >
                 <Ionicons
                   name="alert-circle"
@@ -442,7 +501,7 @@ export const EvidenceChecklist: React.FC<EvidenceChecklistProps> = ({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.outcomeBtnTitle}>Number Busy / Switched Off</Text>
                   <Text style={styles.outcomeBtnSubtitle}>
-                    Call rejected, line busy, or network unreachable
+                    Call rejected, line busy, or network unreachable ({measuredCallDuration}s)
                   </Text>
                 </View>
               </TouchableOpacity>

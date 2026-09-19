@@ -43,4 +43,5 @@ yarn-error.*
 # agent & skills workspace metadata
 .agents/
 .claude/
+.idea/
 skills-lock.json

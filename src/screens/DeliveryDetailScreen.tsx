@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,9 +12,13 @@ import {
   Platform,
   AppState,
   AppStateStatus,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { THEME } from '../constants/theme';
 import { Delivery, FailureReason } from '../types/delivery';
 import { LiveDeliveryMap } from '../components/LiveDeliveryMap';
@@ -85,6 +89,19 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   const [isRecordingDeliveryVideo, setIsRecordingDeliveryVideo] = useState(false);
   const [deliveryVideoProgress, setDeliveryVideoProgress] = useState(0);
 
+  // Camera permissions & state
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
+  const [isCameraRecordingActive, setIsCameraRecordingActive] = useState(false);
+  const [isCameraStabilizing, setIsCameraStabilizing] = useState(false);
+
+  // Camera viewfinder modal for actual video recording
+  const [isCameraModalVisible, setIsCameraModalVisible] = useState(false);
+  const [cameraRecordingTarget, setCameraRecordingTarget] = useState<'delivery' | 'absence'>('delivery');
+  const [cameraCountdown, setCameraCountdown] = useState(6);
+  const cameraRef = useRef<any>(null);
+  const cameraRecordingTimerRef = useRef<any>(null);
+
   // Video proof for customer unavailable scenario
   const [videoProofUri, setVideoProofUri] = useState<string | null>(null);
   const [isRecordingVideoProof, setIsRecordingVideoProof] = useState(false);
@@ -93,7 +110,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   const [isCallOutcomeModalVisible, setIsCallOutcomeModalVisible] = useState(false);
   const [isVerifyingCallLog, setIsVerifyingCallLog] = useState(false);
   const [selectedCallOutcome, setSelectedCallOutcome] = useState<'answered' | 'no_answer' | 'busy' | 'canceled'>('answered');
-  const [measuredCallDuration, setMeasuredCallDuration] = useState<number>(25);
+  const [measuredCallDuration, setMeasuredCallDuration] = useState<number>(0);
 
   const callStartTimeRef = useRef<number | null>(null);
   const isWaitingForDialerReturn = useRef<boolean>(false);
@@ -128,21 +145,25 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   const driverLng = currentLocation?.longitude || (isSimulationMode && activePreset ? activePreset.simulatedGps.longitude : delivery.address.longitude + 0.0003);
 
   // Measure genuine time spent outside the app when driver dials
+  // FIXED: Only show call outcome modal when driver RETURNS from dialer,
+  // not on a premature 1s timer. Use actual OS-measured elapsed time.
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active' && isWaitingForDialerReturn.current && callStartTimeRef.current) {
         const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
         isWaitingForDialerReturn.current = false;
 
-        if (elapsed > 0) {
-          setMeasuredCallDuration(elapsed);
-        } else {
-          setMeasuredCallDuration(20);
-        }
+        // Use the actual elapsed time measured by the OS — no hardcoded defaults
+        setMeasuredCallDuration(elapsed);
 
+        // Auto-detect call outcome from elapsed time:
+        // < 3s  = canceled (didn't actually call or canceled dialer immediately)
+        // 3-10s = no_answer (phone rang briefly, didn't pick up)
+        // > 10s = answered (likely spoke with customer)
         if (elapsed < 3) {
-          // Driver clicked dial button but came back in under 3s -> likely canceled dialer
           setSelectedCallOutcome('canceled');
+        } else if (elapsed <= 10) {
+          setSelectedCallOutcome('no_answer');
         } else {
           setSelectedCallOutcome('answered');
         }
@@ -158,13 +179,14 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
       if (isWaitingForDialerReturn.current && callStartTimeRef.current) {
         const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
         isWaitingForDialerReturn.current = false;
-        if (elapsed > 0) {
-          setMeasuredCallDuration(elapsed);
-        } else {
-          setMeasuredCallDuration(20);
-        }
+
+        // Use actual elapsed time — no fake defaults
+        setMeasuredCallDuration(elapsed);
+
         if (elapsed < 3) {
           setSelectedCallOutcome('canceled');
+        } else if (elapsed <= 10) {
+          setSelectedCallOutcome('no_answer');
         } else {
           setSelectedCallOutcome('answered');
         }
@@ -185,6 +207,9 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   }, []);
 
   // Real phone dialer trigger - tracks start timestamp and prompts outcome verification
+  // FIXED: Removed the premature 1s setTimeout that showed the modal before the driver
+  // even left the app. Now the modal ONLY appears when the driver returns from the dialer
+  // (via AppState change or window focus event above).
   const handleDialCustomer = () => {
     const rawNumber = delivery.customer.phone.replace(/[^0-9+]/g, '');
     const telUrl = `tel:${rawNumber}`;
@@ -192,26 +217,44 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
     callStartTimeRef.current = Date.now();
     isWaitingForDialerReturn.current = true;
 
-    // 1. Launch the phone dialer
+    // Launch the phone dialer
     if (Platform.OS === 'web') {
       try {
         window.location.href = telUrl;
       } catch {
         window.open(telUrl, '_self');
       }
+      // On web, the tel: link may not actually leave the page.
+      // Set a fallback: if after 15 seconds the user hasn't triggered focus,
+      // show the modal so they can at least report what happened.
+      setTimeout(() => {
+        if (isWaitingForDialerReturn.current && callStartTimeRef.current) {
+          const elapsed = Math.max(0, Math.round((Date.now() - callStartTimeRef.current) / 1000));
+          isWaitingForDialerReturn.current = false;
+          setMeasuredCallDuration(elapsed);
+          if (elapsed < 3) {
+            setSelectedCallOutcome('canceled');
+          } else if (elapsed <= 10) {
+            setSelectedCallOutcome('no_answer');
+          } else {
+            setSelectedCallOutcome('answered');
+          }
+          setIsCallOutcomeModalVisible(true);
+        }
+      }, 15000);
     } else {
       Linking.openURL(telUrl).catch((err) => {
         console.warn('Dialer launch notice:', err);
+        // If dialer fails to open, reset the waiting state
+        isWaitingForDialerReturn.current = false;
+        callStartTimeRef.current = null;
       });
     }
-
-    // 2. Open outcome verification popup
-    setTimeout(() => {
-      setIsCallOutcomeModalVisible(true);
-    }, 1000);
   };
 
   // Confirm call outcome from modal
+  // FIXED: Use actual OS-measured elapsed time as the authoritative duration.
+  // Driver cannot manually pick arbitrary duration chips — the measured time is locked.
   const handleConfirmCallOutcome = () => {
     setIsVerifyingCallLog(true);
 
@@ -219,7 +262,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
       setIsVerifyingCallLog(false);
 
       if (selectedCallOutcome === 'canceled') {
-        // Rider clicked call button but did not actually call
+        // Rider clicked call button but did not actually call (< 3s elapsed)
         setCallEvidence({
           attempted: false,
           durationSeconds: 0,
@@ -227,13 +270,36 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
           recipientPhone: delivery.customer.phone,
           simulated: false,
         });
+      } else if (selectedCallOutcome === 'no_answer') {
+        // Phone rang but nobody answered (3-10s elapsed)
+        // Validate: if elapsed < 8s, downgrade to canceled (not enough rings)
+        if (measuredCallDuration < 8) {
+          setCallEvidence({
+            attempted: false,
+            durationSeconds: measuredCallDuration,
+            status: 'not_attempted',
+            recipientPhone: delivery.customer.phone,
+            simulated: false,
+          });
+        } else {
+          setCallEvidence({
+            attempted: true,
+            timestamp: new Date().toISOString(),
+            durationSeconds: measuredCallDuration,
+            status: 'no_answer',
+            recipientPhone: delivery.customer.phone,
+            telephonyCallId: `TEL-${Date.now().toString(36).toUpperCase()}`,
+            simulated: false,
+          });
+        }
       } else {
-        const duration = selectedCallOutcome === 'answered' ? Math.max(measuredCallDuration, 5) : 0;
+        // Answered or busy — use actual measured duration
+        const duration = measuredCallDuration;
         setCallEvidence({
           attempted: true,
           timestamp: new Date().toISOString(),
           durationSeconds: duration,
-          status: selectedCallOutcome === 'answered' ? 'completed' : selectedCallOutcome === 'no_answer' ? 'no_answer' : 'busy',
+          status: selectedCallOutcome === 'answered' ? 'completed' : 'busy',
           recipientPhone: delivery.customer.phone,
           telephonyCallId: `TEL-${Date.now().toString(36).toUpperCase()}`,
           simulated: false,
@@ -244,104 +310,259 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
     }, 400);
   };
 
-  // Record simulated 6-second video proof of customer absence
-  const handleRecordVideoProof = () => {
-    setIsRecordingVideoProof(true);
-    setRecordingProgress(1);
-    let step = 1;
-    const interval = setInterval(() => {
-      step += 1;
-      setRecordingProgress(step);
-      if (step >= 4) {
-        clearInterval(interval);
-        setIsRecordingVideoProof(false);
-        const clipUri = `file:///evidence/doorstep_absence_${Date.now().toString(36)}.mp4`;
-        setVideoProofUri(clipUri);
-        recordVideoClip(clipUri, 6);
-      }
-    }, 500);
-  };
-
-  // Real camera or test scenario video verification handler for delivery completion
-  const handleRecordDeliveryVideoProof = (mode: 'valid' | 'black' | 'white' | 'blank' = 'valid') => {
-    setIsRecordingDeliveryVideo(true);
-    setDeliveryVideoStatus('ANALYZING');
-    setDeliveryVideoReason('Accessing camera and recording handoff video...');
-    setDeliveryVideoProgress(1);
-
-    let step = 1;
-    const interval = setInterval(() => {
-      step += 1;
-      setDeliveryVideoProgress(step);
-      if (step >= 4) {
-        clearInterval(interval);
-        setIsRecordingDeliveryVideo(false);
-
-        // Run pixel-level anti-spoof analysis
-        const colorType = mode === 'valid' ? 'realistic' : mode;
-        const framePixels = generateTestFrame(colorType, 64, 64);
-        const { meanLuminance, variance, stdDev } = analyzePixelData(framePixels, 64 * 64);
-        const durationSeconds = mode === 'valid' ? 4.5 : 3.0;
-
-        const metrics: VideoAnalysisMetrics = {
-          meanLuminance,
-          variance,
-          stdDev,
-          durationSeconds,
-          width: 320,
-          height: 240,
-          samplesChecked: 1,
-        };
-
-        const evaluation = evaluateVideoMetrics(metrics);
-        setDeliveryVideoMetrics(metrics);
-        setDeliveryVideoStatus(evaluation.status);
-        setDeliveryVideoReason(evaluation.reason);
-
-        if (evaluation.isValid) {
-          const clipUri = `file:///evidence/doorstep_handoff_${Date.now().toString(36)}.mp4`;
-          setDeliveryVideoUri(clipUri);
-        } else {
-          setDeliveryVideoUri(null);
-        }
-      }
-    }, 400);
-  };
-
-  // Upload custom video file via HTML input on web
-  const handleUploadDeliveryVideoFile = async (e: any) => {
-    const file = e?.target?.files?.[0];
-    if (!file) return;
-
-    setDeliveryVideoStatus('ANALYZING');
-    setDeliveryVideoReason('Analyzing video frames, luminance & pixel variance...');
-
-    const result = await verifyVideoProof(file, 4.0);
-    setDeliveryVideoMetrics(result.metrics);
-    setDeliveryVideoStatus(result.status);
-    setDeliveryVideoReason(result.reason);
-
-    if (result.isValid) {
-      setDeliveryVideoUri(URL.createObjectURL(file));
-      if (result.thumbnailUri) {
-        setDeliveryVideoThumbnail(result.thumbnailUri);
+  // Unified video processing logic for verified genuine delivery proof
+  const processSelectedVideoFile = async (
+    videoInput: any,
+    target: 'delivery' | 'absence',
+    fileName?: string
+  ) => {
+    if (target === 'absence') {
+      setIsRecordingVideoProof(true);
+      const result = await verifyVideoProof(videoInput, 6.0);
+      setIsRecordingVideoProof(false);
+      if (result.isValid) {
+        const uri = typeof videoInput === 'string' ? videoInput : (typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(videoInput) : String(videoInput));
+        setVideoProofUri(uri);
+        recordVideoClip(uri, result.metrics.durationSeconds);
+        Alert.alert('Doorstep Proof Attached ✓', `Video (${fileName || 'clip'}) verified and attached for supervisor audit.`);
+      } else {
+        Alert.alert('Video Verification Failed', result.reason);
       }
     } else {
-      setDeliveryVideoUri(null);
+      setDeliveryVideoStatus('ANALYZING');
+      setDeliveryVideoReason(`Analyzing ${fileName || 'video'} frames, luminance & pixel variance...`);
+      const result = await verifyVideoProof(videoInput, 6.0);
+      setDeliveryVideoMetrics(result.metrics);
+      setDeliveryVideoStatus(result.status);
+      setDeliveryVideoReason(result.reason);
+
+      if (result.isValid) {
+        const uri = typeof videoInput === 'string' ? videoInput : (typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(videoInput) : String(videoInput));
+        setDeliveryVideoUri(uri);
+        if (result.thumbnailUri) {
+          setDeliveryVideoThumbnail(result.thumbnailUri);
+        }
+      } else {
+        setDeliveryVideoUri(null);
+      }
     }
   };
 
-  // Safe trigger for video file upload on web or camera recording on native
-  const handleTriggerVideoUpload = () => {
+  // Open System File Manager (Android / iOS Document Picker / Web File Chooser)
+  const handlePickVideoFromFileManager = async (target: 'delivery' | 'absence' = 'delivery') => {
+    try {
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'video/*';
+        input.onchange = async (e: any) => {
+          const file = e?.target?.files?.[0];
+          if (!file) return;
+          await processSelectedVideoFile(file, target, file.name);
+        };
+        input.click();
+      } else {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: 'video/*',
+          copyToCacheDirectory: true,
+        });
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          await processSelectedVideoFile(asset.uri, target, asset.name);
+        }
+      }
+    } catch (err) {
+      console.warn('File manager picker error:', err);
+      Alert.alert('File Picker Error', 'Unable to open file manager. Please try again.');
+    }
+  };
+
+  // Pick Video from Media Library / Photo & Video Gallery
+  const handlePickVideoFromGallery = async (target: 'delivery' | 'absence' = 'delivery') => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission Required', 'Media library access is required to select existing video footage.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['videos'],
+        allowsEditing: false,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        await processSelectedVideoFile(asset.uri, target, asset.fileName || 'gallery_video.mp4');
+      }
+    } catch (err) {
+      console.warn('Gallery picker error:', err);
+      Alert.alert('Gallery Picker Error', 'Unable to open gallery. Please try again.');
+    }
+  };
+
+  // Launch Native System Camera directly (zero-freeze, OS standard camera)
+  const handleLaunchSystemCamera = async (target: 'delivery' | 'absence' = 'delivery') => {
+    setIsCameraModalVisible(false);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Camera Permission Required', 'Please grant camera access to record proof.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['videos'],
+        videoMaxDuration: 30,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        await processSelectedVideoFile(asset.uri, target, 'camera_recording.mp4');
+      }
+    } catch (err) {
+      console.warn('System camera error:', err);
+      Alert.alert('Camera Error', 'Could not start camera. You can also upload with the File Manager.');
+    }
+  };
+
+  // Open In-App Viewfinder Camera with permissions pre-checked
+  const handleOpenInAppCamera = async (target: 'delivery' | 'absence') => {
+    setCameraRecordingTarget(target);
+    setCameraCountdown(6);
+
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'video/*';
-      input.onchange = (e) => handleUploadDeliveryVideoFile(e);
+      input.setAttribute('capture', 'environment');
+      input.onchange = async (e: any) => {
+        const file = e?.target?.files?.[0];
+        if (!file) return;
+        await processSelectedVideoFile(file, target, file.name);
+      };
       input.click();
-    } else {
-      handleRecordDeliveryVideoProof('valid');
+      return;
     }
+
+    // Native: check and request camera permissions
+    let hasCameraPerm = cameraPermission?.granted;
+    if (!hasCameraPerm) {
+      const requested = await requestCameraPermission();
+      hasCameraPerm = requested.granted;
+    }
+
+    if (!microphonePermission?.granted) {
+      await requestMicrophonePermission().catch(() => null);
+    }
+
+    setIsCameraModalVisible(true);
+  };
+
+  // Open camera to record video proof of customer absence
+  const handleRecordVideoProof = () => {
+    handleOpenInAppCamera('absence');
+  };
+
+  // Handle camera recording completion (called from camera modal)
+  const handleCameraRecordingComplete = async (videoUri: string) => {
+    setIsCameraModalVisible(false);
+    await processSelectedVideoFile(videoUri, cameraRecordingTarget, 'camera_proof.mp4');
+  };
+
+  // Start actual camera recording when camera modal is visible
+  const handleStartCameraRecording = async () => {
+    if (!cameraRef.current) return;
+
+    try {
+      setIsCameraRecordingActive(true);
+      const video = await cameraRef.current.recordAsync({
+        maxDuration: 6,
+        maxFileSize: 15 * 1024 * 1024,
+      });
+
+      if (video?.uri) {
+        handleCameraRecordingComplete(video.uri);
+      }
+    } catch (err) {
+      console.warn('Camera recording error:', err);
+      setIsCameraRecordingActive(false);
+      Alert.alert(
+        'Camera Hardware Notice',
+        'In-app recording stopped. Would you like to use your phone system camera or pick from File Manager?',
+        [
+          { text: 'File Manager', onPress: () => handlePickVideoFromFileManager(cameraRecordingTarget) },
+          { text: 'System Camera', onPress: () => handleLaunchSystemCamera(cameraRecordingTarget) },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    }
+  };
+
+  // Stop camera recording
+  const handleStopCameraRecording = () => {
+    setIsCameraRecordingActive(false);
+    if (cameraRecordingTimerRef.current) {
+      clearInterval(cameraRecordingTimerRef.current);
+      cameraRecordingTimerRef.current = null;
+    }
+    if (cameraRef.current) {
+      try {
+        cameraRef.current.stopRecording();
+      } catch {}
+    }
+  };
+
+  // Real camera or test scenario video verification handler for delivery completion
+  const handleRecordDeliveryVideoProof = (mode: 'valid' | 'black' | 'white' | 'blank' = 'valid') => {
+    if (mode !== 'valid') {
+      // Anti-spoof test modes still use synthetic frames for testing UI
+      setIsRecordingDeliveryVideo(true);
+      setDeliveryVideoStatus('ANALYZING');
+      setDeliveryVideoReason('Testing anti-spoof detection...');
+      setDeliveryVideoProgress(1);
+
+      let step = 1;
+      const interval = setInterval(() => {
+        step += 1;
+        setDeliveryVideoProgress(step);
+        if (step >= 4) {
+          clearInterval(interval);
+          setIsRecordingDeliveryVideo(false);
+
+          const colorType = mode;
+          const framePixels = generateTestFrame(colorType, 64, 64);
+          const { meanLuminance, variance, stdDev } = analyzePixelData(framePixels, 64 * 64);
+          const durationSeconds = 3.0;
+
+          const metrics: VideoAnalysisMetrics = {
+            meanLuminance,
+            variance,
+            stdDev,
+            durationSeconds,
+            width: 320,
+            height: 240,
+            samplesChecked: 1,
+          };
+
+          const evaluation = evaluateVideoMetrics(metrics);
+          setDeliveryVideoMetrics(metrics);
+          setDeliveryVideoStatus(evaluation.status);
+          setDeliveryVideoReason(evaluation.reason);
+          setDeliveryVideoUri(null);
+        }
+      }, 400);
+      return;
+    }
+
+    // Valid mode: open camera
+    handleOpenInAppCamera('delivery');
+  };
+
+  // Trigger File Manager video upload
+  const handleTriggerVideoUpload = () => {
+    handlePickVideoFromFileManager('delivery');
   };
 
   // Confirm and record successful delivery completion
@@ -618,28 +839,29 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               </Text>
             </View>
 
-            {/* Time / Status Banner */}
+            {/* Time / Status Banner — shows actual OS-measured elapsed time */}
             <View style={styles.detectedTimeBanner}>
               <Ionicons name="time-outline" size={16} color={THEME.colors.slate} />
               <Text style={styles.detectedTimeText}>
                 {measuredCallDuration > 0
-                  ? `Dial duration detected: ${measuredCallDuration}s`
-                  : 'Select call outcome below:'}
+                  ? `OS-measured dial duration: ${measuredCallDuration}s`
+                  : 'Call duration: measuring...'}
               </Text>
             </View>
 
             <View style={styles.outcomeOptions}>
-              {/* Option 1: Answered */}
+              {/* Option 1: Answered — only shown if elapsed > 10s */}
               <TouchableOpacity
                 style={[
                   styles.outcomeBtn,
                   selectedCallOutcome === 'answered' && styles.outcomeBtnSelectedAnswered,
+                  measuredCallDuration <= 10 && { opacity: 0.4 },
                 ]}
                 onPress={() => {
-                  setSelectedCallOutcome('answered');
-                  if (measuredCallDuration <= 0) setMeasuredCallDuration(25);
+                  if (measuredCallDuration > 10) setSelectedCallOutcome('answered');
                 }}
                 activeOpacity={0.8}
+                disabled={measuredCallDuration <= 10}
               >
                 <Ionicons
                   name="checkmark-circle"
@@ -654,42 +876,30 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
                 </View>
               </TouchableOpacity>
 
-              {/* Quick Duration Chips if Answered */}
+              {/* Duration is now read-only — shows actual measured time */}
               {selectedCallOutcome === 'answered' && (
                 <View style={styles.durationChipsRow}>
-                  <Text style={styles.durationChipsLabel}>Duration:</Text>
-                  {[15, 30, 45, 60, 90].map((sec) => (
-                    <TouchableOpacity
-                      key={sec}
-                      style={[
-                        styles.durationChip,
-                        measuredCallDuration === sec && styles.durationChipSelected,
-                      ]}
-                      onPress={() => setMeasuredCallDuration(sec)}
-                    >
-                      <Text
-                        style={[
-                          styles.durationChipText,
-                          measuredCallDuration === sec && styles.durationChipTextSelected,
-                        ]}
-                      >
-                        {sec}s
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  <Text style={styles.durationChipsLabel}>Verified Duration:</Text>
+                  <View style={[styles.durationChip, styles.durationChipSelected]}>
+                    <Text style={[styles.durationChipText, styles.durationChipTextSelected]}>
+                      {measuredCallDuration}s (OS measured)
+                    </Text>
+                  </View>
                 </View>
               )}
 
-              {/* Option 2: No Answer */}
+              {/* Option 2: No Answer — only valid if elapsed >= 3s */}
               <TouchableOpacity
                 style={[
                   styles.outcomeBtn,
                   selectedCallOutcome === 'no_answer' && styles.outcomeBtnSelectedNoAnswer,
+                  measuredCallDuration < 3 && { opacity: 0.4 },
                 ]}
                 onPress={() => {
-                  setSelectedCallOutcome('no_answer');
+                  if (measuredCallDuration >= 3) setSelectedCallOutcome('no_answer');
                 }}
                 activeOpacity={0.8}
+                disabled={measuredCallDuration < 3}
               >
                 <Ionicons
                   name="close-circle"
@@ -699,21 +909,24 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.outcomeBtnTitle}>No Answer / Phone Rang Out</Text>
                   <Text style={styles.outcomeBtnSubtitle}>
-                    Customer phone rang but nobody answered
+                    Customer phone rang but nobody answered ({measuredCallDuration}s elapsed)
+                    {measuredCallDuration < 8 ? ' — insufficient ring time' : ''}
                   </Text>
                 </View>
               </TouchableOpacity>
 
-              {/* Option 3: Busy / Switched Off */}
+              {/* Option 3: Busy / Switched Off — only valid if elapsed >= 3s */}
               <TouchableOpacity
                 style={[
                   styles.outcomeBtn,
                   selectedCallOutcome === 'busy' && styles.outcomeBtnSelectedBusy,
+                  measuredCallDuration < 3 && { opacity: 0.4 },
                 ]}
                 onPress={() => {
-                  setSelectedCallOutcome('busy');
+                  if (measuredCallDuration >= 3) setSelectedCallOutcome('busy');
                 }}
                 activeOpacity={0.8}
+                disabled={measuredCallDuration < 3}
               >
                 <Ionicons
                   name="alert-circle"
@@ -723,7 +936,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.outcomeBtnTitle}>Number Busy / Switched Off</Text>
                   <Text style={styles.outcomeBtnSubtitle}>
-                    Call rejected, line busy, or network unreachable
+                    Call rejected, line busy, or network unreachable ({measuredCallDuration}s)
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -846,26 +1059,50 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <TouchableOpacity
-                    style={styles.recordProofBtn}
-                    onPress={handleRecordVideoProof}
-                    disabled={isRecordingVideoProof}
-                    activeOpacity={0.8}
-                  >
-                    {isRecordingVideoProof ? (
-                      <>
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                        <Text style={styles.recordProofBtnText}>
-                          RECORDING DOORSTEP PROOF ({recordingProgress * 2}s / 6s)...
-                        </Text>
-                      </>
-                    ) : (
-                      <>
-                        <Ionicons name="videocam" size={18} color="#FFFFFF" />
-                        <Text style={styles.recordProofBtnText}>RECORD 6s DOORSTEP PROOF CLIP</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                  <View style={{ gap: 8 }}>
+                    <TouchableOpacity
+                      style={styles.recordProofBtn}
+                      onPress={handleRecordVideoProof}
+                      disabled={isRecordingVideoProof}
+                      activeOpacity={0.8}
+                    >
+                      {isRecordingVideoProof ? (
+                        <>
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                          <Text style={styles.recordProofBtnText}>
+                            RECORDING DOORSTEP PROOF ({recordingProgress * 2}s / 6s)...
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Ionicons name="videocam" size={18} color="#FFFFFF" />
+                          <Text style={styles.recordProofBtnText}>RECORD DOORSTEP PROOF (CAMERA)</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TouchableOpacity
+                        style={[styles.uploadVideoBtn, { flex: 1, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', paddingVertical: 10 }]}
+                        onPress={() => handlePickVideoFromFileManager('absence')}
+                        disabled={isRecordingVideoProof}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="folder-open" size={16} color={THEME.colors.foreground} />
+                        <Text style={styles.uploadVideoText}>UPLOAD FROM FILES</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.galleryVideoBtn, { flex: 1, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', paddingVertical: 10 }]}
+                        onPress={() => handlePickVideoFromGallery('absence')}
+                        disabled={isRecordingVideoProof}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="images" size={16} color={THEME.colors.foreground} />
+                        <Text style={styles.galleryVideoText}>FROM GALLERY</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 )}
               </View>
             )}
@@ -1058,21 +1295,30 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               {deliveryVideoStatus !== 'VERIFIED' && !isRecordingDeliveryVideo && (
                 <View style={styles.videoActionRow}>
                   <TouchableOpacity
-                    style={styles.recordProofMainBtn}
+                    style={[styles.recordProofMainBtn, { flex: 1.2 }]}
                     onPress={() => handleRecordDeliveryVideoProof('valid')}
                     activeOpacity={0.8}
                   >
                     <Ionicons name="camera" size={16} color="#FFFFFF" />
-                    <Text style={styles.recordProofMainText}>RECORD VIDEO PROOF</Text>
+                    <Text style={styles.recordProofMainText}>RECORD</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.uploadVideoBtn}
-                    onPress={handleTriggerVideoUpload}
+                    style={[styles.uploadVideoBtn, { flex: 1 }]}
+                    onPress={() => handlePickVideoFromFileManager('delivery')}
                     activeOpacity={0.8}
                   >
-                    <Ionicons name="cloud-upload" size={14} color={THEME.colors.foreground} />
-                    <Text style={styles.uploadVideoText}>UPLOAD</Text>
+                    <Ionicons name="folder-open" size={15} color={THEME.colors.foreground} />
+                    <Text style={styles.uploadVideoText}>FILES</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.galleryVideoBtn, { flex: 1 }]}
+                    onPress={() => handlePickVideoFromGallery('delivery')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="images" size={15} color={THEME.colors.foreground} />
+                    <Text style={styles.galleryVideoText}>GALLERY</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1145,6 +1391,134 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               <Text style={styles.cancelCallBtnText}>CANCEL</Text>
             </TouchableOpacity>
           </View>
+        </View>
+      </Modal>
+
+      {/* Camera Viewfinder Modal — opens real device camera for video recording */}
+      <Modal
+        visible={isCameraModalVisible}
+        animationType="slide"
+        onRequestClose={() => {
+          handleStopCameraRecording();
+          setIsCameraModalVisible(false);
+        }}
+      >
+        <View style={styles.cameraModalContainer}>
+          {!cameraPermission?.granted ? (
+            <View style={styles.cameraPermissionCard}>
+              <View style={styles.cameraPermIconCircle}>
+                <Ionicons name="camera" size={44} color="#DC2626" />
+              </View>
+              <Text style={styles.cameraPermTitle}>Camera Permission Required</Text>
+              <Text style={styles.cameraPermDesc}>
+                Saboot requires camera access to record video proof of delivery handoff and verify physical presence.
+              </Text>
+
+              <TouchableOpacity
+                style={styles.cameraPermBtn}
+                onPress={async () => {
+                  const res = await requestCameraPermission();
+                  if (!res.granted) {
+                    Alert.alert('Permission Denied', 'Please grant camera access or use your phone System Camera / File Manager.');
+                  }
+                }}
+              >
+                <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+                <Text style={styles.cameraPermBtnText}>GRANT CAMERA PERMISSION</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cameraSystemFallbackBtn}
+                onPress={() => handleLaunchSystemCamera(cameraRecordingTarget)}
+              >
+                <Ionicons name="camera-outline" size={18} color="#0F172A" />
+                <Text style={styles.cameraSystemFallbackText}>OPEN PHONE SYSTEM CAMERA</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cameraFilesFallbackBtn}
+                onPress={() => {
+                  setIsCameraModalVisible(false);
+                  handlePickVideoFromFileManager(cameraRecordingTarget);
+                }}
+              >
+                <Ionicons name="folder-open" size={18} color="#0F172A" />
+                <Text style={styles.cameraSystemFallbackText}>UPLOAD WITH FILE MANAGER</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cameraCloseBtn}
+                onPress={() => setIsCameraModalVisible(false)}
+              >
+                <Text style={styles.cameraCloseText}>CANCEL</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <CameraView
+                ref={cameraRef}
+                style={styles.cameraViewfinder}
+                mode="video"
+                facing="back"
+                mute={!microphonePermission?.granted}
+                onCameraReady={() => {
+                  setIsCameraStabilizing(true);
+                  setTimeout(() => {
+                    setIsCameraStabilizing(false);
+                    handleStartCameraRecording();
+                    setCameraCountdown(6);
+                    let count = 6;
+                    if (cameraRecordingTimerRef.current) clearInterval(cameraRecordingTimerRef.current);
+                    cameraRecordingTimerRef.current = setInterval(() => {
+                      count -= 1;
+                      setCameraCountdown(count);
+                      if (count <= 0) {
+                        clearInterval(cameraRecordingTimerRef.current);
+                        cameraRecordingTimerRef.current = null;
+                        handleStopCameraRecording();
+                      }
+                    }, 1000);
+                  }, 600);
+                }}
+              />
+
+              {/* Recording overlay UI */}
+              <View style={styles.cameraOverlay}>
+                <View style={styles.cameraTopBar}>
+                  <View style={styles.recIndicator}>
+                    <View style={styles.recDot} />
+                    <Text style={styles.recText}>REC</Text>
+                  </View>
+                  <Text style={styles.cameraTimerText}>{cameraCountdown}s</Text>
+                </View>
+
+                <View style={styles.cameraCenterInfo}>
+                  <Text style={styles.cameraInstructionText}>
+                    {cameraRecordingTarget === 'absence'
+                      ? 'Recording doorstep & door knocking evidence...'
+                      : 'Recording delivery handoff proof...'}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.switchSystemCameraBtn}
+                    onPress={() => handleLaunchSystemCamera(cameraRecordingTarget)}
+                  >
+                    <Ionicons name="camera-reverse-outline" size={14} color="#FFFFFF" />
+                    <Text style={styles.switchSystemCameraText}>Switch to System Camera</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.cameraCancelBtn}
+                  onPress={() => {
+                    handleStopCameraRecording();
+                    setIsCameraModalVisible(false);
+                  }}
+                >
+                  <Text style={styles.cameraCancelText}>CANCEL</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
         </View>
       </Modal>
 
@@ -1930,5 +2304,205 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#DC2626',
+  },
+  // Camera Viewfinder Modal Styles
+  cameraModalContainer: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  cameraViewfinder: {
+    flex: 1,
+  },
+  cameraOverlay: {
+    ...(StyleSheet.absoluteFill as any),
+    justifyContent: 'space-between',
+    padding: 24,
+  },
+  cameraTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 40,
+  },
+  recIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(220, 38, 38, 0.85)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 4,
+  },
+  recDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  recText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  cameraTimerText: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  cameraInstructionText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 6,
+    alignSelf: 'center',
+  },
+  cameraCancelBtn: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 14,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  cameraCancelText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  galleryVideoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#E2E8F0',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 3,
+    justifyContent: 'center',
+  },
+  galleryVideoText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.colors.foreground,
+  },
+  cameraPermissionCard: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 28,
+  },
+  cameraPermIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(220, 38, 38, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(220, 38, 38, 0.3)',
+  },
+  cameraPermTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  cameraPermDesc: {
+    fontSize: 13,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 24,
+    maxWidth: 320,
+  },
+  cameraPermBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: THEME.colors.signal,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 6,
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 12,
+  },
+  cameraPermBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  cameraSystemFallbackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 13,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 10,
+  },
+  cameraFilesFallbackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#E2E8F0',
+    paddingVertical: 13,
+    paddingHorizontal: 20,
+    borderRadius: 6,
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 16,
+  },
+  cameraSystemFallbackText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 0.3,
+  },
+  cameraCloseBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+  },
+  cameraCloseText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  cameraCenterInfo: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  switchSystemCameraBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  switchSystemCameraText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

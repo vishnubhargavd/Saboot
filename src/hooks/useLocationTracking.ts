@@ -130,7 +130,7 @@ export function useLocationTracking({ targetLatitude, targetLongitude }: UseLoca
         if (fresh && isMounted) {
           handleLocationUpdate(fresh);
         }
-      }, 3000);
+      }, 2000);
     }
 
     startLiveTracking();

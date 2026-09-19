@@ -25,7 +25,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
-  const filteredDeliveries = deliveries.filter((d) => {
+  // Filter out completed/resolved deliveries from active route
+  const TERMINAL_STATUSES = ['DELIVERED', 'VERIFIED', 'REJECTED'];
+  const activeDeliveries = deliveries.filter((d) => !TERMINAL_STATUSES.includes(d.status));
+
+  const filteredDeliveries = activeDeliveries.filter((d) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase().trim();
     return (
@@ -88,7 +92,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>TODAY'S DELIVERY ROUTE</Text>
             <Text style={styles.sectionSub}>
-              {filteredDeliveries.length} OF {deliveries.length} STOPS
+              {filteredDeliveries.length} OF {activeDeliveries.length} STOPS
             </Text>
           </View>
 

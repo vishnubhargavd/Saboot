@@ -32,7 +32,24 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Saboot uses the camera for customer-consented delivery proof video.",
+          "microphonePermission": "Saboot uses the microphone for video evidence recording.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Saboot accesses your photos/videos for delivery proof verification.",
+          "cameraPermission": "Saboot uses the camera for customer-consented delivery proof video.",
+          "microphonePermission": "Saboot uses the microphone for video evidence recording."
+        }
+      ],
+      "expo-document-picker"
     ]
   }
 }
