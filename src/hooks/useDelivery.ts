@@ -168,8 +168,16 @@ export function useDelivery() {
       }
     });
 
+    // Periodic 10-second ping to ensure continuous synchronization with Admin Operations Panel
+    const pingInterval = setInterval(() => {
+      if (isMounted) {
+        loadData();
+      }
+    }, 10000);
+
     return () => {
       isMounted = false;
+      clearInterval(pingInterval);
       unsubscribe();
     };
   }, []);

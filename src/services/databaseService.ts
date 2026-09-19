@@ -71,14 +71,8 @@ export async function initDatabase(): Promise<void> {
         );
       `);
 
-      // Check if seeded
-      const existing = (await sqliteDbInstance.getFirstAsync(
-        'SELECT count(*) as count FROM deliveries'
-      )) as { count: number } | null;
-
-      if (!existing || existing.count === 0) {
-        await seedInitialDeliveriesSQLite(sqliteDbInstance);
-      }
+      // Ensure all INITIAL_DELIVERIES exist in SQLite DB without overwriting completed deliveries
+      await seedInitialDeliveriesSQLite(sqliteDbInstance);
       return;
     }
   } catch (err) {
@@ -95,7 +89,7 @@ export async function initDatabase(): Promise<void> {
 async function seedInitialDeliveriesSQLite(db: any): Promise<void> {
   for (const d of INITIAL_DELIVERIES) {
     await db.runAsync(
-      `INSERT OR REPLACE INTO deliveries (
+      `INSERT OR IGNORE INTO deliveries (
         id, tracking_number, customer_name, customer_phone, street, city,
         residence_category, lat, lng, package_desc, driver_id, status,
         notes, handoff_type, video_proof_uri, video_status, completed_at, created_at
@@ -125,15 +119,26 @@ async function seedInitialDeliveriesSQLite(db: any): Promise<void> {
 }
 
 /**
- * Initialize Web storage with INITIAL_DELIVERIES if empty
+ * Initialize Web storage with INITIAL_DELIVERIES and merge missing tasks
  */
 function initWebStorage(): void {
   if (Platform.OS !== 'web' || typeof window === 'undefined' || !window.localStorage) return;
 
   try {
     const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!stored) {
-      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(INITIAL_DELIVERIES));
+    let existing: Delivery[] = stored ? JSON.parse(stored) : [];
+    if (!Array.isArray(existing)) existing = [];
+
+    let modified = false;
+    for (const d of INITIAL_DELIVERIES) {
+      if (!existing.some((e) => e.id === d.id)) {
+        existing.push(d);
+        modified = true;
+      }
+    }
+
+    if (modified || !stored) {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(existing));
     }
   } catch (err) {}
 }

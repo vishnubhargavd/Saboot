@@ -109,21 +109,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 {filteredDeliveries.length} OF {activeDeliveries.length} STOPS
               </Text>
             </View>
-            <TouchableOpacity
-              style={styles.syncButton}
-              onPress={handleRefresh}
-              activeOpacity={0.7}
-              disabled={isRefreshing}
-            >
-              <Ionicons
-                name="refresh"
-                size={13}
-                color={isRefreshing ? '#94A3B8' : '#0284C7'}
-              />
-              <Text style={[styles.syncButtonText, isRefreshing && { color: '#94A3B8' }]}>
-                {isRefreshing ? 'SYNCING...' : 'SYNC ADMIN'}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={styles.autoPingBadge}>
+                <View style={styles.pingDot} />
+                <Text style={styles.autoPingText}>10S PING</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.syncButton}
+                onPress={handleRefresh}
+                activeOpacity={0.7}
+                disabled={isRefreshing}
+              >
+                <Ionicons
+                  name="refresh"
+                  size={13}
+                  color={isRefreshing ? '#94A3B8' : '#0284C7'}
+                />
+                <Text style={[styles.syncButtonText, isRefreshing && { color: '#94A3B8' }]}>
+                  {isRefreshing ? 'SYNCING...' : 'SYNC NOW'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Deliveries Queue */}
@@ -278,5 +284,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0284C7',
     letterSpacing: 0.5,
+  },
+  autoPingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  pingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  autoPingText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#15803D',
+    letterSpacing: 0.4,
   },
 });
