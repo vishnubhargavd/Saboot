@@ -747,7 +747,7 @@ function initMap(retryCount = 0) {
 
     // High-performance, reliable open-source tiles (Overture Maps Foundation / OpenFreeMap compliant) with authenticated CARTO API key
     const CARTO_API_KEY = 'eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfemUydmszZnQiLCJqdGkiOiI1NTVmYjZiNCIsImV4cCI6MTgyMTQxNjQwMH0.o6X2QeVYgp8GcrhKAUZuAowYGxlxl9DfPkeroe-1r74';
-    L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}`, {
+    L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`, {
       attribution: '&copy; <a href="https://overturemaps.org" target="_blank">Overture Maps Foundation</a> &copy; <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
       subdomains: 'abcd',
       maxZoom: 20

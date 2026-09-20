@@ -160,7 +160,7 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             lMap = L.map('map', { zoomControl: false, attributionControl: false });
 
             // Overture Maps Foundation / Carto Voyager tiles with authenticated API key (removes watermark)
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?api_key=eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfemUydmszZnQiLCJqdGkiOiI1NTVmYjZiNCIsImV4cCI6MTgyMTQxNjQwMH0.o6X2QeVYgp8GcrhKAUZuAowYGxlxl9DfPkeroe-1r74', {
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfemUydmszZnQiLCJqdGkiOiI1NTVmYjZiNCIsImV4cCI6MTgyMTQxNjQwMH0.o6X2QeVYgp8GcrhKAUZuAowYGxlxl9DfPkeroe-1r74', {
               maxZoom: 20,
               subdomains: 'abcd',
               opacity: 0.98,
