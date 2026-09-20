@@ -38,6 +38,7 @@ import {
 } from '../services/videoVerificationService';
 import { VideoProofThumbnail } from '../components/VideoProofThumbnail';
 import { uploadVideoProofFile } from '../services/realtimeSync';
+import { CustomerQrModal } from '../components/CustomerQrModal';
 
 interface DeliveryDetailScreenProps {
   delivery: Delivery;
@@ -82,6 +83,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
   const [selectedHandoff, setSelectedHandoff] = useState<'direct' | 'doorstep' | 'security'>('direct');
   const [handoffNotes, setHandoffNotes] = useState('');
   const [isCompleting, setIsCompleting] = useState(false);
+  const [isQrModalVisible, setIsQrModalVisible] = useState(false);
 
   // Delivery completion video proof & anti-spoof state
   const [deliveryVideoUri, setDeliveryVideoUri] = useState<string | null>(null);
@@ -836,6 +838,29 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               />
             </View>
           </TouchableOpacity>
+
+          {/* Customer QR Verification Action (Shown when in REVIEW or customer confirmation required) */}
+          {(delivery.status === 'REVIEW' || delivery.requiresCustomerConfirmation) && (
+            <TouchableOpacity
+              style={styles.qrVerificationBtn}
+              onPress={() => setIsQrModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.qrVerificationIconBubble}>
+                <Ionicons name="qr-code" size={20} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.qrVerificationBtnText}>SHOW CUSTOMER QR CODE</Text>
+                <Text style={styles.qrVerificationBtnSub}>
+                  Customer scans on phone to confirm package receipt in real time
+                </Text>
+              </View>
+              <View style={styles.qrVerificationActionPill}>
+                <Text style={styles.qrVerificationActionPillText}>SHOW QR</Text>
+                <Ionicons name="chevron-forward" size={13} color="#38BDF8" />
+              </View>
+            </TouchableOpacity>
+          )}
 
           {/* Primary Action: Complete Delivery Button — BLOCKED when outside geofence */}
           <TouchableOpacity
@@ -1622,6 +1647,42 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
           )}
         </View>
       </Modal>
+
+      {/* Customer QR Verification Modal */}
+      <CustomerQrModal
+        visible={isQrModalVisible}
+        delivery={delivery}
+        onClose={() => setIsQrModalVisible(false)}
+        onVerificationResolved={(resolvedStatus) => {
+          if (resolvedStatus === 'VERIFIED') {
+            onVerificationComplete({
+              decision: 'VERIFIED',
+              deliveryId: delivery.id,
+              timestamp: new Date().toISOString(),
+              facts: {
+                deliveryId: delivery.id,
+                residenceCategory: delivery.address.residenceCategory,
+                distanceMeters: distanceMeters || 12,
+                requiredDistanceMeters: 50,
+                dwellSeconds: dwellSeconds,
+                requiredDwellSeconds: requiredDwellSeconds,
+                callAttempted: callEvidence.attempted,
+                callDurationSeconds: callEvidence.durationSeconds,
+                videoConsentRequested: false,
+                videoConsentGiven: false,
+                videoEvidence: false,
+                gpsAccuracyMeters: currentLocation?.accuracy || 6,
+                anomalyFlags: [],
+              },
+              ruleChecks: [],
+              primaryReason: 'Customer confirmed package receipt via QR verification.',
+              detailedExplanation: 'Package handoff successfully confirmed by customer via real-time QR attestation.',
+              auditRecordId: `AUD-QR-${Date.now().toString(36).toUpperCase()}`,
+              evaluationEngine: 'Saboot-QR-VerificationEngine-v1.0',
+            });
+          }
+        }}
+      />
 
       {/* Loading Overlay */}
       {isSubmitting && (
@@ -2638,5 +2699,54 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     fontFamily: THEME.typography.fontFamily.mono,
+  },
+  qrVerificationBtn: {
+    backgroundColor: '#0F172A',
+    borderRadius: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: '#38BDF8',
+  },
+  qrVerificationIconBubble: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#0284C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  qrVerificationBtnText: {
+    fontSize: 12.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
+  },
+  qrVerificationBtnSub: {
+    fontSize: 10.5,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  qrVerificationActionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+    marginLeft: 6,
+  },
+  qrVerificationActionPillText: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: '#38BDF8',
+    marginRight: 2,
+    letterSpacing: 0.4,
   },
 });

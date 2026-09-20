@@ -69,7 +69,7 @@ function getStatusBadge(delivery) {
 /**
  * Generates the complete HTML document for a valid delivery
  */
-function renderCustomerPortalHtml(delivery) {
+function renderCustomerPortalHtml(delivery, tokenRecord) {
   const badge = getStatusBadge(delivery);
   const flagReason = getFlagReason(delivery);
   const distance = typeof delivery.distanceMeters === 'number' ? delivery.distanceMeters : 38;
@@ -529,6 +529,8 @@ function renderCustomerPortalHtml(delivery) {
   </div>
 
   <script>
+    const submitEndpoint = ${tokenRecord ? `'${'/api/customer-verification/token/' + encodeURIComponent(tokenRecord.token)}'` : `'${'/api/customer-verification/' + encodeURIComponent(delivery.id)}'`};
+
     async function submitCustomerResponse(responseType) {
       const btnAvail = document.getElementById('btnAvailable');
       const btnUnavail = document.getElementById('btnUnavailable');
@@ -543,7 +545,7 @@ function renderCustomerPortalHtml(delivery) {
       }
 
       try {
-        const res = await fetch('/api/customer-verification/${encodeURIComponent(delivery.id)}', {
+        const res = await fetch(submitEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ response: responseType })
@@ -681,9 +683,289 @@ function renderCustomerNotFoundHtml(deliveryId) {
 </html>`;
 }
 
+/**
+ * Generates Expired HTML when verification QR has timed out
+ */
+function renderTokenExpiredHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verification Link Expired — Saboot</title>
+  <style>
+    body {
+      background: #F8FAFC;
+      color: #0F172A;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px 16px;
+      text-align: center;
+    }
+    .card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-top: 4px solid #D94A27;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+      padding: 36px 24px;
+      max-width: 440px;
+      width: 100%;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #FFFBEB;
+      color: #B45309;
+      border: 1px solid #FDE68A;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0F172A;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+    p {
+      font-size: 14px;
+      color: #475569;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+    .instructions-box {
+      background: #F1F5F9;
+      border-radius: 6px;
+      padding: 14px 16px;
+      text-align: left;
+      font-size: 13px;
+      color: #334155;
+      line-height: 1.5;
+    }
+    .instructions-box strong {
+      color: #0F172A;
+    }
+    .footer-note {
+      margin-top: 24px;
+      font-size: 11px;
+      color: #94A3B8;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">
+      <span>⏱️</span>
+      <span>TIME-LIMITED QR</span>
+    </div>
+    <h1>This verification QR has expired.</h1>
+    <p>For your security, Saboot verification QRs are time-limited to prevent unauthorized attestation access.</p>
+    <div class="instructions-box">
+      <strong>Next step:</strong> Please ask the delivery driver to generate a new verification QR on their app and scan it with your phone camera.
+    </div>
+    <div class="footer-note">Saboot Delivery Attestation Engine • Zero-Trust Verification</div>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Generates Completed HTML when verification is already submitted
+ */
+function renderTokenCompletedHtml(delivery) {
+  const isReceived = delivery && (delivery.customerResponse === 'PACKAGE_RECEIVED' || delivery.customerResponse === 'CUSTOMER_AVAILABLE');
+  const responseTime = delivery?.customerResponseAt ? new Date(delivery.customerResponseAt).toLocaleString() : 'recently';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verification Already Completed — Saboot</title>
+  <style>
+    body {
+      background: #F8FAFC;
+      color: #0F172A;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px 16px;
+      text-align: center;
+    }
+    .card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-top: 4px solid #15803D;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+      padding: 36px 24px;
+      max-width: 440px;
+      width: 100%;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #F0FDF4;
+      color: #15803D;
+      border: 1px solid #BBF7D0;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0F172A;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+    p {
+      font-size: 14px;
+      color: #475569;
+      line-height: 1.6;
+      margin-bottom: 16px;
+    }
+    .response-summary {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 6px;
+      padding: 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #0F172A;
+      margin-bottom: 12px;
+    }
+    .footer-note {
+      margin-top: 20px;
+      font-size: 11px;
+      color: #94A3B8;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">
+      <span>✓</span>
+      <span>RECORDED</span>
+    </div>
+    <h1>This verification has already been completed.</h1>
+    <p>Your response for this delivery has already been authoritatively recorded and appended to the tamper-proof ledger.</p>
+    <div class="response-summary">
+      Status: ${isReceived ? '✓ Package Receipt Confirmed' : '✕ Package Not Received Reported'}<br>
+      <span style="font-size: 11px; color: #64748B; font-weight: normal;">Recorded at ${escapeHtml(responseTime)}</span>
+    </div>
+    <div class="footer-note">Saboot Delivery Attestation Engine • Replay Protection Active</div>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Generates Unavailable HTML for invalid or missing verification token
+ */
+function renderTokenInvalidHtml() {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verification Unavailable — Saboot</title>
+  <style>
+    body {
+      background: #F8FAFC;
+      color: #0F172A;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px 16px;
+      text-align: center;
+    }
+    .card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-top: 4px solid #B91C1C;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+      padding: 36px 24px;
+      max-width: 440px;
+      width: 100%;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #FEF2F2;
+      color: #B91C1C;
+      border: 1px solid #FECACA;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.8px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0F172A;
+      margin-bottom: 12px;
+      line-height: 1.3;
+    }
+    p {
+      font-size: 14px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .footer-note {
+      margin-top: 24px;
+      font-size: 11px;
+      color: #94A3B8;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">
+      <span>✕</span>
+      <span>INVALID TOKEN</span>
+    </div>
+    <h1>Verification unavailable</h1>
+    <p>This verification link is invalid, expired, or was already consumed. Please check with your delivery driver for a fresh QR code.</p>
+    <div class="footer-note">Saboot Delivery Attestation Engine • Zero-Trust Security</div>
+  </div>
+</body>
+</html>`;
+}
+
 module.exports = {
   renderCustomerPortalHtml,
   renderCustomerNotFoundHtml,
+  renderTokenExpiredHtml,
+  renderTokenCompletedHtml,
+  renderTokenInvalidHtml,
   getFlagReason,
   getStatusBadge
 };

@@ -288,31 +288,32 @@
               <span class="fact-name">4. GPS Signal Accuracy</span>
               <span class="fact-val pass">±6m (PASS)</span>
             </div>
-          <!-- Customer Verification Response Card -->
+          <!-- Customer Verification Response Card (Real-Time QR Attestation) -->
           <div class="customer-response-card" id="adminCustomerResponseSection">
             <div class="customer-response-header">
               <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="font-size: 13px;">👤</span>
-                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">CUSTOMER VERIFICATION</strong>
+                <span style="font-size: 13px;">📱</span>
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">CUSTOMER QR VERIFICATION</strong>
               </div>
               <a id="btnOpenCustomerPortal" href="#" target="_blank" class="portal-link-btn" title="Open Customer Verification Portal">
                 Open Portal ↗
               </a>
             </div>
+            <div id="customerQrStatusPill" style="margin-bottom: 8px; display: none;"></div>
             <div id="customerResponseBadge" class="customer-response-status-badge badge-cust-none">
               No customer response recorded yet
             </div>
             <div id="customerResponseDetail" class="customer-response-subtext">
-              Portal link: <span id="customerPortalUrlText">/verify/DEL-1001</span>
+              Verification target: <span id="customerPortalUrlText">/v/...</span>
             </div>
-            <!-- Simulated Notification Box -->
+            <!-- Live QR Verification Info Box -->
             <div class="simulated-notification-box" id="simulatedNotificationBox">
-              <div class="simulated-notif-label">📱 SIMULATED NOTIFICATION (SMS / WHATSAPP)</div>
+              <div class="simulated-notif-label">📱 LIVE CUSTOMER SCAN LINK (5-MIN TTL)</div>
               <div class="simulated-notif-msg" id="simulatedNotifMsg">
-                SABOOT: Your delivery requires confirmation. Did you receive your package?
+                Customer scans driver phone screen with camera to open secure portal:
               </div>
               <div class="simulated-notif-url">
-                <a id="simulatedPortalLink" href="#" target="_blank" class="simulated-link-text">http://localhost:3001/verify/DEL-1001</a>
+                <a id="simulatedPortalLink" href="#" target="_blank" class="simulated-link-text">http://localhost:3001/v/token</a>
               </div>
             </div>
           </div>

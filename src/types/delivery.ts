@@ -61,6 +61,9 @@ export interface Delivery {
   customerResponseAt?: string;
   customerResponseSource?: string;
   verificationUrl?: string;
+  verificationToken?: string;
+  qrExpiresAt?: string;
+  qrStatus?: 'ACTIVE' | 'SCANNED' | 'CONSUMED' | 'EXPIRED';
   auditTimeline?: Array<{
     timestamp: string;
     event: string;

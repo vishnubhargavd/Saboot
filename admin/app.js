@@ -576,13 +576,45 @@ function handleIncomingRealtimeEvent(event) {
     return;
   }
 
+  // Real-time Customer QR Verification Events
+  if (event.type === 'CUSTOMER_QR_GENERATED' && event.deliveryId) {
+    let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    if (order) {
+      order.verificationToken = event.token;
+      order.verificationUrl = event.verificationUrl;
+      order.qrExpiresAt = event.expiresAt;
+      order.qrStatus = 'ACTIVE';
+      renderOrderList();
+      if (selectedOrderId === order.id) {
+        selectOrder(order.id);
+      }
+      showNotification(`📱 QR Code Generated [${order.id}]: Customer verification QR is active`);
+    }
+    return;
+  }
+
+  if (event.type === 'CUSTOMER_QR_SCANNED' && event.deliveryId) {
+    let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    if (order) {
+      order.qrStatus = 'SCANNED';
+      order.customerScannedAt = event.scannedAt;
+      renderOrderList();
+      if (selectedOrderId === order.id) {
+        selectOrder(order.id);
+      }
+      showNotification(`📷 QR Code Scanned [${order.id}]: Customer opened verification portal`);
+    }
+    return;
+  }
+
   // Real-time Customer Verification Response from Customer Portal
   if (event.type === 'CUSTOMER_RESPONSE_RECORDED' && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
     if (order) {
       order.customerResponse = event.customerResponse;
       order.customerResponseAt = event.recordedAt;
-      order.customerResponseSource = 'customer_portal';
+      order.customerResponseSource = event.source || 'qr_portal';
+      order.qrStatus = 'COMPLETED';
       if (event.status) order.status = event.status;
       if (event.decision) order.decision = event.decision;
       if (event.retryRequired !== undefined) order.retryRequired = event.retryRequired;
@@ -912,6 +944,7 @@ function renderOrderList() {
         <span>${order.driver.split(' ')[0]}</span>
       </div>
       ${isPendingApproval ? '<div class="card-video-pill">📹 Video Proof Attached</div>' : ''}
+      ${order.qrStatus === 'SCANNED' ? '<div class="card-video-pill" style="background:#E0F2FE;color:#0284C7;border-color:#BAE6FD;">📷 QR Scanned by Customer</div>' : order.qrStatus === 'ACTIVE' ? '<div class="card-video-pill" style="background:#F0FDF4;color:#16A34A;border-color:#BBF7D0;">📱 QR Code Active</div>' : ''}
     `;
     container.appendChild(card);
   });
@@ -1394,27 +1427,50 @@ function selectOrder(orderId) {
   const custDetailEl = document.getElementById('customerResponseDetail');
   const custPortalLink = document.getElementById('btnOpenCustomerPortal');
   const custUrlText = document.getElementById('customerPortalUrlText');
+  const custQrPill = document.getElementById('customerQrStatusPill');
   const notifBox = document.getElementById('simulatedNotificationBox');
   const notifMsg = document.getElementById('simulatedNotifMsg');
   const notifLink = document.getElementById('simulatedPortalLink');
 
-  const verifyUrl = `/verify/${encodeURIComponent(order.id)}`;
+  const tokenUrl = order.verificationToken ? `/v/${order.verificationToken}` : `/verify/${encodeURIComponent(order.id)}`;
   const fullVerifyUrl = (order.verificationUrl && !order.verificationUrl.includes('localhost'))
     ? order.verificationUrl
-    : `${window.location.origin}${verifyUrl}`;
+    : `${window.location.origin}${tokenUrl}`;
 
   if (custPortalLink) {
-    custPortalLink.href = verifyUrl;
+    custPortalLink.href = tokenUrl;
   }
   if (custUrlText) {
-    custUrlText.innerText = verifyUrl;
+    custUrlText.innerText = tokenUrl;
   }
   if (notifLink) {
-    notifLink.href = verifyUrl;
+    notifLink.href = tokenUrl;
     notifLink.innerText = fullVerifyUrl;
   }
   if (notifMsg) {
-    notifMsg.innerText = `SABOOT: Your delivery requires confirmation. Did you receive your package?`;
+    notifMsg.innerText = order.verificationToken
+      ? `Active QR Token: ${order.verificationToken.substring(0, 16)}... (Single-use, 5-min TTL)`
+      : `Scan QR on driver phone to verify package handoff`;
+  }
+
+  if (custQrPill) {
+    if (order.qrStatus === 'SCANNED') {
+      custQrPill.style.display = 'inline-block';
+      custQrPill.className = 'card-video-pill';
+      custQrPill.style.background = '#E0F2FE';
+      custQrPill.style.color = '#0284C7';
+      custQrPill.style.borderColor = '#BAE6FD';
+      custQrPill.innerText = '📷 QR Scanned by Customer (Viewing Portal)';
+    } else if (order.qrStatus === 'ACTIVE') {
+      custQrPill.style.display = 'inline-block';
+      custQrPill.className = 'card-video-pill';
+      custQrPill.style.background = '#F0FDF4';
+      custQrPill.style.color = '#16A34A';
+      custQrPill.style.borderColor = '#BBF7D0';
+      custQrPill.innerText = '📱 Driver Displaying QR Code';
+    } else {
+      custQrPill.style.display = 'none';
+    }
   }
 
   if (custBadgeEl && custDetailEl) {
@@ -1427,7 +1483,7 @@ function selectOrder(orderId) {
     } else {
       custBadgeEl.className = 'customer-response-status-badge badge-cust-none';
       custBadgeEl.innerText = 'No customer response recorded yet';
-      custDetailEl.innerHTML = `Direct portal link: <a href="${verifyUrl}" target="_blank" style="color: var(--signal-orange); text-decoration: underline;">${verifyUrl}</a>`;
+      custDetailEl.innerHTML = `Direct portal link: <a href="${tokenUrl}" target="_blank" style="color: var(--signal-orange); text-decoration: underline;">${tokenUrl}</a>`;
     }
   }
 

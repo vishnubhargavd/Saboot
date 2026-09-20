@@ -12,8 +12,13 @@ const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
 const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
-const { renderCustomerPortalHtml, renderCustomerNotFoundHtml } = require('./customerPortal');
-const { NotificationService } = require('./services/notificationService');
+const {
+  renderCustomerPortalHtml,
+  renderCustomerNotFoundHtml,
+  renderTokenExpiredHtml,
+  renderTokenCompletedHtml,
+  renderTokenInvalidHtml
+} = require('./customerPortal');
 
 // Auto-load .env if present (zero-dependency loader)
 function loadEnv() {
@@ -41,22 +46,92 @@ loadEnv();
 const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
 
-const notificationService = new NotificationService({
-  providerType: process.env.EMAIL_PROVIDER || 'demo',
-  baseUrl: process.env.CUSTOMER_PORTAL_BASE_URL || `http://localhost:${PORT}`,
-  fromEmail: process.env.EMAIL_FROM || 'Saboot Verification <onboarding@resend.dev>',
-  resendApiKey: process.env.RESEND_API_KEY,
-  onEvent: (event) => {
-    broadcastEvent({
-      type: event.type,
-      deliveryId: event.deliveryId,
-      timestamp: new Date().toISOString(),
-      notes: `Customer email notification ${event.notification?.status || ''}`,
-      notification: event.notification,
-      auditTimeline: event.auditTimeline
-    });
+// Configurable time-to-live for customer verification QR tokens (Default: 300 seconds / 5 minutes)
+const QR_TTL_SECONDS = parseInt(process.env.CUSTOMER_QR_TTL_SECONDS || '300', 10);
+
+// In-memory store for cryptographically secure verification tokens
+// Key: token -> { token, deliveryId, attemptId, createdAt, expiresAt, status, customerResponse, scannedAt, consumedAt }
+const customerVerificationTokens = new Map();
+
+function getCustomerPortalBaseUrl(req) {
+  if (process.env.CUSTOMER_PORTAL_BASE_URL && process.env.CUSTOMER_PORTAL_BASE_URL.trim()) {
+    return process.env.CUSTOMER_PORTAL_BASE_URL.trim().replace(/\/+$/, '');
   }
-});
+  if (req && req.headers && req.headers.host) {
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    return `${proto}://${req.headers.host}`;
+  }
+  return `http://localhost:${PORT}`;
+}
+
+function createCustomerVerificationToken(delivery, req) {
+  const token = crypto.randomBytes(24).toString('base64url');
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + QR_TTL_SECONDS * 1000).toISOString();
+  const attemptId = delivery.auditId || `ATT-${Date.now().toString(36).toUpperCase()}`;
+
+  const tokenRecord = {
+    token,
+    deliveryId: delivery.id,
+    attemptId,
+    createdAt: now.toISOString(),
+    expiresAt,
+    status: 'ACTIVE',
+    customerResponse: null,
+    scannedAt: null,
+    consumedAt: null
+  };
+
+  customerVerificationTokens.set(token, tokenRecord);
+
+  const baseUrl = getCustomerPortalBaseUrl(req);
+  const verificationUrl = `${baseUrl}/v/${token}`;
+
+  delivery.verificationToken = token;
+  delivery.verificationUrl = verificationUrl;
+  delivery.qrExpiresAt = expiresAt;
+  delivery.qrStatus = 'ACTIVE';
+
+  if (!delivery.auditTimeline) delivery.auditTimeline = [];
+  delivery.auditTimeline.push({
+    timestamp: now.toISOString(),
+    event: 'CUSTOMER_QR_GENERATED',
+    description: `Customer verification QR generated (expires in ${Math.round(QR_TTL_SECONDS / 60)}m)`
+  });
+
+  saveDeliveries();
+
+  broadcastEvent({
+    type: 'CUSTOMER_QR_GENERATED',
+    deliveryId: delivery.id,
+    token,
+    verificationUrl,
+    expiresAt,
+    expiresInSeconds: QR_TTL_SECONDS,
+    timestamp: now.toISOString(),
+    auditTimeline: delivery.auditTimeline
+  });
+
+  return {
+    success: true,
+    token,
+    verificationUrl,
+    expiresAt,
+    expiresInSeconds: QR_TTL_SECONDS,
+    deliveryId: delivery.id
+  };
+}
+
+function getVerificationTokenRecord(token) {
+  if (!token) return null;
+  const record = customerVerificationTokens.get(token);
+  if (!record) return null;
+  if (record.status !== 'CONSUMED' && Date.now() > new Date(record.expiresAt).getTime()) {
+    record.status = 'EXPIRED';
+  }
+  return record;
+}
+
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'deliveries.json');
 
@@ -743,22 +818,13 @@ function ensureDeliveryAuditTimeline(delivery) {
     delivery.auditTimeline = [];
   }
 
-  // Ensure trusted customer email is populated
-  if (delivery.customer && !delivery.customer.email && delivery.customer.name) {
-    if (delivery.customer.name.toLowerCase().includes('abhinav')) {
-      delivery.customer.email = 'abhinavkx@gmail.com';
-    } else {
-      delivery.customer.email = `${delivery.customer.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`;
-    }
-  }
-
   const isReview = (delivery.decision || delivery.status) === 'REVIEW';
   if (isReview) {
     delivery.requiresCustomerConfirmation = true;
   }
 
   if (!delivery.verificationUrl) {
-    delivery.verificationUrl = notificationService.getVerificationUrl(delivery.id);
+    delivery.verificationUrl = `http://localhost:${PORT}/verify/${delivery.id}`;
   }
 
   if (delivery.auditTimeline.length === 0) {
@@ -771,44 +837,12 @@ function ensureDeliveryAuditTimeline(delivery) {
     );
     if ((delivery.decision || delivery.status) === 'REVIEW' || !delivery.status || delivery.status === 'IN_TRANSIT') {
       delivery.auditTimeline.push(
-        { timestamp: new Date(baseTime + 128000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' },
-        { timestamp: new Date(baseTime + 130000).toISOString(), event: 'CUSTOMER_EMAIL_NOTIFICATION_CREATED', description: 'Customer email notification created' },
-        { timestamp: new Date(baseTime + 131000).toISOString(), event: 'CUSTOMER_EMAIL_SEND_REQUESTED', description: 'Customer email send requested (Demo)' },
-        { timestamp: new Date(baseTime + 132000).toISOString(), event: 'CUSTOMER_EMAIL_SIMULATED', description: 'Customer email simulated (demo mode)' }
+        { timestamp: new Date(baseTime + 128000).toISOString(), event: 'CUSTOMER_QR_GENERATED', description: 'Customer verification QR generated' },
+        { timestamp: new Date(baseTime + 130000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' }
       );
     }
   }
 
-  if (!delivery.customerNotification && isReview) {
-    const provider = process.env.EMAIL_PROVIDER === 'resend' ? 'resend' : 'demo';
-    delivery.customerNotification = {
-      channel: 'EMAIL',
-      provider,
-      status: 'SIMULATED',
-      deliveryId: delivery.id,
-      recipientEmail: delivery.customer?.email || `${(delivery.customer?.name || 'customer').toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`,
-      recipientName: delivery.customer?.name || 'Customer',
-      subject: 'Saboot — Delivery Confirmation Required',
-      verificationUrl: delivery.verificationUrl,
-      idempotencyKey: `${delivery.id}:1:EMAIL`,
-      sentAt: new Date(delivery.createdAt || Date.now()).toISOString(),
-      reason: null
-    };
-  }
-
-  if (!delivery.simulatedNotification) {
-    delivery.simulatedNotification = {
-      channel: 'EMAIL',
-      provider: 'demo',
-      status: 'SIMULATED',
-      recipientPhone: delivery.customer?.phone || '+91 90191 44983',
-      recipientEmail: delivery.customer?.email || `${(delivery.customer?.name || 'customer').toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`,
-      recipientName: delivery.customer?.name || 'Customer',
-      sentAt: new Date(delivery.createdAt || Date.now()).toISOString(),
-      message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: ${delivery.verificationUrl}`,
-      verificationUrl: delivery.verificationUrl
-    };
-  }
   return delivery.auditTimeline;
 }
 
@@ -1154,6 +1188,105 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // 2b. Generate Customer Verification QR Token (POST & GET /api/deliveries/:id/customer-verification/qr)
+  const qrGenMatch = pathname ? pathname.match(/^\/api\/deliveries\/([^/]+)\/customer-verification\/qr$/) : null;
+  if (qrGenMatch && (req.method === 'POST' || req.method === 'GET')) {
+    const deliveryId = decodeURIComponent(qrGenMatch[1]);
+    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: `Delivery ${deliveryId} not found` }));
+      return;
+    }
+
+    // If active valid token already exists and is not expired and method is GET, return it
+    if (req.method === 'GET' && delivery.verificationToken) {
+      const existing = getVerificationTokenRecord(delivery.verificationToken);
+      if (existing && existing.status === 'ACTIVE' && Date.now() < new Date(existing.expiresAt).getTime()) {
+        const baseUrl = getCustomerPortalBaseUrl(req);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          token: existing.token,
+          verificationUrl: `${baseUrl}/v/${existing.token}`,
+          expiresAt: existing.expiresAt,
+          expiresInSeconds: Math.max(0, Math.round((new Date(existing.expiresAt).getTime() - Date.now()) / 1000)),
+          deliveryId: delivery.id
+        }));
+        return;
+      }
+    }
+
+    // Create a new cryptographically secure token
+    const qrData = createCustomerVerificationToken(delivery, req);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(qrData));
+    return;
+  }
+
+  // 2c. Secure QR Customer Verification Portal (GET /v/:token)
+  const tokenPortalMatch = pathname ? pathname.match(/^\/v\/([^/]+)$/) : null;
+  if (tokenPortalMatch && req.method === 'GET') {
+    const token = decodeURIComponent(tokenPortalMatch[1]);
+    const tokenRecord = getVerificationTokenRecord(token);
+
+    if (!tokenRecord) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTokenInvalidHtml());
+      return;
+    }
+
+    const delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTokenInvalidHtml());
+      return;
+    }
+
+    // Check expiration
+    if (tokenRecord.status === 'EXPIRED' || Date.now() > new Date(tokenRecord.expiresAt).getTime()) {
+      tokenRecord.status = 'EXPIRED';
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTokenExpiredHtml());
+      return;
+    }
+
+    // Check if already completed
+    if (tokenRecord.status === 'CONSUMED' || delivery.customerResponse) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTokenCompletedHtml(delivery));
+      return;
+    }
+
+    // Active token opened by customer -> mark as SCANNED
+    tokenRecord.status = 'SCANNED';
+    tokenRecord.scannedAt = new Date().toISOString();
+    delivery.qrStatus = 'SCANNED';
+
+    ensureDeliveryAuditTimeline(delivery);
+    const hasScanned = delivery.auditTimeline.some((e) => e.event === 'CUSTOMER_QR_SCANNED');
+    if (!hasScanned) {
+      const scanTime = new Date().toISOString();
+      delivery.auditTimeline.push(
+        { timestamp: scanTime, event: 'CUSTOMER_QR_SCANNED', description: 'Customer scanned verification QR' },
+        { timestamp: scanTime, event: 'CUSTOMER_VERIFICATION_OPENED', description: 'Customer opened verification portal' }
+      );
+      saveDeliveries();
+      broadcastEvent({
+        type: 'CUSTOMER_QR_SCANNED',
+        deliveryId: delivery.id,
+        token: tokenRecord.token,
+        timestamp: scanTime,
+        notes: `Customer scanned QR for ${delivery.id}`,
+        auditTimeline: delivery.auditTimeline
+      });
+    }
+
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(renderCustomerPortalHtml(delivery, tokenRecord));
+    return;
+  }
+
   // 2d. Customer Verification Portal (GET /verify/:deliveryId)
   const verifyMatch = pathname ? pathname.match(/^\/verify\/([^/]+)$/) : null;
   if (verifyMatch && req.method === 'GET') {
@@ -1187,11 +1320,33 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 2e. Customer Verification Response API (POST /api/customer-verification/:deliveryId)
-  const customerResponseMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)$/) : null;
-  if (customerResponseMatch) {
-    const deliveryId = decodeURIComponent(customerResponseMatch[1]);
-    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+  // 2e. Customer Verification Response API (POST /api/customer-verification/token/:token & POST /api/customer-verification/:deliveryId)
+  const tokenSubmitMatch = pathname ? pathname.match(/^\/api\/customer-verification\/token\/([^/]+)$/) : null;
+  const legacySubmitMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)$/) : null;
+
+  if (tokenSubmitMatch || legacySubmitMatch) {
+    const isTokenRoute = Boolean(tokenSubmitMatch);
+    const param = decodeURIComponent((tokenSubmitMatch || legacySubmitMatch)[1]);
+
+    let tokenRecord = null;
+    let delivery = null;
+
+    if (isTokenRoute) {
+      tokenRecord = getVerificationTokenRecord(param);
+      if (!tokenRecord) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Verification unavailable' }));
+        return;
+      }
+      delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+    } else {
+      tokenRecord = getVerificationTokenRecord(param);
+      if (tokenRecord) {
+        delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+      } else {
+        delivery = deliveries.find((d) => d.id === param || d.trackingNumber === param);
+      }
+    }
 
     if (!delivery) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -1238,14 +1393,27 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          // Duplicate response prevention (Idempotent confirmation)
-          if (delivery.customerResponse) {
+          // Token Expiration check
+          if (tokenRecord && (tokenRecord.status === 'EXPIRED' || Date.now() > new Date(tokenRecord.expiresAt).getTime())) {
+            tokenRecord.status = 'EXPIRED';
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              expired: true,
+              error: 'This verification QR has expired. Please ask the delivery driver to generate a new verification QR.'
+            }));
+            return;
+          }
+
+          // Single-use / Replay Protection
+          if (delivery.customerResponse || (tokenRecord && tokenRecord.status === 'CONSUMED')) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               success: true,
               alreadyRecorded: true,
+              message: 'This verification has already been completed.',
               deliveryId: delivery.id,
-              customerResponse: delivery.customerResponse,
+              customerResponse: delivery.customerResponse || tokenRecord?.customerResponse,
               recordedAt: delivery.customerResponseAt,
               status: delivery.status,
               decision: delivery.decision,
@@ -1256,11 +1424,18 @@ const server = http.createServer((req, res) => {
 
           // Zero-Trust Security Rule:
           // Customer input is evidence only.
-          // Malicious payload fields (status, decision, distance, dwell) are strictly ignored.
+          // Client-supplied fields attempting to manipulate status, decision, distance, dwell, etc. are strictly ignored.
           const recordedAt = new Date().toISOString();
           delivery.customerResponse = resp;
           delivery.customerResponseAt = recordedAt;
-          delivery.customerResponseSource = 'customer_portal';
+          delivery.customerResponseSource = tokenRecord ? 'qr_portal' : 'customer_portal';
+
+          if (tokenRecord) {
+            tokenRecord.status = 'CONSUMED';
+            tokenRecord.consumedAt = recordedAt;
+            tokenRecord.customerResponse = resp;
+            delivery.qrStatus = 'CONSUMED';
+          }
 
           delivery.auditTimeline.push({
             timestamp: recordedAt,
@@ -1275,7 +1450,7 @@ const server = http.createServer((req, res) => {
           // Authoritative State Transitions
           if (currentDecision === 'REJECTED') {
             // ZERO-TRUST RULE:
-            // Do NOT allow customer confirmation to blindly override a hard evidence failure (e.g. driver 4km away).
+            // Do NOT allow customer confirmation to override a hard evidence rejection (e.g. driver 4km away).
             // Hard deterministic policy rejection remains authoritative.
             delivery.auditTimeline.push({
               timestamp: new Date().toISOString(),
@@ -1285,7 +1460,6 @@ const server = http.createServer((req, res) => {
           } else if (resp === 'PACKAGE_RECEIVED') {
             // CASE 1: REVIEW + PACKAGE_RECEIVED
             // Customer confirms package received -> automatically becomes VERIFIED / SUCCESSFUL.
-            // No admin approval required.
             delivery.status = 'VERIFIED';
             delivery.decision = 'VERIFIED';
             delivery.requiresAdminApproval = false;
@@ -1299,7 +1473,6 @@ const server = http.createServer((req, res) => {
           } else if (resp === 'PACKAGE_NOT_RECEIVED') {
             // CASE 2: REVIEW + PACKAGE_NOT_RECEIVED
             // Customer confirms package not received -> CUSTOMER_CONFIRMED_FAILURE -> RETRY_REQUIRED
-            // Driver task list displays RETRY DELIVERY. Admin sees under Customer Confirmed Failures.
             delivery.status = 'CUSTOMER_CONFIRMED_FAILURE';
             delivery.decision = 'CUSTOMER_CONFIRMED_FAILURE';
             delivery.retryRequired = true;
@@ -1318,6 +1491,7 @@ const server = http.createServer((req, res) => {
           broadcastEvent({
             type: 'CUSTOMER_RESPONSE_RECORDED',
             deliveryId: delivery.id,
+            token: tokenRecord?.token || null,
             customerResponse: resp,
             recordedAt: recordedAt,
             status: delivery.status,
@@ -1877,8 +2051,6 @@ const server = http.createServer((req, res) => {
           order.videoStatus = 'VERIFIED';
         }
 
-        // Initialize / append verification audit timeline with actual system timestamps
-        order.verificationUrl = notificationService.getVerificationUrl(order.id);
         if (!order.auditTimeline) order.auditTimeline = [];
         const nowMs = Date.now();
         order.auditTimeline.push(
@@ -1890,15 +2062,8 @@ const server = http.createServer((req, res) => {
 
         if (decision === 'REVIEW') {
           order.requiresCustomerConfirmation = true;
-          order.auditTimeline.push(
-            { timestamp: new Date(nowMs + 1000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' }
-          );
-
-          // Automated transactional email notification via NotificationService (Resend / Demo)
-          await notificationService.sendCustomerVerificationEmail({
-            delivery: order,
-            attemptId: auditId || '1'
-          });
+          // Generate secure QR verification token for driver phone display & customer scan
+          createCustomerVerificationToken(order, req);
         } else {
           order.requiresCustomerConfirmation = false;
         }
@@ -2196,7 +2361,9 @@ server.listen(PORT, HOST, () => {
 module.exports = {
   server,
   deliveries,
-  notificationService,
+  customerVerificationTokens,
+  createCustomerVerificationToken,
+  getVerificationTokenRecord,
   ensureDeliveryAuditTimeline,
   broadcastEvent
 };

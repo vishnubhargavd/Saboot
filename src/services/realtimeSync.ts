@@ -17,7 +17,10 @@ export type RealtimeEventType =
   | 'ADMIN_DECISION_UPDATED'
   | 'ORDER_DISPATCHED'
   | 'TASK_ASSIGNED'
-  | 'DATABASE_RESET';
+  | 'DATABASE_RESET'
+  | 'CUSTOMER_QR_GENERATED'
+  | 'CUSTOMER_QR_SCANNED'
+  | 'CUSTOMER_RESPONSE_RECORDED';
 
 export interface RealtimeSyncEvent {
   type: RealtimeEventType;

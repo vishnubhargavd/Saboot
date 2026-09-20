@@ -165,6 +165,33 @@ export function useDelivery() {
               : d
           )
         );
+      } else if (event.type === 'CUSTOMER_QR_GENERATED' && event.deliveryId) {
+        setDeliveries((prev) =>
+          prev.map((d) => {
+            if (d.id === event.deliveryId) {
+              return {
+                ...d,
+                verificationToken: (event as any).token || d.verificationToken,
+                verificationUrl: (event as any).verificationUrl || d.verificationUrl,
+                qrExpiresAt: (event as any).expiresAt || d.qrExpiresAt,
+                qrStatus: 'ACTIVE',
+              };
+            }
+            return d;
+          })
+        );
+      } else if (event.type === 'CUSTOMER_QR_SCANNED' && event.deliveryId) {
+        setDeliveries((prev) =>
+          prev.map((d) => {
+            if (d.id === event.deliveryId) {
+              return {
+                ...d,
+                qrStatus: 'SCANNED',
+              };
+            }
+            return d;
+          })
+        );
       } else if (event.type === 'CUSTOMER_RESPONSE_RECORDED' && event.deliveryId) {
         setDeliveries((prev) =>
           prev.map((d) => {
@@ -172,9 +199,10 @@ export function useDelivery() {
               const updatedDelivery: Delivery = {
                 ...d,
                 status: (event.status as DeliveryStatus) || d.status,
-                customerResponse: event.customerResponse,
-                customerResponseAt: event.recordedAt,
-                retryRequired: event.retryRequired !== undefined ? event.retryRequired : (event.customerResponse === 'PACKAGE_NOT_RECEIVED'),
+                customerResponse: (event as any).customerResponse,
+                customerResponseAt: (event as any).recordedAt,
+                qrStatus: 'CONSUMED',
+                retryRequired: (event as any).retryRequired !== undefined ? (event as any).retryRequired : ((event as any).customerResponse === 'PACKAGE_NOT_RECEIVED'),
                 notes: event.notes || d.notes,
               };
               insertOrUpdateDeliveryInDB(updatedDelivery).catch((err) =>
