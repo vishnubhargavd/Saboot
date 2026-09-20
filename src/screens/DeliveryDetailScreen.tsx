@@ -645,7 +645,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
           decision: 'DELIVERED',
           deliveryId: delivery.id,
           timestamp: nowIso,
-          videoProofUri: deliveryVideoUri || undefined,
+          videoProofUri: finalVideoUri || deliveryVideoUri || undefined,
           facts: {
             deliveryId: delivery.id,
             residenceCategory: delivery.address.residenceCategory,

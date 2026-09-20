@@ -367,8 +367,8 @@ export async function uploadVideoProofFile(
   preferredFileName?: string
 ): Promise<string | null> {
   try {
-    const serverUrl = `${getSyncServerUrl()}/api/upload`;
     const fileName = preferredFileName || fileUri.split('/').pop()?.split('?')[0] || `proof_${Date.now()}.mp4`;
+    const serverUrl = `${getSyncServerUrl()}/api/upload?filename=${encodeURIComponent(fileName)}`;
 
     // 1. On native mobile (iOS/Android), use FileSystem.uploadAsync for streaming local file:// URIs
     if (Platform.OS !== 'web' && typeof FileSystem.uploadAsync === 'function') {

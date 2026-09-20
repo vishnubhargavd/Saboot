@@ -15,6 +15,7 @@ import { SvgXml } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { generateRealisticThumbnailSvg } from '../services/videoVerificationService';
+import { getSyncServerUrl } from '../services/realtimeSync';
 
 export interface VideoProofThumbnailProps {
   uri?: string | null;
@@ -88,11 +89,16 @@ export const VideoProofThumbnail: React.FC<VideoProofThumbnailProps> = ({
 
   // 1. If uri is a REAL VIDEO FILE (Camera recording or uploaded MP4)
   if (isVideoFile && uri) {
+    let resolvedUri = uri;
+    if (uri.startsWith('/api/') || (uri.startsWith('/') && !uri.startsWith('file://'))) {
+      resolvedUri = `${getSyncServerUrl()}${uri}`;
+    }
+
     return (
       <View style={[styles.container, style]}>
         {Platform.OS === 'web' ? (
           <video
-            src={uri}
+            src={resolvedUri}
             controls
             autoPlay
             loop
@@ -100,7 +106,7 @@ export const VideoProofThumbnail: React.FC<VideoProofThumbnailProps> = ({
             style={{ width: '100%', height: '100%', objectFit: 'contain' } as any}
           />
         ) : (
-          <NativeVideoItem uri={uri} style={{ width: '100%', height: '100%' }} />
+          <NativeVideoItem uri={resolvedUri} style={{ width: '100%', height: '100%' }} />
         )}
 
         {/* Clean unwatermarked controls: subtle fullscreen toggle button */}
@@ -140,7 +146,7 @@ export const VideoProofThumbnail: React.FC<VideoProofThumbnailProps> = ({
 
               <View style={styles.fullscreenVideoWrapper}>
                 <video
-                  src={uri}
+                  src={resolvedUri}
                   controls
                   autoPlay
                   playsInline
