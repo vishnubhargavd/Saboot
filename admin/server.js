@@ -15,6 +15,29 @@ const { generateVerificationExplanation, generateAiExplanation } = require('./se
 const { renderCustomerPortalHtml, renderCustomerNotFoundHtml } = require('./customerPortal');
 const { NotificationService } = require('./services/notificationService');
 
+// Auto-load .env if present (zero-dependency loader)
+function loadEnv() {
+  const envPath = path.resolve(__dirname, '../.env');
+  if (fs.existsSync(envPath)) {
+    try {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split('\n').forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx !== -1) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+          if (key && process.env[key] === undefined) {
+            process.env[key] = val;
+          }
+        }
+      });
+    } catch (e) {}
+  }
+}
+loadEnv();
+
 const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
 
@@ -52,7 +75,7 @@ const DEFAULT_DELIVERIES = [
   {
     id: 'DEL-ASR-01',
     trackingNumber: 'SBT-BLR-550101',
-    customer: { id: 'CUST-ASR-01', name: 'Abhinav Kamutala', phone: '+91 90191 44983' },
+    customer: { id: 'CUST-ASR-01', name: 'Abhinav Kamutala', phone: '+91 90191 44983', email: 'abhinavkx@gmail.com' },
     address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 101, Block A, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
     packageDescription: 'Electronics — Apple iPad Pro 11-inch M4 with Magic Keyboard',
     estimatedDeliveryWindow: '10:00 AM - 11:00 AM',
@@ -722,7 +745,11 @@ function ensureDeliveryAuditTimeline(delivery) {
 
   // Ensure trusted customer email is populated
   if (delivery.customer && !delivery.customer.email && delivery.customer.name) {
-    delivery.customer.email = `${delivery.customer.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`;
+    if (delivery.customer.name.toLowerCase().includes('abhinav')) {
+      delivery.customer.email = 'abhinavkx@gmail.com';
+    } else {
+      delivery.customer.email = `${delivery.customer.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`;
+    }
   }
 
   const isReview = (delivery.decision || delivery.status) === 'REVIEW';

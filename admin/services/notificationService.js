@@ -15,7 +15,32 @@
  * - Fail-safe: Resend errors never crash server or alter deterministic verification
  */
 
+const fs = require('fs');
+const path = require('path');
 const { generateCustomerVerificationEmail } = require('./emailTemplate');
+
+// Auto-load .env if present (zero-dependency loader)
+function loadEnv() {
+  const envPath = path.resolve(__dirname, '../../.env');
+  if (fs.existsSync(envPath)) {
+    try {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split('\n').forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx !== -1) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+          if (key && process.env[key] === undefined) {
+            process.env[key] = val;
+          }
+        }
+      });
+    } catch (e) {}
+  }
+}
+loadEnv();
 
 /**
  * Demo Email Provider
@@ -54,7 +79,7 @@ class DemoEmailProvider {
 class ResendEmailProvider {
   constructor({ apiKey, fromEmail, client } = {}) {
     this.name = 'resend';
-    this.apiKey = apiKey || process.env.RESEND_API_KEY || '';
+    this.apiKey = (apiKey !== undefined && apiKey !== null) ? apiKey : (process.env.RESEND_API_KEY || '');
     this.fromEmail = fromEmail || process.env.EMAIL_FROM || 'Saboot Verification <onboarding@resend.dev>';
 
     if (client) {
