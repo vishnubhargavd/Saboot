@@ -12,6 +12,7 @@ const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
 const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
+const { renderCustomerPortalHtml, renderCustomerNotFoundHtml } = require('./customerPortal');
 
 const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
@@ -1029,6 +1030,114 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, drivers: Array.from(activeDriverTelemetry.values()) }));
     }
+    return;
+  }
+
+  // 2d. Customer Verification Portal (GET /verify/:deliveryId)
+  const verifyMatch = pathname ? pathname.match(/^\/verify\/([^/]+)$/) : null;
+  if (verifyMatch && req.method === 'GET') {
+    const deliveryId = decodeURIComponent(verifyMatch[1]);
+    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderCustomerNotFoundHtml(deliveryId));
+    } else {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderCustomerPortalHtml(delivery));
+    }
+    return;
+  }
+
+  // 2e. Customer Verification Response API (POST /api/customer-verification/:deliveryId)
+  const customerResponseMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)$/) : null;
+  if (customerResponseMatch) {
+    const deliveryId = decodeURIComponent(customerResponseMatch[1]);
+    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Delivery not found' }));
+      return;
+    }
+
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        deliveryId: delivery.id,
+        customerResponse: delivery.customerResponse || null,
+        customerResponseAt: delivery.customerResponseAt || null,
+        customerResponseSource: delivery.customerResponseSource || null
+      }));
+      return;
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const resp = payload.response;
+
+          if (!resp || (resp !== 'CUSTOMER_AVAILABLE' && resp !== 'CUSTOMER_UNAVAILABLE')) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              error: 'Invalid response. Allowed values: CUSTOMER_AVAILABLE, CUSTOMER_UNAVAILABLE'
+            }));
+            return;
+          }
+
+          // Duplicate response prevention (Idempotent confirmation)
+          if (delivery.customerResponse) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              alreadyRecorded: true,
+              deliveryId: delivery.id,
+              customerResponse: delivery.customerResponse,
+              recordedAt: delivery.customerResponseAt
+            }));
+            return;
+          }
+
+          // Zero-Trust Security Rule:
+          // Customer input is evidence only.
+          // Never allow customer to set status, decision, distance, dwell, or policy outcome.
+          const recordedAt = new Date().toISOString();
+          delivery.customerResponse = resp;
+          delivery.customerResponseAt = recordedAt;
+          delivery.customerResponseSource = 'customer_portal';
+
+          saveDeliveries();
+
+          // Broadcast to Admin Console and connected clients in real time
+          broadcastEvent({
+            type: 'CUSTOMER_RESPONSE_RECORDED',
+            deliveryId: delivery.id,
+            customerResponse: resp,
+            recordedAt: recordedAt,
+            notes: `Customer responded: ${resp === 'CUSTOMER_AVAILABLE' ? 'I WAS AVAILABLE' : 'I WAS NOT AVAILABLE'}`
+          });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            deliveryId: delivery.id,
+            customerResponse: resp,
+            recordedAt: recordedAt
+          }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Malformed request JSON' }));
+        }
+      });
+      return;
+    }
+
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
     return;
   }
 

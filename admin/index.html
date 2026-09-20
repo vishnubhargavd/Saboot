@@ -243,35 +243,54 @@
               <span class="fact-name">4. GPS Signal Accuracy</span>
               <span class="fact-val pass">±6m (PASS)</span>
             </div>
-          <!-- AI-Assisted Explanation Card (Strictly Explanatory) -->
-          <div class="ai-explanation-card" id="adminAiExplanationSection">
-            <div class="ai-explanation-header">
-              <span class="ai-sparkle">✨</span>
-              <div style="flex: 1;">
-                <strong style="color: #6D28D9; font-size: 11px; letter-spacing: 0.8px;">AI-ASSISTED EXPLANATION</strong>
-                <div style="font-size: 9px; color: #7C3AED;" id="adminAiModelBadge">Model: Open-Source AI (Llama 3.1)</div>
+          <!-- Customer Verification Response Card -->
+          <div class="customer-response-card" id="adminCustomerResponseSection">
+            <div class="customer-response-header">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 13px;">👤</span>
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">CUSTOMER VERIFICATION</strong>
               </div>
-              <span class="ai-confidence-pill" id="adminAiConfidencePill">HIGH CLARITY</span>
+              <a id="btnOpenCustomerPortal" href="#" target="_blank" class="portal-link-btn" title="Open Customer Verification Portal">
+                Open Portal ↗
+              </a>
             </div>
-            <p class="ai-summary-text" id="adminAiSummary">
+            <div id="customerResponseBadge" class="customer-response-status-badge badge-cust-none">
+              No customer response recorded yet
+            </div>
+            <div id="customerResponseDetail" class="customer-response-subtext">
+              Portal link: <span id="customerPortalUrlText">/verify/DEL-1001</span>
+            </div>
+          </div>
+
+          <!-- Operational Verification Summary Card -->
+          <div class="verification-summary-card" id="adminAiExplanationSection">
+            <div class="verification-summary-header">
+              <span class="verification-summary-icon">📋</span>
+              <div style="flex: 1;">
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">VERIFICATION SUMMARY</strong>
+                <div style="font-size: 9px; color: var(--slate-light);" id="adminAiModelBadge">Deterministic Policy Breakdown</div>
+              </div>
+              <span class="verification-audit-pill" id="adminAiConfidencePill">AUDIT RECORD</span>
+            </div>
+            <p class="verification-summary-text" id="adminAiSummary">
               Loading verification explanation...
             </p>
-            <div class="ai-breakdown-box" id="adminAiBreakdownBox">
-              <div class="ai-sub-block" id="adminAiEvidenceBlock">
-                <span class="ai-block-title">EVIDENCE BREAKDOWN:</span>
-                <span class="ai-block-content" id="adminAiEvidence">GPS within proximity; dwell criteria logged.</span>
+            <div class="verification-breakdown-box" id="adminAiBreakdownBox">
+              <div class="verification-sub-block" id="adminAiEvidenceBlock">
+                <span class="verification-block-title">EVIDENCE BREAKDOWN:</span>
+                <span class="verification-block-content" id="adminAiEvidence">GPS within proximity; dwell criteria logged.</span>
               </div>
-              <div class="ai-sub-block" id="adminAiPolicyBlock">
-                <span class="ai-block-title">POLICY CRITERIA:</span>
-                <span class="ai-block-content" id="adminAiPolicy">Mandatory rules satisfied.</span>
+              <div class="verification-sub-block" id="adminAiPolicyBlock">
+                <span class="verification-block-title">POLICY CRITERIA:</span>
+                <span class="verification-block-content" id="adminAiPolicy">Mandatory rules satisfied.</span>
               </div>
-              <div class="ai-review-focus-block" id="adminAiReviewFocusBlock" style="display: none;">
-                <span class="ai-focus-title">SUPERVISOR REVIEW FOCUS:</span>
-                <span class="ai-focus-content" id="adminAiReviewFocus">Inspect GPS horizontal accuracy and dwell duration.</span>
+              <div class="verification-review-focus-block" id="adminAiReviewFocusBlock" style="display: none;">
+                <span class="verification-focus-title">SUPERVISOR REVIEW FOCUS:</span>
+                <span class="verification-focus-content" id="adminAiReviewFocus">Inspect GPS horizontal accuracy and dwell duration.</span>
               </div>
             </div>
-            <div class="ai-disclaimer-note">
-              Zero-Trust Principle: AI explains the outcome; deterministic policy is 100% authoritative.
+            <div class="verification-disclaimer-note">
+              Zero-Trust Principle: Deterministic policy is 100% authoritative for all verification decisions.
             </div>
           </div>
 

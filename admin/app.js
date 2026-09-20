@@ -562,6 +562,21 @@ function handleIncomingRealtimeEvent(event) {
     return;
   }
 
+  // Real-time Customer Verification Response from Customer Portal
+  if (event.type === 'CUSTOMER_RESPONSE_RECORDED' && event.deliveryId) {
+    let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    if (order) {
+      order.customerResponse = event.customerResponse;
+      order.customerResponseAt = event.recordedAt;
+      order.customerResponseSource = 'customer_portal';
+      if (selectedOrderId === order.id) {
+        selectOrder(order.id);
+      }
+      showNotification(`Customer response received for ${order.id}: ${event.customerResponse === 'CUSTOMER_AVAILABLE' ? 'I WAS AVAILABLE' : 'I WAS NOT AVAILABLE'}`);
+    }
+    return;
+  }
+
   if (event.type === 'DELIVERY_COMPLETED' && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
     const hasVideo = !!(event.videoProofUri || event.extra?.videoProofUri);
@@ -1351,7 +1366,35 @@ function selectOrder(orderId) {
   factAcc.className = `fact-val ${order.gpsAccuracy <= 30 ? 'pass' : 'fail'}`;
   factAcc.innerText = `±${order.gpsAccuracy}m (${order.gpsAccuracy <= 30 ? 'PASS' : 'AMBIGUOUS'})`;
 
-  // Populate AI-Assisted Explanation Section
+  // Populate Customer Verification Response Section
+  const custBadgeEl = document.getElementById('customerResponseBadge');
+  const custDetailEl = document.getElementById('customerResponseDetail');
+  const custPortalLink = document.getElementById('btnOpenCustomerPortal');
+  const custUrlText = document.getElementById('customerPortalUrlText');
+
+  const verifyUrl = `/verify/${encodeURIComponent(order.id)}`;
+  if (custPortalLink) {
+    custPortalLink.href = verifyUrl;
+  }
+  if (custUrlText) {
+    custUrlText.innerText = verifyUrl;
+  }
+
+  if (custBadgeEl && custDetailEl) {
+    if (order.customerResponse) {
+      const isAvailable = order.customerResponse === 'CUSTOMER_AVAILABLE';
+      custBadgeEl.className = `customer-response-status-badge ${isAvailable ? 'badge-cust-available' : 'badge-cust-unavailable'}`;
+      custBadgeEl.innerHTML = `<span>${isAvailable ? '✓' : '✕'}</span> Customer says: <strong>${isAvailable ? 'I WAS AVAILABLE' : 'I WAS NOT AVAILABLE'}</strong>`;
+      const recordedTime = order.customerResponseAt ? new Date(order.customerResponseAt).toLocaleTimeString() : 'Recorded';
+      custDetailEl.innerHTML = `Evidence: <strong>Customer Verification Portal</strong> • Logged: <strong>${recordedTime}</strong>`;
+    } else {
+      custBadgeEl.className = 'customer-response-status-badge badge-cust-none';
+      custBadgeEl.innerText = 'No customer response recorded yet';
+      custDetailEl.innerHTML = `Direct portal link: <a href="${verifyUrl}" target="_blank" style="color: var(--signal-orange); text-decoration: underline;">${verifyUrl}</a>`;
+    }
+  }
+
+  // Populate Verification Summary Section
   const aiSummaryEl = document.getElementById('adminAiSummary');
   const aiEvidenceEl = document.getElementById('adminAiEvidence');
   const aiPolicyEl = document.getElementById('adminAiPolicy');
