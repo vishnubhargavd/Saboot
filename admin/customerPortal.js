@@ -548,7 +548,7 @@ function renderCustomerPortalHtml(delivery, tokenRecord) {
         const res = await fetch(submitEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ response: responseType })
+          body: JSON.stringify({ response: responseType, deliveryId: '${delivery.id}' })
         });
 
         const data = await res.json();

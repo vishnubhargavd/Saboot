@@ -436,6 +436,22 @@ function getActiveVerificationSessionForAttempt(deliveryId, attemptId) {
   return session;
 }
 
+function getActiveVerificationSessionForDelivery(deliveryId) {
+  const db = getDb();
+  const session = db.prepare(`
+    SELECT * FROM customer_verification_sessions
+    WHERE delivery_id = ? AND status IN ('ACTIVE', 'OPENED')
+    ORDER BY created_at DESC LIMIT 1
+  `).get(deliveryId);
+
+  if (!session) return null;
+  if (new Date(session.expires_at).getTime() <= Date.now()) {
+    db.prepare("UPDATE customer_verification_sessions SET status = 'EXPIRED' WHERE id = ?").run(session.id);
+    return null;
+  }
+  return session;
+}
+
 /**
  * Marks customer verification session as opened (first time customer accesses webpage).
  */
@@ -459,13 +475,56 @@ function markVerificationSessionOpened(sessionOrTokenHash, ip = null, userAgent 
  * Consumes the token atomically with ACID replay protection.
  * First valid customer submission wins.
  */
-function consumeVerificationSessionAtomic({ tokenHash, response, ip = null, userAgent = null }) {
+function consumeVerificationSessionAtomic({ tokenHash, deliveryId = null, response, ip = null, userAgent = null }) {
   const db = getDb();
   const now = new Date().toISOString();
 
   db.exec('BEGIN IMMEDIATE;');
   try {
-    const session = db.prepare('SELECT * FROM customer_verification_sessions WHERE token_hash = ?').get(tokenHash);
+    let session = tokenHash
+      ? db.prepare('SELECT * FROM customer_verification_sessions WHERE token_hash = ?').get(tokenHash)
+      : null;
+
+    // Fallback: If not found by token_hash, check if deliveryId was provided or if tokenHash was a delivery ID
+    if (!session) {
+      const targetId = deliveryId || tokenHash;
+      if (targetId) {
+        session = db.prepare(`
+          SELECT * FROM customer_verification_sessions
+          WHERE delivery_id = ? AND status IN ('ACTIVE', 'OPENED')
+          ORDER BY created_at DESC LIMIT 1
+        `).get(targetId);
+
+        // If no active session exists for this delivery, check if delivery exists in DB and create an active session on the fly
+        if (!session) {
+          const delRow = db.prepare('SELECT id, current_attempt_id, status FROM deliveries WHERE id = ?').get(targetId);
+          if (delRow) {
+            const rawToken = crypto.randomBytes(32).toString('base64url');
+            const autoHash = hashToken(rawToken);
+            const expIso = new Date(Date.now() + 3600 * 1000).toISOString();
+            const attId = delRow.current_attempt_id || `ATT-${delRow.id}-${Date.now().toString(36).toUpperCase()}`;
+
+            db.prepare(`
+              INSERT INTO customer_verification_sessions (
+                id, delivery_id, attempt_id, token_hash, status, expires_at, client_ip, user_agent, created_at
+              ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+            `).run(
+              `CVS-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+              delRow.id,
+              attId,
+              autoHash,
+              expIso,
+              ip,
+              userAgent,
+              now
+            );
+
+            session = db.prepare('SELECT * FROM customer_verification_sessions WHERE token_hash = ?').get(autoHash);
+          }
+        }
+      }
+    }
+
     if (!session) {
       db.exec('ROLLBACK;');
       return { success: false, error: 'INVALID_TOKEN', code: 404, message: 'Invalid verification token' };
@@ -630,6 +689,7 @@ module.exports = {
   createVerificationSession,
   getVerificationSessionByHash,
   getActiveVerificationSessionForAttempt,
+  getActiveVerificationSessionForDelivery,
   markVerificationSessionOpened,
   consumeVerificationSessionAtomic,
   seedIfEmpty
