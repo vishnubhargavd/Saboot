@@ -1,4 +1,7 @@
 const http = require('http');
+const { server } = require('../admin/server');
+
+let localServerStarted = false;
 
 async function request(options, bodyData) {
   return new Promise((resolve, reject) => {
@@ -30,6 +33,15 @@ async function run() {
   const videoFileName = '29244fe4-3b68-4695-9983-c74ea26b3123.mp4';
   const PORT = parseInt(process.env.PORT || '3001', 10);
 
+  const isRunning = await new Promise((res) => {
+    http.get(`http://127.0.0.1:${PORT}/health`, () => res(true)).on('error', () => res(false));
+  });
+  if (!isRunning && !server.listening) {
+    await new Promise((resolve) => server.listen(PORT, '0.0.0.0', resolve));
+    localServerStarted = true;
+  }
+
+  try {
   // Step 1: Submit delivery completion with video proof
   console.log('\n1. Driver submits delivery handoff with video proof...');
   const submitRes = await request(
@@ -136,6 +148,11 @@ async function run() {
   console.log('\n======================================================');
   console.log('🎉 ALL VIDEO SUBMISSION & ADMIN REVIEW TESTS PASSED!');
   console.log('======================================================\n');
+  } finally {
+    if (localServerStarted && server.listening) {
+      server.close();
+    }
+  }
 }
 
 run().catch((err) => {
