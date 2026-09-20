@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { THEME } from './constants/theme';
@@ -28,6 +28,41 @@ export default function App() {
     completeDelivery,
     refreshDeliveries,
   } = useDelivery();
+
+  // Saboot Deep-Link Ingestion: saboot://verify?deliveryId=DEL-1001&category=...
+  useEffect(() => {
+    const handleUrl = (event: { url: string }) => {
+      try {
+        const urlStr = event.url;
+        if (!urlStr) return;
+        const match = urlStr.match(/deliveryId=([^&]+)/i);
+        if (match && match[1]) {
+          const targetId = decodeURIComponent(match[1]);
+          const found = deliveries.find(
+            (d) =>
+              d.id.toLowerCase() === targetId.toLowerCase() ||
+              d.trackingNumber.toLowerCase() === targetId.toLowerCase()
+          );
+          if (found) {
+            setSelectedDelivery(found);
+            selectDelivery(found.id);
+            setCurrentScreen('DELIVERY_DETAIL');
+          }
+        }
+      } catch (e) {
+        console.warn('[Saboot DeepLink] Ingestion error:', e);
+      }
+    };
+
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+
+    const sub = Linking.addEventListener('url', handleUrl);
+    return () => {
+      sub.remove();
+    };
+  }, [deliveries, selectDelivery]);
 
   const activeTargetDelivery = selectedDelivery || deliveries[0];
 

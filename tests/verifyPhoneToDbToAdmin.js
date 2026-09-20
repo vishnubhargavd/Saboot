@@ -9,6 +9,8 @@ async function main() {
   console.log('📱 REAL END-TO-END VERIFICATION: PHONE -> DB -> ADMIN PORTAL');
   console.log('================================================================\n');
 
+  const PORT = process.env.PORT || 3001;
+
   // Step 1: Generate unique phone video proof file
   const videoUuid = crypto.randomUUID();
   const phoneVideoFileName = `proof_${videoUuid}.mp4`;
@@ -27,7 +29,7 @@ async function main() {
   const multipartBody = Buffer.concat([Buffer.from(header, 'utf8'), rawCameraBytes, Buffer.from(footer, 'utf8')]);
 
   const uploadResult = await new Promise((resolve, reject) => {
-    const req = http.request('http://localhost:3000/api/upload', {
+    const req = http.request(`http://localhost:${PORT}/api/upload`, {
       method: 'POST',
       headers: {
         'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -70,7 +72,7 @@ async function main() {
 
   const putResult = await new Promise((resolve, reject) => {
     const data = JSON.stringify(updatePayload);
-    const req = http.request('http://localhost:3000/api/deliveries/DEL-1002', {
+    const req = http.request(`http://localhost:${PORT}/api/deliveries/DEL-1002`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -103,7 +105,7 @@ async function main() {
   // Step 6: Admin Portal Data Fetch: verify GET /api/deliveries returns DB record
   console.log('\n6. Admin Portal querying GET /api/deliveries...');
   const serverDeliveries = await new Promise((resolve, reject) => {
-    http.get('http://localhost:3000/api/deliveries', (res) => {
+    http.get(`http://localhost:${PORT}/api/deliveries`, (res) => {
       let body = '';
       res.on('data', chunk => body += chunk);
       res.on('end', () => resolve(JSON.parse(body)));
@@ -116,7 +118,7 @@ async function main() {
   // Step 7: Admin Portal Video Player Stream: verify GET /api/uploads/<filename> serves the real video from DB
   console.log('\n7. Admin Portal HTML5 video player streaming video from DB URI...');
   await new Promise((resolve, reject) => {
-    http.get(`http://localhost:3000${adminRahul.videoProofUri}`, (res) => {
+    http.get(`http://localhost:${PORT}${adminRahul.videoProofUri}`, (res) => {
       assert.strictEqual(res.statusCode, 200);
       assert.strictEqual(res.headers['content-type'], 'video/mp4');
       assert.strictEqual(parseInt(res.headers['content-length'], 10), rawCameraBytes.length);

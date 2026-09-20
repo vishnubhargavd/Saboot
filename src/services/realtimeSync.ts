@@ -48,6 +48,8 @@ if (Platform.OS === 'web' && typeof window !== 'undefined' && 'BroadcastChannel'
   }
 }
 
+const ADMIN_PORT = process.env.EXPO_PUBLIC_ADMIN_PORT || '3001';
+
 /**
  * Determine the Saboot Admin & Sync server base URL dynamically
  * Automatically resolves physical Android phone Wi-Fi connection to host machine
@@ -55,9 +57,9 @@ if (Platform.OS === 'web' && typeof window !== 'undefined' && 'BroadcastChannel'
 export function getSyncServerUrl(): string {
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-      return `http://${window.location.hostname}:3000`;
+      return `http://${window.location.hostname}:${ADMIN_PORT}`;
     }
-    return 'http://localhost:3000';
+    return `http://localhost:${ADMIN_PORT}`;
   }
 
   // React Native Native (iOS / Android / Expo Go)
@@ -71,7 +73,7 @@ export function getSyncServerUrl(): string {
       const cleaned = hostUri.replace(/^[a-z]+:\/\//, '');
       const ip = cleaned.split(':')[0];
       if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
-        return `http://${ip}:3000`;
+        return `http://${ip}:${ADMIN_PORT}`;
       }
     }
   } catch (e) {}
@@ -82,16 +84,16 @@ export function getSyncServerUrl(): string {
     if (scriptURL) {
       const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
       if (match && match[1] && match[1] !== 'localhost' && match[1] !== '127.0.0.1') {
-        return `http://${match[1]}:3000`;
+        return `http://${match[1]}:${ADMIN_PORT}`;
       }
     }
   } catch (e) {}
 
   // 3. Fallback for physical device on LAN
   if (Platform.OS === 'android') {
-    return 'http://192.168.1.6:3000';
+    return `http://192.168.1.6:${ADMIN_PORT}`;
   }
-  return 'http://localhost:3000';
+  return `http://localhost:${ADMIN_PORT}`;
 }
 
 /**

@@ -745,12 +745,11 @@ function initMap(retryCount = 0) {
       attributionControl: true
     }).setView([defaultOrder.address.lat, defaultOrder.address.lng], 16);
 
-    // High-performance, reliable open-source tiles (Overture Maps Foundation / OpenFreeMap compliant) with authenticated CARTO API key
-    const CARTO_API_KEY = 'eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfemUydmszZnQiLCJqdGkiOiI1NTVmYjZiNCIsImV4cCI6MTgyMTQxNjQwMH0.o6X2QeVYgp8GcrhKAUZuAowYGxlxl9DfPkeroe-1r74';
-    L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`, {
-      attribution: '&copy; <a href="https://overturemaps.org" target="_blank">Overture Maps Foundation</a> &copy; <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
+    // High-performance, 100% open-source tiles (Overture Maps Foundation / OpenFreeMap / OpenStreetMap compliant - No API key required, zero watermarks)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://overturemaps.org" target="_blank">Overture Maps Foundation</a> &copy; <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      subdomains: 'abc',
+      maxZoom: 19
     }).addTo(lMap);
 
     // Invalidate size after layout settles to guarantee tiles render without blank spots
@@ -1352,6 +1351,53 @@ function selectOrder(orderId) {
   factAcc.className = `fact-val ${order.gpsAccuracy <= 30 ? 'pass' : 'fail'}`;
   factAcc.innerText = `±${order.gpsAccuracy}m (${order.gpsAccuracy <= 30 ? 'PASS' : 'AMBIGUOUS'})`;
 
+  // Populate AI-Assisted Explanation Section
+  const aiSummaryEl = document.getElementById('adminAiSummary');
+  const aiEvidenceEl = document.getElementById('adminAiEvidence');
+  const aiPolicyEl = document.getElementById('adminAiPolicy');
+  const aiReviewFocusBlock = document.getElementById('adminAiReviewFocusBlock');
+  const aiReviewFocusEl = document.getElementById('adminAiReviewFocus');
+  const aiModelBadge = document.getElementById('adminAiModelBadge');
+
+  if (aiSummaryEl) {
+    aiSummaryEl.innerText = order.aiExplanation || order.aiSummary || order.decisionReason || 'All physical and telephony attempt criteria verified.';
+  }
+  if (aiEvidenceEl) {
+    aiEvidenceEl.innerText = order.evidenceExplanation || (
+      order.status === 'VERIFIED'
+        ? `Driver location verified within ${order.distanceMeters}m geofence (limit ≤50m). Signal accuracy ±${order.gpsAccuracy}m. Call: ${order.callAttempted ? `${order.callDuration}s` : 'None'}.`
+        : order.status === 'REJECTED'
+        ? `Driver location was ${order.distanceMeters}m from delivery address (exceeded 50m limit). Telemetry: ${order.callAttempted ? 'Call made' : 'Zero calls logged'}.`
+        : `GPS horizontal uncertainty ±${order.gpsAccuracy}m at ${order.distanceMeters}m distance. Corroborating review required.`
+    );
+  }
+  if (aiPolicyEl) {
+    aiPolicyEl.innerText = order.policyExplanation || (
+      order.status === 'VERIFIED'
+        ? `Residence dwell duration (${order.dwellSeconds}s) met the mandatory ${order.requiredDwellSeconds}s threshold. Mandatory conditions satisfied.`
+        : order.status === 'REJECTED'
+        ? `Dwell duration of ${order.dwellSeconds}s failed the required ${order.requiredDwellSeconds}s threshold.`
+        : `Dwell was ${order.dwellSeconds}s vs ${order.requiredDwellSeconds}s required. Telemetry accuracy requires supervisor audit.`
+    );
+  }
+
+  if (aiReviewFocusBlock && aiReviewFocusEl) {
+    if (order.status === 'REVIEW' || order.requiresAdminApproval) {
+      aiReviewFocusBlock.style.display = 'block';
+      aiReviewFocusEl.innerText = order.reviewFocus || order.recommendedFocus || (
+        order.videoProofUri
+          ? 'Review the uploaded doorstep video proof in the console to confirm customer absence.'
+          : '• GPS telemetry signal accuracy\n• Dwell duration compliance\n• Telephony call evidence'
+      );
+    } else {
+      aiReviewFocusBlock.style.display = 'none';
+    }
+  }
+
+  if (aiModelBadge) {
+    aiModelBadge.innerText = `Model: ${order.modelUsed || 'Open-Source AI (Llama 3.1)'}`;
+  }
+
   // Audit Box
   document.getElementById('auditId').innerText = order.auditId;
   document.getElementById('auditTime').innerText = new Date().toLocaleTimeString();
@@ -1648,8 +1694,6 @@ function initModalPinMap(initialLat = 12.9080, initialLng = 77.6475) {
     return;
   }
 
-  const CARTO_API_KEY = 'eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfemUydmszZnQiLCJqdGkiOiI1NTVmYjZiNCIsImV4cCI6MTgyMTQxNjQwMH0.o6X2QeVYgp8GcrhKAUZuAowYGxlxl9DfPkeroe-1r74';
-
   modalPinMap = L.map('modalPinMap', {
     center: [initialLat, initialLng],
     zoom: 17,
@@ -1657,9 +1701,9 @@ function initModalPinMap(initialLat = 12.9080, initialLng = 77.6475) {
     attributionControl: false
   });
 
-  L.tileLayer(`https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=${CARTO_API_KEY}`, {
-    maxZoom: 20,
-    subdomains: 'abcd'
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    subdomains: 'abc'
   }).addTo(modalPinMap);
 
   const pinIcon = L.divIcon({

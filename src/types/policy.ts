@@ -44,6 +44,25 @@ export interface VerificationResult {
   requiresAdminApproval?: boolean;
   adminApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
   videoProofUri?: string;
+  aiExplanation?: string;
+  evidenceSummary?: string;
+  supervisorSummary?: string;
+  recommendedFocus?: string | null;
+  aiSource?: 'open-source-ai' | 'deterministic-fallback';
+  modelUsed?: string | null;
+  signedAttestation?: string;
+  attestation?: {
+    attestationId: string;
+    signature: string;
+    signedAttestation?: string;
+  };
+  explanation?: {
+    summary: string;
+    evidenceExplanation: string;
+    policyExplanation: string;
+    reviewFocus: string | null;
+    explanationConfidence?: string;
+  };
 }
 
 export interface AuditRecord {

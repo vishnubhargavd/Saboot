@@ -190,8 +190,9 @@ console.log('  ✓ PASS: Driver app demoData includes fresh new tasks DEL-1005 t
 
 // 7. Test HTTP Sync Server REST API
 async function testHttpSyncServer() {
+  const PORT = process.env.PORT || 3001;
   return new Promise((resolve, reject) => {
-    const req = http.get('http://localhost:3000/api/deliveries', (res) => {
+    const req = http.get(`http://localhost:${PORT}/api/deliveries`, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {

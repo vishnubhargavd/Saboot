@@ -28,13 +28,14 @@ async function run() {
 
   const deliveryId = 'DEL-1001';
   const videoFileName = '29244fe4-3b68-4695-9983-c74ea26b3123.mp4';
+  const PORT = parseInt(process.env.PORT || '3001', 10);
 
   // Step 1: Submit delivery completion with video proof
   console.log('\n1. Driver submits delivery handoff with video proof...');
   const submitRes = await request(
     {
       hostname: 'localhost',
-      port: 3000,
+      port: PORT,
       path: '/api/events',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -65,7 +66,7 @@ async function run() {
   console.log('\n2. Verifying server persistence in GET /api/deliveries...');
   const getRes = await request({
     hostname: 'localhost',
-    port: 3000,
+    port: PORT,
     path: '/api/deliveries',
     method: 'GET',
   });
@@ -88,7 +89,7 @@ async function run() {
   const approveRes = await request(
     {
       hostname: 'localhost',
-      port: 3000,
+      port: PORT,
       path: `/api/deliveries/${deliveryId}`,
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -115,7 +116,7 @@ async function run() {
   await request(
     {
       hostname: 'localhost',
-      port: 3000,
+      port: PORT,
       path: `/api/deliveries/${deliveryId}`,
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

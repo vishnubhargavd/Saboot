@@ -3,20 +3,44 @@ import { VerificationResult, VerificationFacts, VerificationRuleCheck, AuditReco
 import { DWELL_POLICY_CONFIG, PROXIMITY_POLICY } from '../constants/dwellPolicy';
 import { calculateHaversineDistanceMeters } from './locationService';
 import { INITIAL_DELIVERIES, DEMO_SCENARIO_PRESETS } from '../constants/demoData';
+import { getSyncServerUrl } from './realtimeSync';
 
 /**
  * Saboot Zero-Trust Verification API Service
  * 
- * NOTE: In production, this sends the raw payload to AWS API Gateway / Lambda.
- * The server computes distance, dwell, and evaluates policy. The mobile app NEVER
- * asserts the authoritative decision.
+ * Submits raw evidence to the authoritative server-side verification endpoint
+ * (/api/verify). The server computes distance, dwell, evaluates policy, generates
+ * cryptographic attestation, and produces the AI-assisted explanation.
  */
 export async function submitDeliveryAttemptToBackend(
   payload: AttemptSubmissionPayload
 ): Promise<VerificationResult> {
-  // Simulate network latency (400ms - 800ms)
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  // 1. Attempt authoritative server-side verification first
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
 
+    const serverUrl = getSyncServerUrl();
+    const response = await fetch(`${serverUrl}/api/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const serverResult: VerificationResult = await response.json();
+      return serverResult;
+    }
+  } catch (netErr) {
+    console.warn('[Saboot API] Remote verification server unreachable, using offline fallback policy engine:', (netErr as any)?.message);
+  }
+
+  // 2. Offline / Local Fallback Policy Engine (for pure air-gapped scenarios)
   // 1. Fetch official delivery record from DB
   const delivery = INITIAL_DELIVERIES.find((d) => d.id === payload.deliveryId) || INITIAL_DELIVERIES[0];
   const residenceCategory = delivery.address.residenceCategory;
