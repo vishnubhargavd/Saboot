@@ -51,8 +51,8 @@ function loadEnv() {
 }
 loadEnv();
 
-const PORT = process.env.PORT || 3001;
-const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
+const PORT = parseInt(process.env.PORT || '3001', 10);
+const HOST = process.env.HOST || '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
 
 // Configurable time-to-live for customer verification QR tokens (Default: 300 seconds / 5 minutes)
 const QR_TTL_SECONDS = parseInt(process.env.CUSTOMER_QR_TTL_SECONDS || '300', 10);
@@ -164,6 +164,22 @@ function resolvePublicBaseUrl(req = null) {
 
 const getCustomerPortalBaseUrl = resolvePublicBaseUrl;
 
+function resolveCustomerVerificationUrl(token, req = null) {
+  const baseUrl = resolvePublicBaseUrl(req);
+  return `${baseUrl}/v/${token}`;
+}
+
+function isLoopbackAddress(urlOrHost) {
+  if (!urlOrHost) return false;
+  try {
+    const parsed = new URL(urlOrHost);
+    const hostname = parsed.hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
+  } catch (e) {
+    return /(localhost|127\.0\.0\.1|0\.0\.0\.0|::1)/i.test(String(urlOrHost));
+  }
+}
+
 async function createCustomerVerificationToken(delivery, req, customAttemptId = null) {
   const rawToken = crypto.randomBytes(32).toString('base64url');
   const tokenHash = db.hashToken(rawToken);
@@ -174,6 +190,19 @@ async function createCustomerVerificationToken(delivery, req, customAttemptId = 
   const clientIp = req?.socket?.remoteAddress || req?.headers?.['x-forwarded-for'] || '127.0.0.1';
   const userAgent = req?.headers?.['user-agent'] || 'driver-app';
 
+  const baseUrl = getCustomerPortalBaseUrl(req);
+  const verificationUrl = resolveCustomerVerificationUrl(rawToken, req);
+
+  // Section 7: Reject loopback address if physical-device LAN mode is active
+  // unless explicitly running inside an isolated automated test (NODE_ENV === 'test')
+  const isTest = process.env.NODE_ENV === 'test';
+  const isPhysicalLanMode = process.env.PHYSICAL_DEVICE_LAN_MODE === 'true' || process.env.LAN_MODE === 'true';
+  if (isPhysicalLanMode && !isTest && isLoopbackAddress(verificationUrl)) {
+    const err = new Error(`Customer QR generation rejected: verification URL '${verificationUrl}' contains loopback address (localhost/127.0.0.1/0.0.0.0) while physical-device LAN mode is active. Configure PUBLIC_BASE_URL (e.g. http://<YOUR_LAN_IP>:${PORT}) so external customer phones can reach the verification portal.`);
+    err.code = 'INVALID_PHYSICAL_QR_URL';
+    throw err;
+  }
+
   // Authoritative persistence in SQLite
   const session = db.createVerificationSession({
     deliveryId: delivery.id,
@@ -183,9 +212,6 @@ async function createCustomerVerificationToken(delivery, req, customAttemptId = 
     clientIp,
     userAgent
   });
-
-  const baseUrl = getCustomerPortalBaseUrl(req);
-  const verificationUrl = `${baseUrl}/v/${rawToken}`;
 
   // Generate SVG QR representation
   let qrSvg = null;
@@ -280,7 +306,7 @@ function getVerificationTokenRecord(token) {
     openedAt: session.opened_at,
     consumedAt: session.consumed_at,
     customerResponse: session.response,
-    verificationUrl: cached?.verificationUrl || `/v/${token}`,
+    verificationUrl: cached?.verificationUrl || resolveCustomerVerificationUrl(token),
     qrSvg: cached?.qrSvg || null
   };
 }
@@ -972,7 +998,7 @@ function ensureDeliveryAuditTimeline(delivery) {
   }
 
   if (!delivery.verificationUrl) {
-    delivery.verificationUrl = `http://localhost:${PORT}/verify/${delivery.id}`;
+    delivery.verificationUrl = `${resolvePublicBaseUrl()}/verify/${delivery.id}`;
   }
 
   if (delivery.auditTimeline.length === 0) {
@@ -1395,7 +1421,7 @@ const server = http.createServer((req, res) => {
         const cached = activeSessionsMemory.get(activeSession.token_hash) || activeSessionsMemory.get(activeSession.id);
         const baseUrl = resolvePublicBaseUrl(req);
         const verificationUrl = cached?.rawToken
-          ? `${baseUrl}/v/${cached.rawToken}`
+          ? resolveCustomerVerificationUrl(cached.rawToken, req)
           : (cached?.verificationUrl || `${baseUrl}/v/${delivery.id}`);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1432,9 +1458,10 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(qrData));
       }).catch((err) => {
-        console.error('[Server QR Gen Error]:', err);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, error: 'INTERNAL_ERROR', message: err.message }));
+        console.error('[Server QR Gen Error]:', err.message);
+        const statusCode = err.code === 'INVALID_PHYSICAL_QR_URL' ? 400 : 500;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.code || 'INTERNAL_ERROR', message: err.message }));
       });
       return;
     }
@@ -1577,7 +1604,7 @@ const server = http.createServer((req, res) => {
       delivery.verificationToken = rawToken;
       activeSessionsMemory.set(tokenHash, {
         rawToken,
-        verificationUrl: `${resolvePublicBaseUrl(req)}/v/${rawToken}`,
+        verificationUrl: resolveCustomerVerificationUrl(rawToken, req),
         expiresAt,
         deliveryId: delivery.id,
         attemptId
@@ -1733,6 +1760,23 @@ const server = http.createServer((req, res) => {
             return;
           }
 
+          // Legacy Delivery Endpoint: If already recorded, return idempotent success
+          if (legacySubmitMatch && delivery && delivery.customerResponse) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              alreadyRecorded: true,
+              message: 'This verification has already been completed.',
+              deliveryId: delivery.id,
+              customerResponse: delivery.customerResponse,
+              recordedAt: delivery.customerResponseAt,
+              status: delivery.status,
+              decision: delivery.decision,
+              retryRequired: !!delivery.retryRequired
+            }));
+            return;
+          }
+
           const userAgent = req.headers['user-agent'] || 'customer-browser';
           const tokenHash = tokenRecord ? tokenRecord.tokenHash : (delivery ? delivery.id : db.hashToken(param));
 
@@ -1746,6 +1790,21 @@ const server = http.createServer((req, res) => {
           });
 
           if (!atomicResult.success) {
+            if (legacySubmitMatch && atomicResult.error === 'ALREADY_CONSUMED' && delivery) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                success: true,
+                alreadyRecorded: true,
+                message: 'This verification has already been completed.',
+                deliveryId: delivery.id,
+                customerResponse: delivery.customerResponse || tokenRecord?.customerResponse,
+                recordedAt: delivery.customerResponseAt,
+                status: delivery.status,
+                decision: delivery.decision,
+                retryRequired: !!delivery.retryRequired
+              }));
+              return;
+            }
             const statusCode = atomicResult.code || 400;
             res.writeHead(statusCode, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -2634,18 +2693,23 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, HOST, () => {
-  const qrBase = resolvePublicBaseUrl();
-  console.log(`\n======================================================`);
-  console.log(`🚀 SABOOT REAL-TIME ADMIN & SYNC SERVER RUNNING`);
-  console.log(`======================================================`);
-  console.log(`  Local:                http://localhost:${PORT}`);
-  console.log(`  Network:              http://${HOST}:${PORT}`);
-  console.log(`  API:                  http://localhost:${PORT}/api/deliveries`);
-  console.log(`  Events:               http://localhost:${PORT}/api/events (SSE)`);
-  console.log(`  Customer QR Base URL: ${qrBase}`);
-  console.log(`======================================================\n`);
-});
+const shouldAutoListen = require.main === module || 
+  (!server.listening && process.env.NODE_ENV === 'test' && String(PORT) !== '3001');
+
+if (shouldAutoListen) {
+  server.listen(PORT, HOST, () => {
+    const qrBase = resolvePublicBaseUrl();
+    console.log(`\n======================================================`);
+    console.log(`🚀 SABOOT REAL-TIME ADMIN & SYNC SERVER RUNNING`);
+    console.log(`======================================================`);
+    console.log(`  Local:                http://localhost:${PORT}`);
+    console.log(`  Network:              http://${HOST}:${PORT}`);
+    console.log(`  API:                  http://localhost:${PORT}/api/deliveries`);
+    console.log(`  Events:               http://localhost:${PORT}/api/events (SSE)`);
+    console.log(`  Customer QR Base URL: ${qrBase}`);
+    console.log(`======================================================\n`);
+  });
+}
 
 module.exports = {
   server,
@@ -2657,5 +2721,7 @@ module.exports = {
   ensureDeliveryAuditTimeline,
   broadcastEvent,
   resolvePublicBaseUrl,
+  resolveCustomerVerificationUrl,
+  isLoopbackAddress,
   getLocalLanIp
 };

@@ -421,6 +421,7 @@ function getVerificationSessionByHash(tokenHash) {
 }
 
 function getActiveVerificationSessionForAttempt(deliveryId, attemptId) {
+  if (!deliveryId || !attemptId) return null;
   const db = getDb();
   const session = db.prepare(`
     SELECT * FROM customer_verification_sessions
@@ -590,6 +591,9 @@ function consumeVerificationSessionAtomic({ tokenHash, deliveryId = null, respon
 
     const isPackageReceived = response === 'PACKAGE_RECEIVED';
 
+    let requiresAdminApproval = deliveryRow.requires_admin_approval;
+    let adminApprovalStatus = deliveryRow.admin_approval_status;
+
     // Saboot Decision Rules
     if (currentDecision === 'REVIEW') {
       if (isPackageReceived) {
@@ -598,12 +602,16 @@ function consumeVerificationSessionAtomic({ tokenHash, deliveryId = null, respon
         newDecision = 'VERIFIED';
         newReason = 'Customer confirmed package receipt. Multi-modal attestation completed.';
         retryRequired = 0;
+        requiresAdminApproval = 0;
+        adminApprovalStatus = 'APPROVED';
       } else {
         // CASE 2: REVIEW + PACKAGE_NOT_RECEIVED -> CUSTOMER_CONFIRMED_FAILURE & RETRY_REQUIRED
         newStatus = 'RETRY_REQUIRED';
         newDecision = 'CUSTOMER_CONFIRMED_FAILURE';
         newReason = 'Customer reported package was not received. Dispatch re-attempt required.';
         retryRequired = 1;
+        requiresAdminApproval = 0;
+        adminApprovalStatus = 'REJECTED';
       }
     } else if (currentDecision === 'REJECTED') {
       // ZERO-TRUST RULE: Hard physical rejection cannot be overridden by customer claim
@@ -617,9 +625,9 @@ function consumeVerificationSessionAtomic({ tokenHash, deliveryId = null, respon
       UPDATE deliveries
       SET status = ?, decision = ?, decision_reason = ?, customer_response = ?,
           customer_response_at = ?, customer_response_source = 'qr_portal',
-          retry_required = ?, updated_at = ?
+          retry_required = ?, requires_admin_approval = ?, admin_approval_status = ?, updated_at = ?
       WHERE id = ?
-    `).run(newStatus, newDecision, newReason, response, now, retryRequired, now, session.delivery_id);
+    `).run(newStatus, newDecision, newReason, response, now, retryRequired, requiresAdminApproval, adminApprovalStatus, now, session.delivery_id);
 
     // Audit logs
     addAuditEvent(
@@ -631,10 +639,14 @@ function consumeVerificationSessionAtomic({ tokenHash, deliveryId = null, respon
 
     if (currentDecision === 'REVIEW') {
       if (isPackageReceived) {
+        addAuditEvent(session.delivery_id, session.attempt_id, 'SABOOT_VERIFIED', 'Saboot → VERIFIED (Customer confirmed package receipt)');
         addAuditEvent(session.delivery_id, session.attempt_id, 'VERIFIED', 'Attempt verified via customer QR confirmation');
       } else {
         addAuditEvent(session.delivery_id, session.attempt_id, 'CUSTOMER_CONFIRMED_FAILURE', 'Customer reported failure to receive');
+        addAuditEvent(session.delivery_id, session.attempt_id, 'DELIVERY_CUSTOMER_CONFIRMED_FAILURE', 'Customer confirmed failure to receive package');
         addAuditEvent(session.delivery_id, session.attempt_id, 'RETRY_REQUIRED', 'Delivery marked for supervisor re-dispatch / retry');
+        addAuditEvent(session.delivery_id, session.attempt_id, 'DELIVERY_RETRY_REQUIRED', 'Status transitioned to RETRY_REQUIRED');
+        addAuditEvent(session.delivery_id, session.attempt_id, 'DRIVER_RETRY_TASK_CREATED', 'Driver task re-queued for re-attempt');
       }
     } else if (currentDecision === 'REJECTED') {
       addAuditEvent(

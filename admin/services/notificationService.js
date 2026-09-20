@@ -155,7 +155,7 @@ class ResendEmailProvider {
 class NotificationService {
   constructor(options = {}) {
     this.providerType = options.providerType || process.env.EMAIL_PROVIDER || 'demo';
-    this.baseUrl = options.baseUrl || process.env.CUSTOMER_PORTAL_BASE_URL || 'http://localhost:3001';
+    this.baseUrl = options.baseUrl || process.env.PUBLIC_BASE_URL || process.env.CUSTOMER_PORTAL_BASE_URL || 'http://localhost:3001';
     this.fromEmail = options.fromEmail || process.env.EMAIL_FROM || 'Saboot Verification <onboarding@resend.dev>';
     this.onEvent = options.onEvent || null;
 

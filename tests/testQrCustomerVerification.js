@@ -15,8 +15,10 @@
 
 const assert = require('assert');
 const http = require('http');
+const { server } = require('../admin/server');
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
+let localServerStarted = false;
 
 function request(options, postData) {
   return new Promise((resolve, reject) => {
@@ -51,8 +53,17 @@ async function runQrTests() {
   console.log('🧪 TESTING REAL-TIME QR CUSTOMER VERIFICATION ENGINE');
   console.log('======================================================\n');
 
-  // Step 1: Create isolated deliveries for clean deterministic assertions
-  console.log('1. Setting up test deliveries in REVIEW and REJECTED states...');
+  const isRunning = await new Promise((res) => {
+    http.get(`http://127.0.0.1:${PORT}/health`, () => res(true)).on('error', () => res(false));
+  });
+  if (!isRunning && !server.listening) {
+    await new Promise((resolve) => server.listen(PORT, '0.0.0.0', resolve));
+    localServerStarted = true;
+  }
+
+  try {
+    // Step 1: Create isolated deliveries for clean deterministic assertions
+    console.log('1. Setting up test deliveries in REVIEW and REJECTED states...');
   const testIdReviewA = `TEST-QR-REV-A-${Date.now()}`;
   const testIdReviewB = `TEST-QR-REV-B-${Date.now()}`;
   const testIdReject = `TEST-QR-REJ-${Date.now()}`;
@@ -320,6 +331,11 @@ async function runQrTests() {
   console.log('======================================================');
   console.log('🎉 ALL 8 REAL-TIME QR VERIFICATION TESTS PASSED!');
   console.log('======================================================\n');
+  } finally {
+    if (localServerStarted && server.listening) {
+      server.close();
+    }
+  }
 }
 
 runQrTests().catch((err) => {
