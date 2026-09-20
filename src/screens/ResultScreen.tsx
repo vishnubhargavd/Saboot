@@ -40,7 +40,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
         </View>
 
         {/* Result Card */}
-        <ResultCard result={result} onReturnHome={onReturnHome} />
+        <ResultCard result={result} delivery={delivery} onReturnHome={onReturnHome} />
       </View>
     </SafeAreaView>
   );

@@ -3,20 +3,31 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Alert, Platform }
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { VerificationResult } from '../types/policy';
+import { Delivery } from '../types/delivery';
 import { VideoProofThumbnail } from './VideoProofThumbnail';
 import { getSyncServerUrl } from '../services/realtimeSync';
+import { CustomerQrModal } from './CustomerQrModal';
 
 interface ResultCardProps {
   result: VerificationResult;
+  delivery?: Delivery;
   onReturnHome: () => void;
+  onVerificationResolved?: (status: 'VERIFIED' | 'CUSTOMER_CONFIRMED_FAILURE') => void;
 }
 
-export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) => {
+export const ResultCard: React.FC<ResultCardProps> = ({
+  result,
+  delivery,
+  onReturnHome,
+  onVerificationResolved,
+}) => {
   const [callbackSent, setCallbackSent] = useState<boolean>(false);
   const [isSendingCallback, setIsSendingCallback] = useState<boolean>(false);
+  const [isQrModalVisible, setIsQrModalVisible] = useState<boolean>(false);
+  const [currentDecision, setCurrentDecision] = useState<string>(result.decision);
 
   const getDecisionTag = () => {
-    switch (result.decision) {
+    switch (currentDecision) {
       case 'DELIVERED':
         return {
           title: 'DELIVERY COMPLETED & CONFIRMED',
@@ -60,6 +71,25 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
   };
 
   const decisionInfo = getDecisionTag();
+
+  const effectiveDelivery: Delivery = delivery || {
+    id: result.deliveryId,
+    trackingNumber: result.deliveryId,
+    customer: { id: 'CUST-DEFAULT', name: 'Customer', phone: '+91 90191 44983' },
+    address: {
+      street: 'Delivery Stop Address',
+      city: 'Bengaluru',
+      postalCode: '560102',
+      latitude: 12.9719,
+      longitude: 77.6412,
+      residenceCategory: result.facts?.residenceCategory || 'apartment',
+    },
+    packageDescription: 'Delivery Order',
+    estimatedDeliveryWindow: '10:00 AM - 12:00 PM',
+    status: currentDecision as any,
+    createdAt: new Date().toISOString(),
+    assignedDriverId: 'DRV-BLR-09',
+  };
 
   // Send Signed Attestation Callback to Host Platform
   const handleSendCallback = async () => {
@@ -112,6 +142,29 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
           </Text>
           <Text style={styles.decisionSubtitle}>{decisionInfo.subtitle}</Text>
         </View>
+
+        {/* Real-Time Customer QR Verification Button (Prompted when attempt is in REVIEW) */}
+        {currentDecision === 'REVIEW' && (
+          <TouchableOpacity
+            style={styles.qrBannerCard}
+            onPress={() => setIsQrModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <View style={styles.qrIconBubble}>
+              <Ionicons name="qr-code-outline" size={24} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.qrBannerTitle}>SHOW CUSTOMER QR VERIFICATION</Text>
+              <Text style={styles.qrBannerSub}>
+                Customer scans with phone camera to confirm package receipt in real time
+              </Text>
+            </View>
+            <View style={styles.qrActionPill}>
+              <Text style={styles.qrActionPillText}>SHOW QR</Text>
+              <Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
+        )}
 
         {/* 2. VERIFICATION FACTS MATRIX */}
         <View style={styles.sectionCard}>
@@ -320,6 +373,21 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
 
         <View style={{ height: 40 }} />
       </View>
+
+      {/* Customer QR Verification Modal */}
+      <CustomerQrModal
+        visible={isQrModalVisible}
+        delivery={effectiveDelivery}
+        onClose={() => setIsQrModalVisible(false)}
+        onVerificationResolved={(resolvedStatus) => {
+          if (resolvedStatus === 'VERIFIED') {
+            setCurrentDecision('VERIFIED');
+          }
+          if (onVerificationResolved) {
+            onVerificationResolved(resolvedStatus);
+          }
+        }}
+      />
     </ScrollView>
   );
 };
@@ -684,6 +752,60 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
     color: '#34D399',
+    letterSpacing: 0.5,
+  },
+  qrBannerCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 8,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    borderWidth: 1.5,
+    borderColor: '#38BDF8',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  qrIconBubble: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#0284C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  qrBannerTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
+  },
+  qrBannerSub: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  qrActionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.2)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: '#38BDF8',
+  },
+  qrActionPillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#38BDF8',
+    marginRight: 2,
     letterSpacing: 0.5,
   },
 });

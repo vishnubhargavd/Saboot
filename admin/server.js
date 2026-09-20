@@ -11,11 +11,306 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
-const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
-const { renderCustomerPortalHtml, renderCustomerNotFoundHtml } = require('./customerPortal');
+const os = require('os');
+const db = require('./services/database');
+const { SEED_DELIVERIES } = require('./data/seedData');
+let QRCode = null;
+try {
+  QRCode = require('qrcode');
+} catch (e) {}
 
-const PORT = process.env.PORT || 3001;
-const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
+const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
+const {
+  renderCustomerPortalHtml,
+  renderCustomerNotFoundHtml,
+  renderTokenExpiredHtml,
+  renderTokenCompletedHtml,
+  renderTokenInvalidHtml
+} = require('./customerPortal');
+
+// Auto-load .env if present (zero-dependency loader)
+function loadEnv() {
+  const envPath = path.resolve(__dirname, '../.env');
+  if (fs.existsSync(envPath)) {
+    try {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split('\n').forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx !== -1) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+          if (key && process.env[key] === undefined) {
+            process.env[key] = val;
+          }
+        }
+      });
+    } catch (e) {}
+  }
+}
+loadEnv();
+
+const PORT = parseInt(process.env.PORT || '3001', 10);
+const HOST = process.env.HOST || '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
+
+// Configurable time-to-live for customer verification QR tokens (Default: 300 seconds / 5 minutes)
+const QR_TTL_SECONDS = parseInt(process.env.CUSTOMER_QR_TTL_SECONDS || '300', 10);
+
+// Rate limiter map: IP -> { count, resetAt }
+const rateLimitMap = new Map();
+function checkRateLimit(ip, limit = 60, windowMs = 60000) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip) || { count: 0, resetAt: now + windowMs };
+  if (now > entry.resetAt) {
+    entry.count = 1;
+    entry.resetAt = now + windowMs;
+  } else {
+    entry.count++;
+  }
+  rateLimitMap.set(ip, entry);
+  return entry.count <= limit;
+}
+
+// In-memory cache for active verification tokens (Session ID/Hash -> { rawToken, verificationUrl, qrSvg, expiresAt })
+const activeSessionsMemory = new Map();
+
+function getLocalLanIp() {
+  const interfaces = os.networkInterfaces();
+  const preferredOrder = ['wi-fi', 'ethernet', 'wlan', 'eth', 'en'];
+
+  // 1. Check preferred physical adapters first
+  for (const pref of preferredOrder) {
+    for (const [name, ifaces] of Object.entries(interfaces)) {
+      if (name.toLowerCase().includes(pref)) {
+        for (const iface of ifaces || []) {
+          if (iface.family === 'IPv4' && !iface.internal && iface.address) {
+            return iface.address;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Check any non-virtual adapter
+  for (const [name, ifaces] of Object.entries(interfaces)) {
+    const lower = name.toLowerCase();
+    if (lower.includes('vmnet') || lower.includes('vgate') || lower.includes('virtual') || lower.includes('docker') || lower.includes('loopback')) {
+      continue;
+    }
+    for (const iface of ifaces || []) {
+      if (iface.family === 'IPv4' && !iface.internal && iface.address) {
+        return iface.address;
+      }
+    }
+  }
+
+  // 3. Fallback to any non-internal IPv4
+  for (const ifaces of Object.values(interfaces)) {
+    for (const iface of ifaces || []) {
+      if (iface.family === 'IPv4' && !iface.internal && iface.address) {
+        return iface.address;
+      }
+    }
+  }
+  return null;
+}
+
+function resolvePublicBaseUrl(req = null) {
+  // 1. Explicit production / configuration override
+  if (process.env.PUBLIC_BASE_URL && process.env.PUBLIC_BASE_URL.trim()) {
+    return process.env.PUBLIC_BASE_URL.trim().replace(/\/+$/, '');
+  }
+  if (process.env.CUSTOMER_PORTAL_BASE_URL && process.env.CUSTOMER_PORTAL_BASE_URL.trim()) {
+    return process.env.CUSTOMER_PORTAL_BASE_URL.trim().replace(/\/+$/, '');
+  }
+
+  // 2. Reverse proxy / forwarded headers
+  if (req && req.headers) {
+    const fwdHost = req.headers['x-forwarded-host'];
+    if (fwdHost) {
+      const host = fwdHost.split(',')[0].trim();
+      const proto = (req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+      return `${proto}://${host}`.replace(/\/+$/, '');
+    }
+  }
+
+  // 3. Automated testing mode: allow loopback from request header if NODE_ENV === 'test'
+  if (process.env.NODE_ENV === 'test' && req && req.headers && req.headers.host) {
+    const proto = req.connection?.encrypted ? 'https' : 'http';
+    return `${proto}://${req.headers.host}`.replace(/\/+$/, '');
+  }
+
+  // 4. Request Host header if it is a real domain or non-loopback IP
+  if (req && req.headers && req.headers.host) {
+    const host = req.headers.host.split(':')[0].trim().toLowerCase();
+    const isLoopback = host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1';
+    if (!isLoopback) {
+      const proto = req.connection?.encrypted ? 'https' : 'http';
+      return `${proto}://${req.headers.host}`.replace(/\/+$/, '');
+    }
+  }
+
+  // 5. Dynamic local LAN IP detection for physical customer phone access
+  const lanIp = getLocalLanIp();
+  if (lanIp) {
+    const port = (req?.socket?.localPort) || PORT;
+    return `http://${lanIp}:${port}`.replace(/\/+$/, '');
+  }
+
+  // 6. Fallback
+  return `http://localhost:${PORT}`;
+}
+
+const getCustomerPortalBaseUrl = resolvePublicBaseUrl;
+
+function resolveCustomerVerificationUrl(token, req = null) {
+  const baseUrl = resolvePublicBaseUrl(req);
+  return `${baseUrl}/v/${token}`;
+}
+
+function isLoopbackAddress(urlOrHost) {
+  if (!urlOrHost) return false;
+  try {
+    const parsed = new URL(urlOrHost);
+    const hostname = parsed.hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1';
+  } catch (e) {
+    return /(localhost|127\.0\.0\.1|0\.0\.0\.0|::1)/i.test(String(urlOrHost));
+  }
+}
+
+async function createCustomerVerificationToken(delivery, req, customAttemptId = null) {
+  const rawToken = crypto.randomBytes(32).toString('base64url');
+  const tokenHash = db.hashToken(rawToken);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + QR_TTL_SECONDS * 1000).toISOString();
+  const attemptId = customAttemptId || delivery.auditId || `ATT-${Date.now().toString(36).toUpperCase()}`;
+
+  const clientIp = req?.socket?.remoteAddress || req?.headers?.['x-forwarded-for'] || '127.0.0.1';
+  const userAgent = req?.headers?.['user-agent'] || 'driver-app';
+
+  const baseUrl = getCustomerPortalBaseUrl(req);
+  const verificationUrl = resolveCustomerVerificationUrl(rawToken, req);
+
+  // Section 7: Reject loopback address if physical-device LAN mode is active
+  // unless explicitly running inside an isolated automated test (NODE_ENV === 'test')
+  const isTest = process.env.NODE_ENV === 'test';
+  const isPhysicalLanMode = process.env.PHYSICAL_DEVICE_LAN_MODE === 'true' || process.env.LAN_MODE === 'true';
+  if (isPhysicalLanMode && !isTest && isLoopbackAddress(verificationUrl)) {
+    const err = new Error(`Customer QR generation rejected: verification URL '${verificationUrl}' contains loopback address (localhost/127.0.0.1/0.0.0.0) while physical-device LAN mode is active. Configure PUBLIC_BASE_URL (e.g. http://<YOUR_LAN_IP>:${PORT}) so external customer phones can reach the verification portal.`);
+    err.code = 'INVALID_PHYSICAL_QR_URL';
+    throw err;
+  }
+
+  // Authoritative persistence in SQLite
+  const session = db.createVerificationSession({
+    deliveryId: delivery.id,
+    attemptId,
+    tokenHash,
+    ttlSeconds: QR_TTL_SECONDS,
+    clientIp,
+    userAgent
+  });
+
+  // Generate SVG QR representation
+  let qrSvg = null;
+  if (QRCode) {
+    try {
+      qrSvg = await QRCode.toString(verificationUrl, { type: 'svg', margin: 1 });
+    } catch (qrErr) {
+      console.warn('[Server] QRCode SVG generation error:', qrErr.message);
+    }
+  }
+
+  // Cache session info for fast Admin rendering
+  activeSessionsMemory.set(session.id, {
+    rawToken,
+    verificationUrl,
+    qrSvg,
+    expiresAt,
+    deliveryId: delivery.id,
+    attemptId
+  });
+  activeSessionsMemory.set(tokenHash, {
+    rawToken,
+    verificationUrl,
+    qrSvg,
+    expiresAt,
+    deliveryId: delivery.id,
+    attemptId
+  });
+
+  delivery.verificationToken = rawToken;
+  delivery.verificationUrl = verificationUrl;
+  delivery.qrExpiresAt = expiresAt;
+  delivery.qrStatus = 'ACTIVE';
+  delivery.customerResponse = null;
+  delivery.customerResponseAt = null;
+  delivery.customerResponseSource = null;
+
+  if (!delivery.auditTimeline) delivery.auditTimeline = [];
+  delivery.auditTimeline.push({
+    timestamp: now.toISOString(),
+    event: 'CUSTOMER_QR_GENERATED',
+    description: `Customer verification QR generated (attempt: ${attemptId}, expires in ${Math.round(QR_TTL_SECONDS / 60)}m)`
+  });
+
+  saveDeliveries();
+
+  broadcastEvent({
+    type: 'CUSTOMER_QR_GENERATED',
+    deliveryId: delivery.id,
+    attemptId,
+    token: rawToken,
+    verificationUrl,
+    qrSvg,
+    expiresAt,
+    expiresInSeconds: QR_TTL_SECONDS,
+    timestamp: now.toISOString(),
+    auditTimeline: delivery.auditTimeline
+  });
+
+  return {
+    success: true,
+    token: rawToken,
+    verificationUrl,
+    qrSvg,
+    expiresAt,
+    expiresInSeconds: QR_TTL_SECONDS,
+    deliveryId: delivery.id,
+    attemptId
+  };
+}
+
+function getVerificationTokenRecord(token) {
+  if (!token) return null;
+  const tokenHash = db.hashToken(token);
+  const session = db.getVerificationSessionByHash(tokenHash);
+  if (!session) return null;
+
+  if (session.status !== 'CONSUMED' && Date.now() > new Date(session.expires_at).getTime()) {
+    session.status = 'EXPIRED';
+  }
+
+  const cached = activeSessionsMemory.get(tokenHash);
+  return {
+    id: session.id,
+    token: cached?.rawToken || token,
+    tokenHash: session.token_hash,
+    deliveryId: session.delivery_id,
+    attemptId: session.attempt_id,
+    status: session.status,
+    createdAt: session.created_at,
+    expiresAt: session.expires_at,
+    openedAt: session.opened_at,
+    consumedAt: session.consumed_at,
+    customerResponse: session.response,
+    verificationUrl: cached?.verificationUrl || resolveCustomerVerificationUrl(token),
+    qrSvg: cached?.qrSvg || null
+  };
+}
+
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'deliveries.json');
 
@@ -34,7 +329,7 @@ const DEFAULT_DELIVERIES = [
   {
     id: 'DEL-ASR-01',
     trackingNumber: 'SBT-BLR-550101',
-    customer: { id: 'CUST-ASR-01', name: 'Abhinav Kamutala', phone: '+91 90191 44983' },
+    customer: { id: 'CUST-ASR-01', name: 'Abhinav Kamutala', phone: '+91 90191 44983', email: 'abhinavkx@gmail.com' },
     address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 101, Block A, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
     packageDescription: 'Electronics — Apple iPad Pro 11-inch M4 with Magic Keyboard',
     estimatedDeliveryWindow: '10:00 AM - 11:00 AM',
@@ -663,35 +958,30 @@ const DEFAULT_DELIVERIES = [
   }
 ];
 
-// Load persisted deliveries or initialize with defaults
+// Load persisted deliveries from authoritative SQLite Database
+const isProduction = process.env.NODE_ENV === 'production';
 let deliveries = [];
+
 try {
-  if (fs.existsSync(DATA_FILE)) {
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    deliveries = JSON.parse(raw);
-    if (!Array.isArray(deliveries) || deliveries.length === 0) {
-      deliveries = [...DEFAULT_DELIVERIES];
-    }
-  } else {
-    deliveries = [...DEFAULT_DELIVERIES];
+  deliveries = db.getAllDeliveries();
+  if (deliveries.length === 0 && !isProduction) {
+    console.log('[Server] Non-production environment detected: seeding initial deliveries into SQLite...');
+    db.seedIfEmpty(DEFAULT_DELIVERIES);
+    deliveries = db.getAllDeliveries();
   }
-} catch (e) {
+} catch (dbErr) {
+  console.error('[Server] Failed to initialize deliveries from SQLite:', dbErr);
   deliveries = [...DEFAULT_DELIVERIES];
 }
-
-// Always ensure all DEFAULT_DELIVERIES exist in the server's deliveries list
-let needsSave = false;
-for (const def of DEFAULT_DELIVERIES) {
-  if (!deliveries.some((d) => d.id === def.id)) {
-    deliveries.push(def);
-    needsSave = true;
-  }
-}
-saveDeliveries();
 
 function saveDeliveries() {
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(deliveries, null, 2), 'utf8');
+    for (const d of deliveries) {
+      try {
+        db.upsertDelivery(d);
+      } catch (e) {}
+    }
   } catch (err) {
     console.warn('[Server] Error saving deliveries to disk:', err);
   }
@@ -701,6 +991,16 @@ function ensureDeliveryAuditTimeline(delivery) {
   if (!delivery.auditTimeline) {
     delivery.auditTimeline = [];
   }
+
+  const isReview = (delivery.decision || delivery.status) === 'REVIEW';
+  if (isReview) {
+    delivery.requiresCustomerConfirmation = true;
+  }
+
+  if (!delivery.verificationUrl) {
+    delivery.verificationUrl = `${resolvePublicBaseUrl()}/verify/${delivery.id}`;
+  }
+
   if (delivery.auditTimeline.length === 0) {
     const baseTime = delivery.createdAt ? new Date(delivery.createdAt).getTime() : (Date.now() - 300000);
     delivery.auditTimeline.push(
@@ -711,24 +1011,12 @@ function ensureDeliveryAuditTimeline(delivery) {
     );
     if ((delivery.decision || delivery.status) === 'REVIEW' || !delivery.status || delivery.status === 'IN_TRANSIT') {
       delivery.auditTimeline.push(
-        { timestamp: new Date(baseTime + 128000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' },
-        { timestamp: new Date(baseTime + 131000).toISOString(), event: 'CUSTOMER_NOTIFICATION_CREATED', description: 'Customer notification created' }
+        { timestamp: new Date(baseTime + 128000).toISOString(), event: 'CUSTOMER_QR_GENERATED', description: 'Customer verification QR generated' },
+        { timestamp: new Date(baseTime + 130000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' }
       );
     }
   }
-  if (!delivery.verificationUrl) {
-    delivery.verificationUrl = `http://localhost:${PORT}/verify/${delivery.id}`;
-  }
-  if (!delivery.simulatedNotification) {
-    delivery.simulatedNotification = {
-      channel: 'SMS',
-      recipientPhone: delivery.customer?.phone || '+91 90191 44983',
-      recipientName: delivery.customer?.name || 'Customer',
-      sentAt: new Date(delivery.createdAt || Date.now()).toISOString(),
-      message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: http://localhost:${PORT}/verify/${delivery.id}`,
-      verificationUrl: `http://localhost:${PORT}/verify/${delivery.id}`
-    };
-  }
+
   return delivery.auditTimeline;
 }
 
@@ -961,7 +1249,15 @@ const server = http.createServer((req, res) => {
   // CORS Headers for cross-origin mobile apps / web clients
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Driver-Id, X-Admin-Api-Key');
+
+  // Security Headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -1074,44 +1370,350 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 2d. Customer Verification Portal (GET /verify/:deliveryId)
-  const verifyMatch = pathname ? pathname.match(/^\/verify\/([^/]+)$/) : null;
-  if (verifyMatch && req.method === 'GET') {
-    const deliveryId = decodeURIComponent(verifyMatch[1]);
-    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+  // 2b. Attempt-Scoped Customer Verification QR API
+  // POST & GET /api/deliveries/:deliveryId/attempts/:attemptId/customer-verification
+  // Legacy aliases: POST & GET /api/deliveries/:id/customer-verification/qr
+  const attemptQrMatch = pathname ? pathname.match(/^\/api\/deliveries\/([^/]+)\/attempts\/([^/]+)\/customer-verification$/) : null;
+  const legacyQrMatch = pathname ? pathname.match(/^\/api\/deliveries\/([^/]+)\/customer-verification\/qr$/) : null;
+
+  if (attemptQrMatch || legacyQrMatch) {
+    const clientIp = req.socket.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
+    if (!checkRateLimit(clientIp, 60, 60000)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests. Please try again later.' }));
+      return;
+    }
+
+    const deliveryId = decodeURIComponent((attemptQrMatch || legacyQrMatch)[1]);
+    let delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+    if (!delivery) {
+      delivery = db.getDelivery(deliveryId);
+      if (delivery) deliveries.push(delivery);
+    }
+
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: `Delivery ${deliveryId} not found` }));
+      return;
+    }
+
+    const attemptId = attemptQrMatch
+      ? decodeURIComponent(attemptQrMatch[2])
+      : (delivery.auditId || `ATT-${delivery.id}`);
+
+    // Driver Authorization: If X-Driver-Id is provided, enforce that it matches assignedDriverId
+    const driverIdHeader = req.headers['x-driver-id'];
+    if (driverIdHeader && delivery.assignedDriverId && delivery.assignedDriverId !== driverIdHeader) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: false,
+        error: 'UNAUTHORIZED_DRIVER',
+        message: `Driver '${driverIdHeader}' is not authorized to generate QR for delivery assigned to '${delivery.assignedDriverId}'`
+      }));
+      return;
+    }
+
+    // GET: Query active QR session without creating a new session or resetting expiration
+    if (req.method === 'GET') {
+      const activeSession = db.getActiveVerificationSessionForAttempt(delivery.id, attemptId);
+      if (activeSession) {
+        const expiresInSeconds = Math.max(0, Math.round((new Date(activeSession.expires_at).getTime() - Date.now()) / 1000));
+        const cached = activeSessionsMemory.get(activeSession.token_hash) || activeSessionsMemory.get(activeSession.id);
+        const baseUrl = resolvePublicBaseUrl(req);
+        const verificationUrl = cached?.rawToken
+          ? resolveCustomerVerificationUrl(cached.rawToken, req)
+          : (cached?.verificationUrl || `${baseUrl}/v/${delivery.id}`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          active: true,
+          status: activeSession.status,
+          sessionId: activeSession.id,
+          deliveryId: delivery.id,
+          attemptId: activeSession.attempt_id,
+          expiresAt: activeSession.expires_at,
+          expiresInSeconds,
+          verificationUrl,
+          qrSvg: cached?.qrSvg || null
+        }));
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        active: false,
+        status: 'NONE',
+        deliveryId: delivery.id,
+        attemptId,
+        message: 'No active customer verification session for this attempt'
+      }));
+      return;
+    }
+
+    // POST: Generate fresh cryptographically secure verification token
+    if (req.method === 'POST') {
+      createCustomerVerificationToken(delivery, req, attemptId).then((qrData) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(qrData));
+      }).catch((err) => {
+        console.error('[Server QR Gen Error]:', err.message);
+        const statusCode = err.code === 'INVALID_PHYSICAL_QR_URL' ? 400 : 500;
+        res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.code || 'INTERNAL_ERROR', message: err.message }));
+      });
+      return;
+    }
+
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+    return;
+  }
+
+  // 2c. Secure QR Customer Verification Portal (GET /v/:token)
+  const tokenPortalMatch = pathname ? pathname.match(/^\/v\/([^/]+)$/) : null;
+  if (tokenPortalMatch && req.method === 'GET') {
+    const clientIp = req.socket.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
+    if (!checkRateLimit(clientIp, 60, 60000)) {
+      res.writeHead(429, { 'Content-Type': 'text/plain' });
+      res.end('Too many requests. Please try again later.');
+      return;
+    }
+
+    const token = decodeURIComponent(tokenPortalMatch[1]);
+    const tokenRecord = getVerificationTokenRecord(token);
+
+    // Apply strict CSP for customer portal
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;");
+
+    if (!tokenRecord) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTokenInvalidHtml());
+      return;
+    }
+
+    let delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+    if (!delivery) {
+      delivery = db.getDelivery(tokenRecord.deliveryId);
+      if (delivery) deliveries.push(delivery);
+    }
+
     if (!delivery) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(renderCustomerNotFoundHtml(deliveryId));
-    } else {
+      res.end(renderTokenInvalidHtml());
+      return;
+    }
+
+    // Check expiration
+    if (tokenRecord.status === 'EXPIRED' || Date.now() > new Date(tokenRecord.expiresAt).getTime()) {
+      tokenRecord.status = 'EXPIRED';
+      res.writeHead(410, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTokenExpiredHtml());
+      return;
+    }
+
+    // Check if already completed
+    if (tokenRecord.status === 'CONSUMED') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderTokenCompletedHtml(delivery));
+      return;
+    }
+
+    // Active token opened by customer -> mark as OPENED in authoritative SQLite DB
+    if (tokenRecord.status !== 'OPENED') {
+      const userAgent = req.headers['user-agent'] || 'customer-browser';
+      db.markVerificationSessionOpened(tokenRecord.tokenHash, clientIp, userAgent);
+      tokenRecord.status = 'OPENED';
+      tokenRecord.openedAt = new Date().toISOString();
+      delivery.qrStatus = 'OPENED';
+
       ensureDeliveryAuditTimeline(delivery);
-      // Record customer opened portal event in audit timeline if not yet logged
-      const hasOpened = delivery.auditTimeline.some((e) => e.event === 'CUSTOMER_PORTAL_OPENED');
+      const hasOpened = delivery.auditTimeline.some((e) => e.event === 'CUSTOMER_VERIFICATION_OPENED');
       if (!hasOpened) {
-        delivery.auditTimeline.push({
-          timestamp: new Date().toISOString(),
-          event: 'CUSTOMER_PORTAL_OPENED',
-          description: 'Customer opened verification portal'
-        });
+        const scanTime = new Date().toISOString();
+        delivery.auditTimeline.push(
+          { timestamp: scanTime, event: 'CUSTOMER_QR_SCANNED', description: 'Customer scanned verification QR code' },
+          { timestamp: scanTime, event: 'CUSTOMER_VERIFICATION_OPENED', description: 'Customer opened verification portal' }
+        );
         saveDeliveries();
         broadcastEvent({
-          type: 'CUSTOMER_PORTAL_OPENED',
+          type: 'CUSTOMER_VERIFICATION_OPENED',
           deliveryId: delivery.id,
-          timestamp: new Date().toISOString(),
+          attemptId: tokenRecord.attemptId,
+          token: tokenRecord.token,
+          timestamp: scanTime,
           notes: `Customer opened verification portal for ${delivery.id}`,
           auditTimeline: delivery.auditTimeline
         });
       }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(renderCustomerPortalHtml(delivery));
     }
+
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(renderCustomerPortalHtml(delivery, tokenRecord));
     return;
   }
 
-  // 2e. Customer Verification Response API (POST /api/customer-verification/:deliveryId)
-  const customerResponseMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)$/) : null;
-  if (customerResponseMatch) {
-    const deliveryId = decodeURIComponent(customerResponseMatch[1]);
-    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+  // 2d. Customer Verification Portal (GET /verify/:deliveryId)
+  const verifyMatch = pathname ? pathname.match(/^\/verify\/([^/]+)$/) : null;
+  if (verifyMatch && req.method === 'GET') {
+    const deliveryId = decodeURIComponent(verifyMatch[1]);
+    let delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+    if (!delivery) {
+      delivery = db.getDelivery(deliveryId);
+      if (delivery) deliveries.push(delivery);
+    }
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderCustomerNotFoundHtml(deliveryId));
+      return;
+    }
+
+    ensureDeliveryAuditTimeline(delivery);
+    db.upsertDelivery(delivery);
+
+    // Look up or establish active token session
+    let activeSession = db.getActiveVerificationSessionForAttempt(delivery.id, delivery.currentAttemptId || delivery.auditId)
+      || db.getActiveVerificationSessionForDelivery(delivery.id);
+    let tokenRecord = null;
+    if (!activeSession) {
+      const rawToken = crypto.randomBytes(32).toString('base64url');
+      const tokenHash = db.hashToken(rawToken);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + QR_TTL_SECONDS * 1000).toISOString();
+      const attemptId = delivery.currentAttemptId || delivery.auditId || `ATT-${delivery.id}-${Date.now().toString(36).toUpperCase()}`;
+
+      const createdSession = db.createVerificationSession({
+        deliveryId: delivery.id,
+        attemptId,
+        tokenHash,
+        ttlSeconds: QR_TTL_SECONDS,
+        clientIp: req.socket.remoteAddress || '127.0.0.1',
+        userAgent: req.headers['user-agent'] || 'customer-portal'
+      });
+
+      tokenRecord = {
+        id: createdSession.id,
+        token: rawToken,
+        tokenHash,
+        deliveryId: delivery.id,
+        attemptId,
+        status: 'ACTIVE',
+        expiresAt
+      };
+      delivery.verificationToken = rawToken;
+      activeSessionsMemory.set(tokenHash, {
+        rawToken,
+        verificationUrl: resolveCustomerVerificationUrl(rawToken, req),
+        expiresAt,
+        deliveryId: delivery.id,
+        attemptId
+      });
+    } else {
+      const cached = activeSessionsMemory.get(activeSession.token_hash) || activeSessionsMemory.get(activeSession.id);
+      tokenRecord = {
+        id: activeSession.id,
+        token: cached?.rawToken || activeSession.token_hash,
+        tokenHash: activeSession.token_hash,
+        deliveryId: activeSession.delivery_id,
+        attemptId: activeSession.attempt_id,
+        status: activeSession.status,
+        expiresAt: activeSession.expires_at
+      };
+    }
+
+    // Record customer opened portal event in audit timeline if not yet logged
+    const hasOpened = delivery.auditTimeline.some((e) => e.event === 'CUSTOMER_PORTAL_OPENED' || e.event === 'CUSTOMER_VERIFICATION_OPENED');
+    if (!hasOpened) {
+      delivery.auditTimeline.push({
+        timestamp: new Date().toISOString(),
+        event: 'CUSTOMER_PORTAL_OPENED',
+        description: 'Customer opened verification portal'
+      });
+      saveDeliveries();
+      broadcastEvent({
+        type: 'CUSTOMER_PORTAL_OPENED',
+        deliveryId: delivery.id,
+        timestamp: new Date().toISOString(),
+        notes: `Customer opened verification portal for ${delivery.id}`,
+        auditTimeline: delivery.auditTimeline
+      });
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(renderCustomerPortalHtml(delivery, tokenRecord));
+    return;
+  }
+
+  // 2e. Customer Verification Response API
+  // POST /api/customer-verification/:token/confirm
+  // Legacy aliases: POST /api/customer-verification/token/:token & POST /api/customer-verification/:deliveryId
+  const tokenConfirmMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)\/confirm$/) : null;
+  const tokenSubmitMatch = pathname ? pathname.match(/^\/api\/customer-verification\/token\/([^/]+)$/) : null;
+  const legacySubmitMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)$/) : null;
+
+  if (tokenConfirmMatch || tokenSubmitMatch || legacySubmitMatch) {
+    const clientIp = req.socket.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
+    if (!checkRateLimit(clientIp, 30, 60000)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests' }));
+      return;
+    }
+
+    const isTokenRoute = Boolean(tokenConfirmMatch || tokenSubmitMatch);
+    const param = decodeURIComponent((tokenConfirmMatch || tokenSubmitMatch || legacySubmitMatch)[1]);
+
+    let tokenRecord = null;
+    let delivery = null;
+
+    if (isTokenRoute) {
+      tokenRecord = getVerificationTokenRecord(param);
+      if (!tokenRecord) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Verification unavailable' }));
+        return;
+      }
+      delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+      if (!delivery) {
+        delivery = db.getDelivery(tokenRecord.deliveryId);
+        if (delivery) deliveries.push(delivery);
+      }
+    } else {
+      tokenRecord = getVerificationTokenRecord(param);
+      if (tokenRecord) {
+        delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+      } else {
+        delivery = deliveries.find((d) => d.id === param || d.trackingNumber === param) || db.getDelivery(param);
+        if (delivery) {
+          db.upsertDelivery(delivery);
+          let activeSession = db.getActiveVerificationSessionForAttempt(delivery.id, delivery.currentAttemptId || delivery.auditId)
+            || db.getActiveVerificationSessionForDelivery(delivery.id);
+          if (!activeSession) {
+            const rawToken = crypto.randomBytes(32).toString('base64url');
+            const tokenHash = db.hashToken(rawToken);
+            activeSession = db.createVerificationSession({
+              deliveryId: delivery.id,
+              attemptId: delivery.currentAttemptId || delivery.auditId || `ATT-${delivery.id}-${Date.now().toString(36).toUpperCase()}`,
+              tokenHash,
+              ttlSeconds: QR_TTL_SECONDS,
+              clientIp,
+              userAgent: req.headers['user-agent'] || 'customer-portal'
+            });
+          }
+          tokenRecord = {
+            id: activeSession.id,
+            token: activeSession.token_hash,
+            tokenHash: activeSession.token_hash,
+            deliveryId: delivery.id,
+            attemptId: activeSession.attempt_id,
+            status: activeSession.status
+          };
+        }
+      }
+      if (!delivery && tokenRecord) {
+        delivery = db.getDelivery(tokenRecord.deliveryId);
+        if (delivery) deliveries.push(delivery);
+      }
+    }
 
     if (!delivery) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -1158,12 +1760,13 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          // Duplicate response prevention (Idempotent confirmation)
-          if (delivery.customerResponse) {
+          // Legacy Delivery Endpoint: If already recorded, return idempotent success
+          if (legacySubmitMatch && delivery && delivery.customerResponse) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               success: true,
               alreadyRecorded: true,
+              message: 'This verification has already been completed.',
               deliveryId: delivery.id,
               customerResponse: delivery.customerResponse,
               recordedAt: delivery.customerResponseAt,
@@ -1174,81 +1777,76 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          // Zero-Trust Security Rule:
-          // Customer input is evidence only.
-          // Malicious payload fields (status, decision, distance, dwell) are strictly ignored.
-          const recordedAt = new Date().toISOString();
-          delivery.customerResponse = resp;
-          delivery.customerResponseAt = recordedAt;
-          delivery.customerResponseSource = 'customer_portal';
+          const userAgent = req.headers['user-agent'] || 'customer-browser';
+          const tokenHash = tokenRecord ? tokenRecord.tokenHash : (delivery ? delivery.id : db.hashToken(param));
 
-          delivery.auditTimeline.push({
-            timestamp: recordedAt,
-            event: resp === 'PACKAGE_RECEIVED' ? 'CUSTOMER_CONFIRMED_RECEIVED' : 'CUSTOMER_CONFIRMED_NOT_RECEIVED',
-            description: resp === 'PACKAGE_RECEIVED'
-              ? 'Customer confirmed: PACKAGE RECEIVED'
-              : 'Customer confirmed: PACKAGE NOT RECEIVED'
+          // Atomic SQLite Transaction with Replay Protection & Zero-Trust Decision Rules
+          const atomicResult = db.consumeVerificationSessionAtomic({
+            tokenHash,
+            deliveryId: delivery?.id || payload.deliveryId,
+            response: resp,
+            ip: clientIp,
+            userAgent
           });
 
-          const currentDecision = (delivery.decision || delivery.status || 'REVIEW').toUpperCase();
-
-          // Authoritative State Transitions
-          if (currentDecision === 'REJECTED') {
-            // ZERO-TRUST RULE:
-            // Do NOT allow customer confirmation to blindly override a hard evidence failure (e.g. driver 4km away).
-            // Hard deterministic policy rejection remains authoritative.
-            delivery.auditTimeline.push({
-              timestamp: new Date().toISOString(),
-              event: 'ZERO_TRUST_POLICY_ENFORCED',
-              description: 'Zero-Trust Rule: Hard physical evidence rejection remains authoritative over customer claim'
-            });
-          } else if (resp === 'PACKAGE_RECEIVED') {
-            // CASE 1: REVIEW + PACKAGE_RECEIVED
-            // Customer confirms package received -> automatically becomes VERIFIED / SUCCESSFUL.
-            // No admin approval required.
-            delivery.status = 'VERIFIED';
-            delivery.decision = 'VERIFIED';
-            delivery.requiresAdminApproval = false;
-            delivery.adminApprovalStatus = 'APPROVED';
-            delivery.retryRequired = false;
-
-            delivery.auditTimeline.push(
-              { timestamp: new Date().toISOString(), event: 'SABOOT_VERIFIED', description: 'Saboot → VERIFIED' },
-              { timestamp: new Date().toISOString(), event: 'DELIVERY_MARKED_SUCCESSFUL', description: 'Delivery marked successful' }
-            );
-          } else if (resp === 'PACKAGE_NOT_RECEIVED') {
-            // CASE 2: REVIEW + PACKAGE_NOT_RECEIVED
-            // Customer confirms package not received -> CUSTOMER_CONFIRMED_FAILURE -> RETRY_REQUIRED
-            // Driver task list displays RETRY DELIVERY. Admin sees under Customer Confirmed Failures.
-            delivery.status = 'CUSTOMER_CONFIRMED_FAILURE';
-            delivery.decision = 'CUSTOMER_CONFIRMED_FAILURE';
-            delivery.retryRequired = true;
-            delivery.adminApprovalStatus = 'REJECTED';
-
-            delivery.auditTimeline.push(
-              { timestamp: new Date().toISOString(), event: 'DELIVERY_CUSTOMER_CONFIRMED_FAILURE', description: 'Delivery → CUSTOMER_CONFIRMED_FAILURE' },
-              { timestamp: new Date().toISOString(), event: 'DELIVERY_RETRY_REQUIRED', description: 'Delivery → RETRY_REQUIRED' },
-              { timestamp: new Date().toISOString(), event: 'DRIVER_RETRY_TASK_CREATED', description: 'Driver retry task created' }
-            );
+          if (!atomicResult.success) {
+            if (legacySubmitMatch && atomicResult.error === 'ALREADY_CONSUMED' && delivery) {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                success: true,
+                alreadyRecorded: true,
+                message: 'This verification has already been completed.',
+                deliveryId: delivery.id,
+                customerResponse: delivery.customerResponse || tokenRecord?.customerResponse,
+                recordedAt: delivery.customerResponseAt,
+                status: delivery.status,
+                decision: delivery.decision,
+                retryRequired: !!delivery.retryRequired
+              }));
+              return;
+            }
+            const statusCode = atomicResult.code || 400;
+            res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              error: atomicResult.error,
+              message: atomicResult.message
+            }));
+            return;
           }
 
-          saveDeliveries();
+          // Sync updated delivery into in-memory array
+          if (atomicResult.delivery) {
+            const idx = deliveries.findIndex((d) => d.id === atomicResult.delivery.id);
+            if (idx !== -1) {
+              deliveries[idx] = atomicResult.delivery;
+            } else {
+              deliveries.push(atomicResult.delivery);
+            }
+            delivery = atomicResult.delivery;
+          }
 
-          // Broadcast to Admin Console, Driver App, and connected clients in real time
+          // Broadcast authoritative update to Admin Console and Driver App
+          const eventType = atomicResult.decision === 'VERIFIED'
+            ? 'CUSTOMER_VERIFIED'
+            : (atomicResult.decision === 'CUSTOMER_CONFIRMED_FAILURE' ? 'CUSTOMER_CONFIRMED_FAILURE' : 'CUSTOMER_RESPONSE_RECORDED');
+
           broadcastEvent({
-            type: 'CUSTOMER_RESPONSE_RECORDED',
+            type: eventType,
             deliveryId: delivery.id,
+            attemptId: atomicResult.attemptId,
+            token: tokenRecord?.token || null,
             customerResponse: resp,
-            recordedAt: recordedAt,
+            recordedAt: atomicResult.recordedAt,
             status: delivery.status,
             decision: delivery.decision,
             retryRequired: !!delivery.retryRequired,
             auditTimeline: delivery.auditTimeline,
             notes: resp === 'PACKAGE_RECEIVED'
-              ? (currentDecision === 'REJECTED'
-                  ? 'Customer confirmed package received, but hard rejection preserved (Zero-Trust)'
-                  : 'Customer confirmed package received — automatically verified')
-              : 'Customer confirmed package NOT received — marked for retry',
+              ? (delivery.decision === 'REJECTED'
+                  ? 'Customer confirmed package received, but physical evidence rejection preserved (Zero-Trust)'
+                  : 'Customer confirmed package received — attempt verified')
+              : 'Customer confirmed package NOT received — delivery flagged for re-attempt',
             extra: {
               order: delivery,
               delivery
@@ -1259,14 +1857,16 @@ const server = http.createServer((req, res) => {
           res.end(JSON.stringify({
             success: true,
             deliveryId: delivery.id,
+            attemptId: atomicResult.attemptId,
             customerResponse: resp,
-            recordedAt: recordedAt,
+            recordedAt: atomicResult.recordedAt,
             status: delivery.status,
             decision: delivery.decision,
             retryRequired: !!delivery.retryRequired,
             auditTimeline: delivery.auditTimeline
           }));
         } catch (err) {
+          console.error('[Server Customer Confirm Error]:', err);
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: 'Malformed request JSON' }));
         }
@@ -1797,8 +2397,6 @@ const server = http.createServer((req, res) => {
           order.videoStatus = 'VERIFIED';
         }
 
-        // Initialize / append verification audit timeline with actual system timestamps
-        order.verificationUrl = `http://localhost:${PORT}/verify/${order.id}`;
         if (!order.auditTimeline) order.auditTimeline = [];
         const nowMs = Date.now();
         order.auditTimeline.push(
@@ -1809,18 +2407,11 @@ const server = http.createServer((req, res) => {
         );
 
         if (decision === 'REVIEW') {
-          order.auditTimeline.push(
-            { timestamp: new Date(nowMs + 1000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' },
-            { timestamp: new Date(nowMs + 2000).toISOString(), event: 'CUSTOMER_NOTIFICATION_CREATED', description: 'Customer notification created' }
-          );
-          order.simulatedNotification = {
-            channel: 'SMS',
-            recipientPhone: order.customer?.phone || '+91 90191 44983',
-            recipientName: order.customer?.name || 'Customer',
-            sentAt: new Date(nowMs + 2000).toISOString(),
-            message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: ${order.verificationUrl}`,
-            verificationUrl: order.verificationUrl
-          };
+          order.requiresCustomerConfirmation = true;
+          // Generate secure QR verification token for driver phone display & customer scan
+          createCustomerVerificationToken(order, req);
+        } else {
+          order.requiresCustomerConfirmation = false;
         }
 
         saveDeliveries();
@@ -2053,8 +2644,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 5. Health Check
-  if (pathname === '/api/health') {
+  // 5. Health Check (AWS App Runner / ALB compatible)
+  if (pathname === '/api/health' || pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), deliveriesCount: deliveries.length }));
     return;
@@ -2102,13 +2693,35 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`\n======================================================`);
-  console.log(`🚀 SABOOT REAL-TIME ADMIN & SYNC SERVER RUNNING`);
-  console.log(`======================================================`);
-  console.log(`  Local:   http://localhost:${PORT}`);
-  console.log(`  Network: http://${HOST}:${PORT}`);
-  console.log(`  API:     http://localhost:${PORT}/api/deliveries`);
-  console.log(`  Events:  http://localhost:${PORT}/api/events (SSE)`);
-  console.log(`======================================================\n`);
-});
+const shouldAutoListen = require.main === module || 
+  (!server.listening && process.env.NODE_ENV === 'test' && String(PORT) !== '3001');
+
+if (shouldAutoListen) {
+  server.listen(PORT, HOST, () => {
+    const qrBase = resolvePublicBaseUrl();
+    console.log(`\n======================================================`);
+    console.log(`🚀 SABOOT REAL-TIME ADMIN & SYNC SERVER RUNNING`);
+    console.log(`======================================================`);
+    console.log(`  Local:                http://localhost:${PORT}`);
+    console.log(`  Network:              http://${HOST}:${PORT}`);
+    console.log(`  API:                  http://localhost:${PORT}/api/deliveries`);
+    console.log(`  Events:               http://localhost:${PORT}/api/events (SSE)`);
+    console.log(`  Customer QR Base URL: ${qrBase}`);
+    console.log(`======================================================\n`);
+  });
+}
+
+module.exports = {
+  server,
+  deliveries,
+  customerVerificationTokens: activeSessionsMemory,
+  activeSessionsMemory,
+  createCustomerVerificationToken,
+  getVerificationTokenRecord,
+  ensureDeliveryAuditTimeline,
+  broadcastEvent,
+  resolvePublicBaseUrl,
+  resolveCustomerVerificationUrl,
+  isLoopbackAddress,
+  getLocalLanIp
+};

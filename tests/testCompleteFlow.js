@@ -2,8 +2,20 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
+const { server } = require('../admin/server');
+
+let localServerStarted = false;
 
 async function main() {
+  const PORT = process.env.PORT || 3001;
+  const isRunning = await new Promise((res) => {
+    http.get(`http://127.0.0.1:${PORT}/health`, () => res(true)).on('error', () => res(false));
+  });
+  if (!isRunning && !server.listening) {
+    await new Promise((resolve) => server.listen(PORT, '0.0.0.0', resolve));
+    localServerStarted = true;
+  }
+  try {
   console.log('======================================================');
   console.log('🔍 RUNNING COMPREHENSIVE END-TO-END VERIFICATION');
   console.log('======================================================\n');
@@ -101,6 +113,11 @@ async function main() {
   console.log('\n======================================================');
   console.log('🎉 ALL END-TO-END CRITERIA THOROUGHLY VALIDATED!');
   console.log('======================================================');
+  } finally {
+    if (localServerStarted && server.listening) {
+      server.close();
+    }
+  }
 }
 
 main().catch((err) => {

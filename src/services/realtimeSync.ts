@@ -17,7 +17,10 @@ export type RealtimeEventType =
   | 'ADMIN_DECISION_UPDATED'
   | 'ORDER_DISPATCHED'
   | 'TASK_ASSIGNED'
-  | 'DATABASE_RESET';
+  | 'DATABASE_RESET'
+  | 'CUSTOMER_QR_GENERATED'
+  | 'CUSTOMER_QR_SCANNED'
+  | 'CUSTOMER_RESPONSE_RECORDED';
 
 export interface RealtimeSyncEvent {
   type: RealtimeEventType;
@@ -55,6 +58,12 @@ const ADMIN_PORT = process.env.EXPO_PUBLIC_ADMIN_PORT || '3001';
  * Automatically resolves physical Android phone Wi-Fi connection to host machine
  */
 export function getSyncServerUrl(): string {
+  // 0. Explicit environment variable overrides (production or custom tunnel)
+  const envUrl = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.PUBLIC_BASE_URL;
+  if (envUrl && envUrl.trim()) {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
+
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined' && window.location && window.location.hostname) {
       return `http://${window.location.hostname}:${ADMIN_PORT}`;
@@ -89,9 +98,9 @@ export function getSyncServerUrl(): string {
     }
   } catch (e) {}
 
-  // 3. Fallback for physical device on LAN
+  // 3. Fallback for Android emulator or device
   if (Platform.OS === 'android') {
-    return `http://192.168.1.6:${ADMIN_PORT}`;
+    return `http://10.0.2.2:${ADMIN_PORT}`;
   }
   return `http://localhost:${ADMIN_PORT}`;
 }

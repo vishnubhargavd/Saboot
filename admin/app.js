@@ -562,13 +562,60 @@ function handleIncomingRealtimeEvent(event) {
     return;
   }
 
+  // Real-time Customer Email Notification Updates
+  if ((event.type === 'CUSTOMER_EMAIL_SENT' || event.type === 'CUSTOMER_EMAIL_SIMULATED' || event.type === 'CUSTOMER_EMAIL_FAILED') && event.deliveryId) {
+    let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    if (order) {
+      if (event.notification) order.customerNotification = event.notification;
+      if (event.auditTimeline) order.auditTimeline = event.auditTimeline;
+      if (selectedOrderId === order.id) {
+        selectOrder(order.id);
+      }
+      showNotification(`✉️ Email Notification [${order.id}]: ${event.notification?.status || event.type}`);
+    }
+    return;
+  }
+
+  // Real-time Customer QR Verification Events
+  if (event.type === 'CUSTOMER_QR_GENERATED' && event.deliveryId) {
+    let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    if (order) {
+      order.verificationToken = event.token;
+      order.verificationUrl = event.verificationUrl;
+      order.qrExpiresAt = event.expiresAt;
+      order.qrStatus = 'ACTIVE';
+      order.qrSvg = event.qrSvg || null;
+      renderOrderList();
+      if (selectedOrderId === order.id) {
+        selectOrder(order.id);
+      }
+      showNotification(`📱 QR Code Generated [${order.id}]: Customer verification QR is active`);
+    }
+    return;
+  }
+
+  if ((event.type === 'CUSTOMER_VERIFICATION_OPENED' || event.type === 'CUSTOMER_QR_SCANNED') && event.deliveryId) {
+    let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    if (order) {
+      order.qrStatus = 'OPENED';
+      order.customerScannedAt = event.timestamp || event.scannedAt || new Date().toISOString();
+      renderOrderList();
+      if (selectedOrderId === order.id) {
+        selectOrder(order.id);
+      }
+      showNotification(`📷 QR Code Scanned [${order.id}]: Customer opened verification portal`);
+    }
+    return;
+  }
+
   // Real-time Customer Verification Response from Customer Portal
-  if (event.type === 'CUSTOMER_RESPONSE_RECORDED' && event.deliveryId) {
+  if ((event.type === 'CUSTOMER_RESPONSE_RECORDED' || event.type === 'CUSTOMER_VERIFIED' || event.type === 'CUSTOMER_CONFIRMED_FAILURE') && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
     if (order) {
       order.customerResponse = event.customerResponse;
-      order.customerResponseAt = event.recordedAt;
-      order.customerResponseSource = 'customer_portal';
+      order.customerResponseAt = event.recordedAt || event.timestamp;
+      order.customerResponseSource = event.source || 'qr_portal';
+      order.qrStatus = 'COMPLETED';
       if (event.status) order.status = event.status;
       if (event.decision) order.decision = event.decision;
       if (event.retryRequired !== undefined) order.retryRequired = event.retryRequired;
@@ -581,7 +628,7 @@ function handleIncomingRealtimeEvent(event) {
         selectOrder(order.id);
       }
       const isReceived = event.customerResponse === 'PACKAGE_RECEIVED' || event.customerResponse === 'CUSTOMER_AVAILABLE';
-      showNotification(`Customer confirmation received for ${order.id}: ${isReceived ? 'PACKAGE RECEIVED' : 'PACKAGE NOT RECEIVED'}`);
+      showNotification(`Customer confirmation recorded for ${order.id}: ${isReceived ? 'PACKAGE RECEIVED' : 'PACKAGE NOT RECEIVED'}`);
     }
     return;
   }
@@ -898,6 +945,7 @@ function renderOrderList() {
         <span>${order.driver.split(' ')[0]}</span>
       </div>
       ${isPendingApproval ? '<div class="card-video-pill">📹 Video Proof Attached</div>' : ''}
+      ${order.qrStatus === 'SCANNED' ? '<div class="card-video-pill" style="background:#E0F2FE;color:#0284C7;border-color:#BAE6FD;">📷 QR Scanned by Customer</div>' : order.qrStatus === 'ACTIVE' ? '<div class="card-video-pill" style="background:#F0FDF4;color:#16A34A;border-color:#BBF7D0;">📱 QR Code Active</div>' : ''}
     `;
     container.appendChild(card);
   });
@@ -1380,25 +1428,85 @@ function selectOrder(orderId) {
   const custDetailEl = document.getElementById('customerResponseDetail');
   const custPortalLink = document.getElementById('btnOpenCustomerPortal');
   const custUrlText = document.getElementById('customerPortalUrlText');
+  const custQrPill = document.getElementById('customerQrStatusPill');
   const notifBox = document.getElementById('simulatedNotificationBox');
   const notifMsg = document.getElementById('simulatedNotifMsg');
   const notifLink = document.getElementById('simulatedPortalLink');
 
-  const verifyUrl = `/verify/${encodeURIComponent(order.id)}`;
-  const fullVerifyUrl = `http://${window.location.hostname || 'localhost'}:${window.location.port || 3001}${verifyUrl}`;
+  const tokenUrl = order.verificationToken ? `/v/${order.verificationToken}` : `/verify/${encodeURIComponent(order.id)}`;
+  const fullVerifyUrl = (order.verificationUrl && !order.verificationUrl.includes('localhost'))
+    ? order.verificationUrl
+    : `${window.location.origin}${tokenUrl}`;
 
   if (custPortalLink) {
-    custPortalLink.href = verifyUrl;
+    custPortalLink.href = tokenUrl;
   }
   if (custUrlText) {
-    custUrlText.innerText = verifyUrl;
+    custUrlText.innerText = tokenUrl;
   }
   if (notifLink) {
-    notifLink.href = verifyUrl;
+    notifLink.href = tokenUrl;
     notifLink.innerText = fullVerifyUrl;
   }
   if (notifMsg) {
-    notifMsg.innerText = `SABOOT: Your delivery requires confirmation. Did you receive your package?`;
+    notifMsg.innerText = order.verificationToken
+      ? `Active QR Token: ${order.verificationToken.substring(0, 16)}... (Single-use, 5-min TTL)`
+      : `Scan QR on driver phone to verify package handoff`;
+  }
+
+  // Active QR Visual Graphic Display (Mirrors Driver Screen)
+  const qrPreview = document.getElementById('adminQrVisualPreview');
+  const qrSvgContainer = document.getElementById('adminQrSvgContainer');
+  const qrCountdown = document.getElementById('adminQrCountdown');
+
+  if (qrPreview && qrSvgContainer) {
+    const attemptId = order.auditId || `ATT-${order.id}`;
+    fetch(`/api/deliveries/${encodeURIComponent(order.id)}/attempts/${encodeURIComponent(attemptId)}/customer-verification`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && data.active && data.qrSvg) {
+          qrSvgContainer.innerHTML = data.qrSvg;
+          qrPreview.style.display = 'block';
+          if (qrCountdown) {
+            const mins = Math.floor((data.expiresInSeconds || 0) / 60);
+            const secs = (data.expiresInSeconds || 0) % 60;
+            qrCountdown.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs} Remaining (Active Session)`;
+          }
+          if (custQrPill) {
+            custQrPill.style.display = 'inline-block';
+            custQrPill.className = 'card-video-pill';
+            custQrPill.style.background = '#F0FDF4';
+            custQrPill.style.color = '#16A34A';
+            custQrPill.style.borderColor = '#BBF7D0';
+            custQrPill.innerText = '📱 Driver Displaying QR Code';
+          }
+        } else {
+          qrPreview.style.display = 'none';
+        }
+      })
+      .catch(() => {
+        if (qrPreview) qrPreview.style.display = 'none';
+      });
+  }
+
+  if (custQrPill) {
+    if (order.qrStatus === 'SCANNED' || order.qrStatus === 'OPENED') {
+      custQrPill.style.display = 'inline-block';
+      custQrPill.className = 'card-video-pill';
+      custQrPill.style.background = '#E0F2FE';
+      custQrPill.style.color = '#0284C7';
+      custQrPill.style.borderColor = '#BAE6FD';
+      custQrPill.innerText = '📷 QR Scanned by Customer (Viewing Portal)';
+    } else if (order.qrStatus === 'ACTIVE') {
+      custQrPill.style.display = 'inline-block';
+      custQrPill.className = 'card-video-pill';
+      custQrPill.style.background = '#F0FDF4';
+      custQrPill.style.color = '#16A34A';
+      custQrPill.style.borderColor = '#BBF7D0';
+      custQrPill.innerText = '📱 Driver Displaying QR Code';
+    } else {
+      custQrPill.style.display = 'none';
+    }
   }
 
   if (custBadgeEl && custDetailEl) {
@@ -1411,7 +1519,7 @@ function selectOrder(orderId) {
     } else {
       custBadgeEl.className = 'customer-response-status-badge badge-cust-none';
       custBadgeEl.innerText = 'No customer response recorded yet';
-      custDetailEl.innerHTML = `Direct portal link: <a href="${verifyUrl}" target="_blank" style="color: var(--signal-orange); text-decoration: underline;">${verifyUrl}</a>`;
+      custDetailEl.innerHTML = `Direct portal link: <a href="${tokenUrl}" target="_blank" style="color: var(--signal-orange); text-decoration: underline;">${tokenUrl}</a>`;
     }
   }
 
@@ -1466,6 +1574,77 @@ function selectOrder(orderId) {
   document.getElementById('auditId').innerText = order.auditId;
   document.getElementById('auditTime').innerText = new Date().toLocaleTimeString();
 
+  // Render Customer Notification Status Card
+  const notifBadge = document.getElementById('notifStatusBadge');
+  const notifDetails = document.getElementById('adminNotificationDetails');
+  if (notifDetails) {
+    const notif = order.customerNotification || (order.simulatedNotification && order.simulatedNotification.channel === 'EMAIL' ? order.simulatedNotification : null);
+    if (!notif) {
+      if (notifBadge) {
+        notifBadge.innerText = 'NONE';
+        notifBadge.style.background = '#E2E8F0';
+        notifBadge.style.color = '#475569';
+      }
+      notifDetails.innerHTML = `
+        <div style="font-size: 11px; color: #64748B; font-style: italic;">
+          No customer notification required for this status.
+        </div>
+      `;
+    } else {
+      const status = notif.status || 'PENDING';
+      let badgeBg = '#FEF3C7';
+      let badgeColor = '#92400E';
+      if (status === 'SENT') {
+        badgeBg = '#DCFCE7';
+        badgeColor = '#166534';
+      } else if (status === 'SIMULATED') {
+        badgeBg = '#E0F2FE';
+        badgeColor = '#0369A1';
+      } else if (status === 'FAILED') {
+        badgeBg = '#FEE2E2';
+        badgeColor = '#991B1B';
+      }
+      if (notifBadge) {
+        notifBadge.innerText = status;
+        notifBadge.style.background = badgeBg;
+        notifBadge.style.color = badgeColor;
+      }
+
+      const providerDisplay = (notif.provider || 'demo').toUpperCase();
+      const sentTimeStr = notif.sentAt ? new Date(notif.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
+
+      let extraReason = '';
+      if (status === 'FAILED' && notif.reason) {
+        extraReason = `<div style="color: #DC2626; font-weight: 600; margin-top: 5px;">Reason: ${escapeHtml(notif.reason)}</div>`;
+      }
+
+      notifDetails.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Channel:</span>
+          <strong>Email</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Provider:</span>
+          <strong>${escapeHtml(providerDisplay)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Status:</span>
+          <strong style="color: ${badgeColor};">${escapeHtml(status)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Sent:</span>
+          <span>${escapeHtml(sentTimeStr)}</span>
+        </div>
+        ${notif.recipientEmail ? `
+        <div style="display: flex; justify-content: space-between; margin-top: 4px; border-top: 1px dashed #E2E8F0; padding-top: 4px;">
+          <span style="color: #64748B;">Recipient:</span>
+          <span style="font-family: monospace; font-size: 10px; color: #475569;">${escapeHtml(notif.recipientEmail)}</span>
+        </div>` : ''}
+        ${extraReason}
+      `;
+    }
+  }
+
   // Render Verification Audit Timeline
   const timelineContainer = document.getElementById('adminTimelineContainer');
   const timelineCount = document.getElementById('auditTimelineCount');
@@ -1485,10 +1664,12 @@ function selectOrder(orderId) {
         const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
         let dotClass = 'review';
         const ev = (entry.event || '').toUpperCase();
-        if (ev.includes('VERIFIED') || ev.includes('SUCCESSFUL') || ev.includes('CONFIRMED_RECEIVED')) {
+        if (ev.includes('VERIFIED') || ev.includes('SUCCESSFUL') || ev.includes('CONFIRMED_RECEIVED') || ev.includes('EMAIL_SENT')) {
           dotClass = 'success';
-        } else if (ev.includes('FAILURE') || ev.includes('REJECTED') || ev.includes('CONFIRMED_NOT_RECEIVED')) {
+        } else if (ev.includes('FAILURE') || ev.includes('REJECTED') || ev.includes('CONFIRMED_NOT_RECEIVED') || ev.includes('EMAIL_FAILED')) {
           dotClass = 'failure';
+        } else if (ev.includes('EMAIL_SIMULATED')) {
+          dotClass = 'review';
         }
         return `
           <div class="timeline-item">

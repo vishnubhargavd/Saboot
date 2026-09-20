@@ -1,6 +1,6 @@
 import { AttemptSubmissionPayload } from '../types/evidence';
 import { VerificationResult, VerificationFacts, VerificationRuleCheck, AuditRecord } from '../types/policy';
-import { DWELL_POLICY_CONFIG, PROXIMITY_POLICY } from '../constants/dwellPolicy';
+import { DWELL_POLICY_CONFIG, PROXIMITY_POLICY, getDwellRule } from '../constants/dwellPolicy';
 import { calculateHaversineDistanceMeters } from './locationService';
 import { INITIAL_DELIVERIES, DEMO_SCENARIO_PRESETS } from '../constants/demoData';
 import { getSyncServerUrl } from './realtimeSync';
@@ -43,8 +43,9 @@ export async function submitDeliveryAttemptToBackend(
   // 2. Offline / Local Fallback Policy Engine (for pure air-gapped scenarios)
   // 1. Fetch official delivery record from DB
   const delivery = INITIAL_DELIVERIES.find((d) => d.id === payload.deliveryId) || INITIAL_DELIVERIES[0];
-  const residenceCategory = delivery.address.residenceCategory;
-  const requiredDwell = DWELL_POLICY_CONFIG[residenceCategory].requiredDwellSeconds;
+  const residenceCategory = delivery.address?.residenceCategory || 'individual_house';
+  const dwellRule = getDwellRule(residenceCategory);
+  const requiredDwell = dwellRule.requiredDwellSeconds;
 
   // 2. Server-side computation of distance
   let computedDistanceMeters: number;
@@ -140,7 +141,7 @@ export async function submitDeliveryAttemptToBackend(
     },
     {
       id: 'RULE_CATEGORY_DWELL',
-      name: `${DWELL_POLICY_CONFIG[residenceCategory].displayName} Dwell Threshold`,
+      name: `${dwellRule.displayName} Dwell Threshold`,
       category: 'DWELL',
       passed: facts.dwellSeconds >= facts.requiredDwellSeconds,
       actualValue: `${facts.dwellSeconds}s`,
@@ -148,8 +149,8 @@ export async function submitDeliveryAttemptToBackend(
       isHardRequirement: true,
       explanation:
         facts.dwellSeconds >= facts.requiredDwellSeconds
-          ? `Dwell time of ${facts.dwellSeconds}s satisfies the ${facts.requiredDwellSeconds}s requirement for ${DWELL_POLICY_CONFIG[residenceCategory].displayName}.`
-          : `Recorded dwell time (${facts.dwellSeconds}s) is below required ${facts.requiredDwellSeconds}s for ${DWELL_POLICY_CONFIG[residenceCategory].displayName}.`,
+          ? `Dwell time of ${facts.dwellSeconds}s satisfies the ${facts.requiredDwellSeconds}s requirement for ${dwellRule.displayName}.`
+          : `Recorded dwell time (${facts.dwellSeconds}s) is below required ${facts.requiredDwellSeconds}s for ${dwellRule.displayName}.`,
     },
     {
       id: 'RULE_TELEPHONY_ATTEMPT',
@@ -211,7 +212,7 @@ export async function submitDeliveryAttemptToBackend(
   } else if (proximityPassed && dwellPassed && callPassed && accuracyPassed) {
     decision = 'VERIFIED';
     primaryReason = 'All mandatory physical and telephony attempt criteria verified';
-    detailedExplanation = `Driver location (${facts.distanceMeters}m), residence dwell duration (${facts.dwellSeconds}s / ${facts.requiredDwellSeconds}s for ${DWELL_POLICY_CONFIG[residenceCategory].displayName}), and customer call attempt (${facts.callDurationSeconds}s) were independently validated.`;
+    detailedExplanation = `Driver location (${facts.distanceMeters}m), residence dwell duration (${facts.dwellSeconds}s / ${facts.requiredDwellSeconds}s for ${dwellRule.displayName}), and customer call attempt (${facts.callDurationSeconds}s) were independently validated.`;
   } else if (!proximityPassed && facts.distanceMeters > 500) {
     decision = 'REJECTED';
     primaryReason = `Attempt location rejected: Driver was ${facts.distanceMeters}m away from delivery address`;
@@ -227,7 +228,7 @@ export async function submitDeliveryAttemptToBackend(
       detailedExplanation = 'Telemetry accuracy was degraded during the attempt window, creating boundary ambiguity.';
     } else if (!dwellPassed) {
       primaryReason = `Sent to Review: Borderline dwell time (${facts.dwellSeconds}s vs ${facts.requiredDwellSeconds}s required)`;
-      detailedExplanation = `Driver reached geofence (${facts.distanceMeters}m) and called customer, but departed before the mandatory ${facts.requiredDwellSeconds}s dwell window for ${DWELL_POLICY_CONFIG[residenceCategory].displayName}.`;
+      detailedExplanation = `Driver reached geofence (${facts.distanceMeters}m) and called customer, but departed before the mandatory ${facts.requiredDwellSeconds}s dwell window for ${dwellRule.displayName}.`;
     } else {
       primaryReason = 'Sent to Review: Borderline evidence profile requires supervisor confirmation';
       detailedExplanation = 'One or more corroborating verification parameters were inconclusive.';

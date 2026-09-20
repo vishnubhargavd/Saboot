@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { Delivery } from '../types/delivery';
-import { DWELL_POLICY_CONFIG } from '../constants/dwellPolicy';
+import { DWELL_POLICY_CONFIG, getDwellRule } from '../constants/dwellPolicy';
 
 interface DeliveryCardProps {
   delivery: Delivery;
@@ -20,7 +20,7 @@ export const DeliveryCard: React.FC<DeliveryCardProps> = ({
   isSelected = false,
   onPress,
 }) => {
-  const dwellRule = DWELL_POLICY_CONFIG[delivery.address.residenceCategory];
+  const dwellRule = getDwellRule(delivery.address?.residenceCategory);
   const stopNumber = (index + 1).toString().padStart(2, '0');
   const totalStops = total.toString().padStart(2, '0');
 

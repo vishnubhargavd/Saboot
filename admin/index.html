@@ -288,32 +288,40 @@
               <span class="fact-name">4. GPS Signal Accuracy</span>
               <span class="fact-val pass">±6m (PASS)</span>
             </div>
-          <!-- Customer Verification Response Card -->
+          <!-- Customer Verification Response Card (Real-Time QR Attestation) -->
           <div class="customer-response-card" id="adminCustomerResponseSection">
             <div class="customer-response-header">
               <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="font-size: 13px;">👤</span>
-                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">CUSTOMER VERIFICATION</strong>
+                <span style="font-size: 13px;">📱</span>
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">CUSTOMER QR VERIFICATION</strong>
               </div>
               <a id="btnOpenCustomerPortal" href="#" target="_blank" class="portal-link-btn" title="Open Customer Verification Portal">
                 Open Portal ↗
               </a>
             </div>
+            <div id="customerQrStatusPill" style="margin-bottom: 8px; display: none;"></div>
             <div id="customerResponseBadge" class="customer-response-status-badge badge-cust-none">
               No customer response recorded yet
             </div>
             <div id="customerResponseDetail" class="customer-response-subtext">
-              Portal link: <span id="customerPortalUrlText">/verify/DEL-1001</span>
+              Verification target: <span id="customerPortalUrlText">/v/...</span>
             </div>
-            <!-- Simulated Notification Box -->
+            <!-- Live QR Verification Info Box -->
             <div class="simulated-notification-box" id="simulatedNotificationBox">
-              <div class="simulated-notif-label">📱 SIMULATED NOTIFICATION (SMS / WHATSAPP)</div>
+              <div class="simulated-notif-label">📱 LIVE CUSTOMER SCAN LINK (5-MIN TTL)</div>
               <div class="simulated-notif-msg" id="simulatedNotifMsg">
-                SABOOT: Your delivery requires confirmation. Did you receive your package?
+                Customer scans driver phone screen with camera to open secure portal:
               </div>
               <div class="simulated-notif-url">
-                <a id="simulatedPortalLink" href="#" target="_blank" class="simulated-link-text">http://localhost:3001/verify/DEL-1001</a>
+                <a id="simulatedPortalLink" href="#" target="_blank" class="simulated-link-text">http://localhost:3001/v/token</a>
               </div>
+            </div>
+
+            <!-- Active QR Visual Graphic Display (Mirrors Driver Screen) -->
+            <div id="adminQrVisualPreview" style="display: none; text-align: center; margin: 12px 0; padding: 12px; background: #FFFFFF; border: 1px solid var(--slate-border); border-radius: 8px;">
+              <div style="font-size: 10px; font-weight: 800; color: var(--slate-light); letter-spacing: 0.8px; margin-bottom: 8px;">DRIVER SCREEN QR MIRROR</div>
+              <div id="adminQrSvgContainer" style="width: 140px; height: 140px; margin: 0 auto; display: flex; align-items: center; justify-content: center;"></div>
+              <div id="adminQrCountdown" style="font-size: 11px; font-weight: 700; color: var(--signal-orange); margin-top: 8px;">5:00 Remaining</div>
             </div>
           </div>
 
@@ -363,6 +371,20 @@
             <div class="audit-item">
               <span>TIMESTAMP:</span>
               <strong id="auditTime">12:15:20 PM</strong>
+            </div>
+          </div>
+
+          <!-- Customer Notification Status -->
+          <div class="audit-timeline-card" id="adminNotificationCard" style="margin-bottom: 12px;">
+            <div class="audit-timeline-header">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 13px;">✉️</span>
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">CUSTOMER NOTIFICATION</strong>
+              </div>
+              <span id="notifStatusBadge" class="timeline-count-badge" style="background:#E2E8F0; color:#475569;">--</span>
+            </div>
+            <div id="adminNotificationDetails" style="padding: 10px 12px; font-size: 11px; color: #334155;">
+              <!-- Rendered dynamically -->
             </div>
           </div>
 

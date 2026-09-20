@@ -5,7 +5,7 @@ import { VerificationResult } from '../types/policy';
 import { submitDeliveryAttemptToBackend } from '../services/apiService';
 import { EvidenceService } from '../services/evidenceService';
 import { DemoScenarioPreset } from '../constants/demoData';
-import { DWELL_POLICY_CONFIG, PROXIMITY_POLICY } from '../constants/dwellPolicy';
+import { DWELL_POLICY_CONFIG, PROXIMITY_POLICY, getDwellRule } from '../constants/dwellPolicy';
 
 interface UseAttestationProps {
   delivery: Delivery;
@@ -52,7 +52,7 @@ export function useAttestation({
   const dwellIntervalRef = useRef<any>(null);
   const callIntervalRef = useRef<any>(null);
 
-  const requiredDwellSeconds = DWELL_POLICY_CONFIG[delivery.address.residenceCategory].requiredDwellSeconds;
+  const requiredDwellSeconds = getDwellRule(delivery.address?.residenceCategory).requiredDwellSeconds;
 
   // Sync preset if present
   useEffect(() => {

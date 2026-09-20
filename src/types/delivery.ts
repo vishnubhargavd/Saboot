@@ -54,6 +54,9 @@ export interface Delivery {
   videoProofUri?: string;
   requiresAdminApproval?: boolean;
   adminApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  auditId?: string;
+  currentAttemptId?: string;
+  requiresCustomerConfirmation?: boolean;
   completedAt?: string;
   handoffType?: 'direct' | 'doorstep' | 'security';
   retryRequired?: boolean;
@@ -61,6 +64,9 @@ export interface Delivery {
   customerResponseAt?: string;
   customerResponseSource?: string;
   verificationUrl?: string;
+  verificationToken?: string;
+  qrExpiresAt?: string;
+  qrStatus?: 'ACTIVE' | 'SCANNED' | 'CONSUMED' | 'EXPIRED';
   auditTimeline?: Array<{
     timestamp: string;
     event: string;
