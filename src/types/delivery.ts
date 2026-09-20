@@ -10,7 +10,9 @@ export type DeliveryStatus =
   | 'VERIFIED'
   | 'REJECTED'
   | 'REVIEW'
-  | 'DELIVERED';
+  | 'DELIVERED'
+  | 'CUSTOMER_CONFIRMED_FAILURE'
+  | 'RETRY_REQUIRED';
 
 export type FailureReason = 
   | 'customer_unavailable'
@@ -54,6 +56,16 @@ export interface Delivery {
   adminApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
   completedAt?: string;
   handoffType?: 'direct' | 'doorstep' | 'security';
+  retryRequired?: boolean;
+  customerResponse?: 'PACKAGE_RECEIVED' | 'PACKAGE_NOT_RECEIVED' | string;
+  customerResponseAt?: string;
+  customerResponseSource?: string;
+  verificationUrl?: string;
+  auditTimeline?: Array<{
+    timestamp: string;
+    event: string;
+    description: string;
+  }>;
 }
 
 export interface ShiftMetrics {

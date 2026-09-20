@@ -36,11 +36,56 @@
       <div class="nav-right">
         <div class="active-drivers-badge">🚚 3 DRIVERS ACTIVE</div>
         <button class="btn-create-order" id="btnOpenCreateModal">+ DISPATCH NEW ORDER</button>
-      </div>
     </header>
 
+    <!-- Admin Operations Navigation Tabs -->
+    <div class="admin-tab-bar">
+      <button class="admin-tab-btn active" id="tabBtnOperations" onclick="switchAdminTab('operations')">
+        <span class="tab-icon">📦</span>
+        <span>OPERATIONS & DISPATCH</span>
+      </button>
+      <button class="admin-tab-btn" id="tabBtnFailures" onclick="switchAdminTab('failures')">
+        <span class="tab-icon">⚠️</span>
+        <span>CUSTOMER CONFIRMED FAILURES</span>
+        <span class="tab-badge-count" id="confirmedFailuresCount">0</span>
+      </button>
+    </div>
+
+    <!-- Customer Confirmed Failures Dedicated Panel -->
+    <div class="failures-dashboard-panel" id="failuresDashboardView" style="display: none;">
+      <div class="failures-header">
+        <div>
+          <h2>CUSTOMER CONFIRMED FAILURES</h2>
+          <p class="failures-subtitle">Deliveries where the customer explicitly confirmed the package was not received. Flagged for driver re-attempt.</p>
+        </div>
+        <div class="failures-header-stats">
+          <span class="failures-pill-alert" id="failuresTotalPill">0 RETRIES REQUIRED</span>
+        </div>
+      </div>
+
+      <div class="failures-table-container">
+        <table class="failures-table">
+          <thead>
+            <tr>
+              <th>DELIVERY</th>
+              <th>CUSTOMER</th>
+              <th>ATTEMPT TIME</th>
+              <th>ORIGINAL RESULT</th>
+              <th>CUSTOMER CONFIRMATION</th>
+              <th>CURRENT STATUS</th>
+              <th>RETRY STATUS</th>
+              <th>ACTION</th>
+            </tr>
+          </thead>
+          <tbody id="failuresTableBody">
+            <!-- Populated dynamically by app.js -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Main Dashboard Grid -->
-    <div class="dashboard-grid">
+    <div class="dashboard-grid" id="operationsDashboardView">
       <!-- Left Column: KPI Stats & Dispatch Queue -->
       <aside class="sidebar">
         <!-- KPI Metrics -->
@@ -243,35 +288,64 @@
               <span class="fact-name">4. GPS Signal Accuracy</span>
               <span class="fact-val pass">±6m (PASS)</span>
             </div>
-          <!-- AI-Assisted Explanation Card (Strictly Explanatory) -->
-          <div class="ai-explanation-card" id="adminAiExplanationSection">
-            <div class="ai-explanation-header">
-              <span class="ai-sparkle">✨</span>
-              <div style="flex: 1;">
-                <strong style="color: #6D28D9; font-size: 11px; letter-spacing: 0.8px;">AI-ASSISTED EXPLANATION</strong>
-                <div style="font-size: 9px; color: #7C3AED;" id="adminAiModelBadge">Model: Open-Source AI (Llama 3.1)</div>
+          <!-- Customer Verification Response Card -->
+          <div class="customer-response-card" id="adminCustomerResponseSection">
+            <div class="customer-response-header">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 13px;">👤</span>
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">CUSTOMER VERIFICATION</strong>
               </div>
-              <span class="ai-confidence-pill" id="adminAiConfidencePill">HIGH CLARITY</span>
+              <a id="btnOpenCustomerPortal" href="#" target="_blank" class="portal-link-btn" title="Open Customer Verification Portal">
+                Open Portal ↗
+              </a>
             </div>
-            <p class="ai-summary-text" id="adminAiSummary">
+            <div id="customerResponseBadge" class="customer-response-status-badge badge-cust-none">
+              No customer response recorded yet
+            </div>
+            <div id="customerResponseDetail" class="customer-response-subtext">
+              Portal link: <span id="customerPortalUrlText">/verify/DEL-1001</span>
+            </div>
+            <!-- Simulated Notification Box -->
+            <div class="simulated-notification-box" id="simulatedNotificationBox">
+              <div class="simulated-notif-label">📱 SIMULATED NOTIFICATION (SMS / WHATSAPP)</div>
+              <div class="simulated-notif-msg" id="simulatedNotifMsg">
+                SABOOT: Your delivery requires confirmation. Did you receive your package?
+              </div>
+              <div class="simulated-notif-url">
+                <a id="simulatedPortalLink" href="#" target="_blank" class="simulated-link-text">http://localhost:3001/verify/DEL-1001</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Operational Verification Summary Card -->
+          <div class="verification-summary-card" id="adminAiExplanationSection">
+            <div class="verification-summary-header">
+              <span class="verification-summary-icon">📋</span>
+              <div style="flex: 1;">
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">VERIFICATION SUMMARY</strong>
+                <div style="font-size: 9px; color: var(--slate-light);" id="adminAiModelBadge">Deterministic Policy Breakdown</div>
+              </div>
+              <span class="verification-audit-pill" id="adminAiConfidencePill">AUDIT RECORD</span>
+            </div>
+            <p class="verification-summary-text" id="adminAiSummary">
               Loading verification explanation...
             </p>
-            <div class="ai-breakdown-box" id="adminAiBreakdownBox">
-              <div class="ai-sub-block" id="adminAiEvidenceBlock">
-                <span class="ai-block-title">EVIDENCE BREAKDOWN:</span>
-                <span class="ai-block-content" id="adminAiEvidence">GPS within proximity; dwell criteria logged.</span>
+            <div class="verification-breakdown-box" id="adminAiBreakdownBox">
+              <div class="verification-sub-block" id="adminAiEvidenceBlock">
+                <span class="verification-block-title">EVIDENCE BREAKDOWN:</span>
+                <span class="verification-block-content" id="adminAiEvidence">GPS within proximity; dwell criteria logged.</span>
               </div>
-              <div class="ai-sub-block" id="adminAiPolicyBlock">
-                <span class="ai-block-title">POLICY CRITERIA:</span>
-                <span class="ai-block-content" id="adminAiPolicy">Mandatory rules satisfied.</span>
+              <div class="verification-sub-block" id="adminAiPolicyBlock">
+                <span class="verification-block-title">POLICY CRITERIA:</span>
+                <span class="verification-block-content" id="adminAiPolicy">Mandatory rules satisfied.</span>
               </div>
-              <div class="ai-review-focus-block" id="adminAiReviewFocusBlock" style="display: none;">
-                <span class="ai-focus-title">SUPERVISOR REVIEW FOCUS:</span>
-                <span class="ai-focus-content" id="adminAiReviewFocus">Inspect GPS horizontal accuracy and dwell duration.</span>
+              <div class="verification-review-focus-block" id="adminAiReviewFocusBlock" style="display: none;">
+                <span class="verification-focus-title">SUPERVISOR REVIEW FOCUS:</span>
+                <span class="verification-focus-content" id="adminAiReviewFocus">Inspect GPS horizontal accuracy and dwell duration.</span>
               </div>
             </div>
-            <div class="ai-disclaimer-note">
-              Zero-Trust Principle: AI explains the outcome; deterministic policy is 100% authoritative.
+            <div class="verification-disclaimer-note">
+              Zero-Trust Principle: Deterministic policy is 100% authoritative for all verification decisions.
             </div>
           </div>
 
@@ -289,6 +363,20 @@
             <div class="audit-item">
               <span>TIMESTAMP:</span>
               <strong id="auditTime">12:15:20 PM</strong>
+            </div>
+          </div>
+
+          <!-- Verification Audit Timeline -->
+          <div class="audit-timeline-card" id="adminAuditTimelineCard">
+            <div class="audit-timeline-header">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 13px;">⏱️</span>
+                <strong style="color: var(--slate-dark); font-size: 11px; letter-spacing: 0.8px;">VERIFICATION TIMELINE</strong>
+              </div>
+              <span id="auditTimelineCount" class="timeline-count-badge">0 EVENTS</span>
+            </div>
+            <div class="timeline-container" id="adminTimelineContainer">
+              <!-- Dynamically populated with actual system timestamps -->
             </div>
           </div>
         </div>

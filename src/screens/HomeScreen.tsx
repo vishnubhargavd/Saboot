@@ -38,9 +38,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  // Filter out completed/resolved deliveries from active route
+  // Filter out completed/resolved deliveries from active route unless retry is required
   const TERMINAL_STATUSES = ['DELIVERED', 'VERIFIED', 'REJECTED'];
-  const activeDeliveries = deliveries.filter((d) => !TERMINAL_STATUSES.includes(d.status));
+  const activeDeliveries = deliveries.filter((d) => 
+    d.retryRequired === true ||
+    d.status === 'CUSTOMER_CONFIRMED_FAILURE' ||
+    d.status === 'RETRY_REQUIRED' ||
+    !TERMINAL_STATUSES.includes(d.status)
+  );
 
   const filteredDeliveries = activeDeliveries.filter((d) => {
     if (!searchQuery.trim()) return true;

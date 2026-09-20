@@ -38,6 +38,44 @@ export const DeliveryCard: React.FC<DeliveryCardProps> = ({
   };
 
   const status = getStatusInfo();
+  const isRetry = delivery.retryRequired === true || 
+    delivery.status === 'CUSTOMER_CONFIRMED_FAILURE' || 
+    delivery.status === 'RETRY_REQUIRED';
+
+  if (isRetry) {
+    return (
+      <TouchableOpacity
+        style={[styles.card, styles.retryCard, isSelected && styles.selectedCard]}
+        onPress={onPress}
+        activeOpacity={0.8}
+      >
+        <View style={styles.retryHeaderRow}>
+          <View style={styles.retryBadge}>
+            <Text style={styles.retryBadgeText}>🔄 RETRY DELIVERY</Text>
+          </View>
+          <Text style={styles.retryIdText}>Delivery #{delivery.id}</Text>
+        </View>
+
+        <Text style={styles.retryCustomerText}>{delivery.customer.name}</Text>
+        <Text style={styles.phoneText}>📞 {delivery.customer.phone}</Text>
+        <Text style={styles.retryExplanationText}>
+          Customer confirmed that the package was not received.
+        </Text>
+
+        <View style={styles.addressRow}>
+          <Ionicons name="location-sharp" size={14} color={THEME.colors.signal} />
+          <Text style={styles.addressText} numberOfLines={1}>
+            {delivery.address.street}, {delivery.address.city}
+          </Text>
+        </View>
+
+        <TouchableOpacity style={styles.retryActionBtn} onPress={onPress} activeOpacity={0.85}>
+          <Text style={styles.retryActionBtnText}>🔄 RETRY DELIVERY</Text>
+          <Ionicons name="arrow-forward" size={13} color="#FFFFFF" />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <TouchableOpacity
@@ -179,6 +217,65 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     color: THEME.colors.slate,
+    letterSpacing: 0.8,
+  },
+  retryCard: {
+    borderColor: '#F87171',
+    borderWidth: 1.5,
+    backgroundColor: '#FFFBFB',
+  },
+  retryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  retryBadge: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 3,
+  },
+  retryBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#B91C1C',
+    letterSpacing: 0.8,
+  },
+  retryIdText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.colors.slate,
+  },
+  retryCustomerText: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: THEME.colors.foreground,
+    letterSpacing: -0.3,
+  },
+  retryExplanationText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
+    marginVertical: 6,
+  },
+  retryActionBtn: {
+    backgroundColor: '#DC2626',
+    borderRadius: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  retryActionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
     letterSpacing: 0.8,
   },
 });

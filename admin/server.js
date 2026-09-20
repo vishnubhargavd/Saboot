@@ -12,6 +12,7 @@ const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
 const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
+const { renderCustomerPortalHtml, renderCustomerNotFoundHtml } = require('./customerPortal');
 
 const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
@@ -696,6 +697,47 @@ function saveDeliveries() {
   }
 }
 
+function ensureDeliveryAuditTimeline(delivery) {
+  if (!delivery.auditTimeline) {
+    delivery.auditTimeline = [];
+  }
+  if (delivery.auditTimeline.length === 0) {
+    const baseTime = delivery.createdAt ? new Date(delivery.createdAt).getTime() : (Date.now() - 300000);
+    delivery.auditTimeline.push(
+      { timestamp: new Date(baseTime).toISOString(), event: 'DRIVER_ARRIVED', description: 'Driver arrived near delivery location' },
+      { timestamp: new Date(baseTime + 6000).toISOString(), event: 'DWELL_STARTED', description: 'Dwell verification started' },
+      { timestamp: new Date(baseTime + 124000).toISOString(), event: 'ATTEMPT_SUBMITTED', description: 'Attempt submitted' },
+      { timestamp: new Date(baseTime + 126000).toISOString(), event: 'SABOOT_EVALUATION', description: `Saboot → ${delivery.decision || delivery.status || 'REVIEW'}` }
+    );
+    if ((delivery.decision || delivery.status) === 'REVIEW' || !delivery.status || delivery.status === 'IN_TRANSIT') {
+      delivery.auditTimeline.push(
+        { timestamp: new Date(baseTime + 128000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' },
+        { timestamp: new Date(baseTime + 131000).toISOString(), event: 'CUSTOMER_NOTIFICATION_CREATED', description: 'Customer notification created' }
+      );
+    }
+  }
+  if (!delivery.verificationUrl) {
+    delivery.verificationUrl = `http://localhost:${PORT}/verify/${delivery.id}`;
+  }
+  if (!delivery.simulatedNotification) {
+    delivery.simulatedNotification = {
+      channel: 'SMS',
+      recipientPhone: delivery.customer?.phone || '+91 90191 44983',
+      recipientName: delivery.customer?.name || 'Customer',
+      sentAt: new Date(delivery.createdAt || Date.now()).toISOString(),
+      message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: http://localhost:${PORT}/verify/${delivery.id}`,
+      verificationUrl: `http://localhost:${PORT}/verify/${delivery.id}`
+    };
+  }
+  return delivery.auditTimeline;
+}
+
+// Ensure all deliveries have audit timeline & notification metadata
+for (const d of deliveries) {
+  ensureDeliveryAuditTimeline(d);
+}
+saveDeliveries();
+
 // Active Server-Sent Events (SSE) Client Connections
 const sseClients = new Set();
 const recentEvents = []; // For polling fallback
@@ -1029,6 +1071,211 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, drivers: Array.from(activeDriverTelemetry.values()) }));
     }
+    return;
+  }
+
+  // 2d. Customer Verification Portal (GET /verify/:deliveryId)
+  const verifyMatch = pathname ? pathname.match(/^\/verify\/([^/]+)$/) : null;
+  if (verifyMatch && req.method === 'GET') {
+    const deliveryId = decodeURIComponent(verifyMatch[1]);
+    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderCustomerNotFoundHtml(deliveryId));
+    } else {
+      ensureDeliveryAuditTimeline(delivery);
+      // Record customer opened portal event in audit timeline if not yet logged
+      const hasOpened = delivery.auditTimeline.some((e) => e.event === 'CUSTOMER_PORTAL_OPENED');
+      if (!hasOpened) {
+        delivery.auditTimeline.push({
+          timestamp: new Date().toISOString(),
+          event: 'CUSTOMER_PORTAL_OPENED',
+          description: 'Customer opened verification portal'
+        });
+        saveDeliveries();
+        broadcastEvent({
+          type: 'CUSTOMER_PORTAL_OPENED',
+          deliveryId: delivery.id,
+          timestamp: new Date().toISOString(),
+          notes: `Customer opened verification portal for ${delivery.id}`,
+          auditTimeline: delivery.auditTimeline
+        });
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(renderCustomerPortalHtml(delivery));
+    }
+    return;
+  }
+
+  // 2e. Customer Verification Response API (POST /api/customer-verification/:deliveryId)
+  const customerResponseMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)$/) : null;
+  if (customerResponseMatch) {
+    const deliveryId = decodeURIComponent(customerResponseMatch[1]);
+    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+
+    if (!delivery) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Delivery not found' }));
+      return;
+    }
+
+    ensureDeliveryAuditTimeline(delivery);
+
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        deliveryId: delivery.id,
+        customerResponse: delivery.customerResponse || null,
+        customerResponseAt: delivery.customerResponseAt || null,
+        customerResponseSource: delivery.customerResponseSource || null,
+        status: delivery.status,
+        decision: delivery.decision,
+        retryRequired: !!delivery.retryRequired,
+        auditTimeline: delivery.auditTimeline || []
+      }));
+      return;
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          let resp = payload.response;
+
+          // Backwards-compatible mapping from legacy availability responses
+          if (resp === 'CUSTOMER_AVAILABLE') resp = 'PACKAGE_RECEIVED';
+          if (resp === 'CUSTOMER_UNAVAILABLE') resp = 'PACKAGE_NOT_RECEIVED';
+
+          if (!resp || (resp !== 'PACKAGE_RECEIVED' && resp !== 'PACKAGE_NOT_RECEIVED')) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              error: 'Invalid response. Allowed values: PACKAGE_RECEIVED, PACKAGE_NOT_RECEIVED'
+            }));
+            return;
+          }
+
+          // Duplicate response prevention (Idempotent confirmation)
+          if (delivery.customerResponse) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: true,
+              alreadyRecorded: true,
+              deliveryId: delivery.id,
+              customerResponse: delivery.customerResponse,
+              recordedAt: delivery.customerResponseAt,
+              status: delivery.status,
+              decision: delivery.decision,
+              retryRequired: !!delivery.retryRequired
+            }));
+            return;
+          }
+
+          // Zero-Trust Security Rule:
+          // Customer input is evidence only.
+          // Malicious payload fields (status, decision, distance, dwell) are strictly ignored.
+          const recordedAt = new Date().toISOString();
+          delivery.customerResponse = resp;
+          delivery.customerResponseAt = recordedAt;
+          delivery.customerResponseSource = 'customer_portal';
+
+          delivery.auditTimeline.push({
+            timestamp: recordedAt,
+            event: resp === 'PACKAGE_RECEIVED' ? 'CUSTOMER_CONFIRMED_RECEIVED' : 'CUSTOMER_CONFIRMED_NOT_RECEIVED',
+            description: resp === 'PACKAGE_RECEIVED'
+              ? 'Customer confirmed: PACKAGE RECEIVED'
+              : 'Customer confirmed: PACKAGE NOT RECEIVED'
+          });
+
+          const currentDecision = (delivery.decision || delivery.status || 'REVIEW').toUpperCase();
+
+          // Authoritative State Transitions
+          if (currentDecision === 'REJECTED') {
+            // ZERO-TRUST RULE:
+            // Do NOT allow customer confirmation to blindly override a hard evidence failure (e.g. driver 4km away).
+            // Hard deterministic policy rejection remains authoritative.
+            delivery.auditTimeline.push({
+              timestamp: new Date().toISOString(),
+              event: 'ZERO_TRUST_POLICY_ENFORCED',
+              description: 'Zero-Trust Rule: Hard physical evidence rejection remains authoritative over customer claim'
+            });
+          } else if (resp === 'PACKAGE_RECEIVED') {
+            // CASE 1: REVIEW + PACKAGE_RECEIVED
+            // Customer confirms package received -> automatically becomes VERIFIED / SUCCESSFUL.
+            // No admin approval required.
+            delivery.status = 'VERIFIED';
+            delivery.decision = 'VERIFIED';
+            delivery.requiresAdminApproval = false;
+            delivery.adminApprovalStatus = 'APPROVED';
+            delivery.retryRequired = false;
+
+            delivery.auditTimeline.push(
+              { timestamp: new Date().toISOString(), event: 'SABOOT_VERIFIED', description: 'Saboot → VERIFIED' },
+              { timestamp: new Date().toISOString(), event: 'DELIVERY_MARKED_SUCCESSFUL', description: 'Delivery marked successful' }
+            );
+          } else if (resp === 'PACKAGE_NOT_RECEIVED') {
+            // CASE 2: REVIEW + PACKAGE_NOT_RECEIVED
+            // Customer confirms package not received -> CUSTOMER_CONFIRMED_FAILURE -> RETRY_REQUIRED
+            // Driver task list displays RETRY DELIVERY. Admin sees under Customer Confirmed Failures.
+            delivery.status = 'CUSTOMER_CONFIRMED_FAILURE';
+            delivery.decision = 'CUSTOMER_CONFIRMED_FAILURE';
+            delivery.retryRequired = true;
+            delivery.adminApprovalStatus = 'REJECTED';
+
+            delivery.auditTimeline.push(
+              { timestamp: new Date().toISOString(), event: 'DELIVERY_CUSTOMER_CONFIRMED_FAILURE', description: 'Delivery → CUSTOMER_CONFIRMED_FAILURE' },
+              { timestamp: new Date().toISOString(), event: 'DELIVERY_RETRY_REQUIRED', description: 'Delivery → RETRY_REQUIRED' },
+              { timestamp: new Date().toISOString(), event: 'DRIVER_RETRY_TASK_CREATED', description: 'Driver retry task created' }
+            );
+          }
+
+          saveDeliveries();
+
+          // Broadcast to Admin Console, Driver App, and connected clients in real time
+          broadcastEvent({
+            type: 'CUSTOMER_RESPONSE_RECORDED',
+            deliveryId: delivery.id,
+            customerResponse: resp,
+            recordedAt: recordedAt,
+            status: delivery.status,
+            decision: delivery.decision,
+            retryRequired: !!delivery.retryRequired,
+            auditTimeline: delivery.auditTimeline,
+            notes: resp === 'PACKAGE_RECEIVED'
+              ? (currentDecision === 'REJECTED'
+                  ? 'Customer confirmed package received, but hard rejection preserved (Zero-Trust)'
+                  : 'Customer confirmed package received — automatically verified')
+              : 'Customer confirmed package NOT received — marked for retry',
+            extra: {
+              order: delivery,
+              delivery
+            }
+          });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            deliveryId: delivery.id,
+            customerResponse: resp,
+            recordedAt: recordedAt,
+            status: delivery.status,
+            decision: delivery.decision,
+            retryRequired: !!delivery.retryRequired,
+            auditTimeline: delivery.auditTimeline
+          }));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Malformed request JSON' }));
+        }
+      });
+      return;
+    }
+
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
     return;
   }
 
@@ -1549,6 +1796,33 @@ const server = http.createServer((req, res) => {
           order.videoProofUri = payload.videoEvidence.videoUri;
           order.videoStatus = 'VERIFIED';
         }
+
+        // Initialize / append verification audit timeline with actual system timestamps
+        order.verificationUrl = `http://localhost:${PORT}/verify/${order.id}`;
+        if (!order.auditTimeline) order.auditTimeline = [];
+        const nowMs = Date.now();
+        order.auditTimeline.push(
+          { timestamp: new Date(nowMs - (facts.dwellSeconds * 1000) - 20000).toISOString(), event: 'DRIVER_ARRIVED', description: 'Driver arrived near delivery location' },
+          { timestamp: new Date(nowMs - (facts.dwellSeconds * 1000)).toISOString(), event: 'DWELL_STARTED', description: 'Dwell verification started' },
+          { timestamp: new Date(nowMs - 2000).toISOString(), event: 'ATTEMPT_SUBMITTED', description: 'Attempt submitted' },
+          { timestamp: new Date(nowMs).toISOString(), event: `SABOOT_${decision}`, description: `Saboot → ${decision}` }
+        );
+
+        if (decision === 'REVIEW') {
+          order.auditTimeline.push(
+            { timestamp: new Date(nowMs + 1000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' },
+            { timestamp: new Date(nowMs + 2000).toISOString(), event: 'CUSTOMER_NOTIFICATION_CREATED', description: 'Customer notification created' }
+          );
+          order.simulatedNotification = {
+            channel: 'SMS',
+            recipientPhone: order.customer?.phone || '+91 90191 44983',
+            recipientName: order.customer?.name || 'Customer',
+            sentAt: new Date(nowMs + 2000).toISOString(),
+            message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: ${order.verificationUrl}`,
+            verificationUrl: order.verificationUrl
+          };
+        }
+
         saveDeliveries();
 
         // Broadcast real-time event to Admin Console

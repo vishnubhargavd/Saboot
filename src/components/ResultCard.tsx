@@ -249,15 +249,15 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
           </View>
         </View>
 
-        {/* 5. AI-ASSISTED EXPLANATION (Strictly Explanatory) */}
+        {/* 5. VERIFICATION SUMMARY (Operational Policy Explanation) */}
         <View style={styles.aiCard}>
           <View style={styles.aiCardHeader}>
             <View style={styles.aiBadge}>
-              <Ionicons name="sparkles" size={14} color="#6D28D9" style={{ marginRight: 4 }} />
-              <Text style={styles.aiBadgeText}>AI-ASSISTED EXPLANATION</Text>
+              <Ionicons name="document-text-outline" size={14} color="#334155" style={{ marginRight: 4 }} />
+              <Text style={styles.aiBadgeText}>VERIFICATION SUMMARY</Text>
             </View>
             <Text style={styles.aiModelTag}>
-              {result.modelUsed ? `Model: ${result.modelUsed}` : 'Open-Source AI'}
+              Deterministic Policy Engine
             </Text>
           </View>
 
@@ -287,7 +287,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
           <View style={styles.aiDisclaimerBox}>
             <Ionicons name="information-circle-outline" size={14} color={THEME.colors.muted} />
             <Text style={styles.aiDisclaimerText}>
-              Zero-Trust Principle: The AI API explains the outcome but has zero authority to decide or alter verification decisions.
+              Zero-Trust Principle: Deterministic policy is 100% authoritative for all verification decisions.
             </Text>
           </View>
         </View>
@@ -483,11 +483,11 @@ const styles = StyleSheet.create({
     maxWidth: 200,
   },
   aiCard: {
-    backgroundColor: '#F5F3FF',
+    backgroundColor: '#F8FAFC',
     borderRadius: 4,
     padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#DDD6FE',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     marginBottom: 14,
   },
   aiCardHeader: {
@@ -499,28 +499,28 @@ const styles = StyleSheet.create({
   aiBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EDE9FE',
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 2,
     borderWidth: 1,
-    borderColor: '#C4B5FD',
+    borderColor: '#CBD5E1',
   },
   aiBadgeText: {
     fontSize: 9,
     fontWeight: '900',
-    color: '#6D28D9',
+    color: '#334155',
     letterSpacing: 1,
   },
   aiModelTag: {
     fontSize: 10,
-    color: '#7C3AED',
+    color: '#64748B',
     fontWeight: '700',
   },
   aiSummaryText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#3B0764',
+    color: '#0F172A',
     lineHeight: 18,
     marginBottom: 8,
   },
@@ -528,18 +528,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     paddingTop: 6,
     borderTopWidth: 1,
-    borderTopColor: '#E9D5FF',
+    borderTopColor: '#E2E8F0',
   },
   aiBlockLabel: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#7C3AED',
+    color: '#475569',
     letterSpacing: 0.8,
     marginBottom: 2,
   },
   aiBlockText: {
     fontSize: 11,
-    color: '#4C1D95',
+    color: '#334155',
     lineHeight: 16,
   },
   aiFocusBlock: {
