@@ -13,9 +13,27 @@ const url = require('url');
 const crypto = require('crypto');
 const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
 const { renderCustomerPortalHtml, renderCustomerNotFoundHtml } = require('./customerPortal');
+const { NotificationService } = require('./services/notificationService');
 
 const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
+
+const notificationService = new NotificationService({
+  providerType: process.env.EMAIL_PROVIDER || 'demo',
+  baseUrl: process.env.CUSTOMER_PORTAL_BASE_URL || `http://localhost:${PORT}`,
+  fromEmail: process.env.EMAIL_FROM || 'Saboot Verification <onboarding@resend.dev>',
+  resendApiKey: process.env.RESEND_API_KEY,
+  onEvent: (event) => {
+    broadcastEvent({
+      type: event.type,
+      deliveryId: event.deliveryId,
+      timestamp: new Date().toISOString(),
+      notes: `Customer email notification ${event.notification?.status || ''}`,
+      notification: event.notification,
+      auditTimeline: event.auditTimeline
+    });
+  }
+});
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'deliveries.json');
 
@@ -701,6 +719,21 @@ function ensureDeliveryAuditTimeline(delivery) {
   if (!delivery.auditTimeline) {
     delivery.auditTimeline = [];
   }
+
+  // Ensure trusted customer email is populated
+  if (delivery.customer && !delivery.customer.email && delivery.customer.name) {
+    delivery.customer.email = `${delivery.customer.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`;
+  }
+
+  const isReview = (delivery.decision || delivery.status) === 'REVIEW';
+  if (isReview) {
+    delivery.requiresCustomerConfirmation = true;
+  }
+
+  if (!delivery.verificationUrl) {
+    delivery.verificationUrl = notificationService.getVerificationUrl(delivery.id);
+  }
+
   if (delivery.auditTimeline.length === 0) {
     const baseTime = delivery.createdAt ? new Date(delivery.createdAt).getTime() : (Date.now() - 300000);
     delivery.auditTimeline.push(
@@ -712,21 +745,41 @@ function ensureDeliveryAuditTimeline(delivery) {
     if ((delivery.decision || delivery.status) === 'REVIEW' || !delivery.status || delivery.status === 'IN_TRANSIT') {
       delivery.auditTimeline.push(
         { timestamp: new Date(baseTime + 128000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' },
-        { timestamp: new Date(baseTime + 131000).toISOString(), event: 'CUSTOMER_NOTIFICATION_CREATED', description: 'Customer notification created' }
+        { timestamp: new Date(baseTime + 130000).toISOString(), event: 'CUSTOMER_EMAIL_NOTIFICATION_CREATED', description: 'Customer email notification created' },
+        { timestamp: new Date(baseTime + 131000).toISOString(), event: 'CUSTOMER_EMAIL_SEND_REQUESTED', description: 'Customer email send requested (Demo)' },
+        { timestamp: new Date(baseTime + 132000).toISOString(), event: 'CUSTOMER_EMAIL_SIMULATED', description: 'Customer email simulated (demo mode)' }
       );
     }
   }
-  if (!delivery.verificationUrl) {
-    delivery.verificationUrl = `http://localhost:${PORT}/verify/${delivery.id}`;
+
+  if (!delivery.customerNotification && isReview) {
+    const provider = process.env.EMAIL_PROVIDER === 'resend' ? 'resend' : 'demo';
+    delivery.customerNotification = {
+      channel: 'EMAIL',
+      provider,
+      status: 'SIMULATED',
+      deliveryId: delivery.id,
+      recipientEmail: delivery.customer?.email || `${(delivery.customer?.name || 'customer').toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`,
+      recipientName: delivery.customer?.name || 'Customer',
+      subject: 'Saboot — Delivery Confirmation Required',
+      verificationUrl: delivery.verificationUrl,
+      idempotencyKey: `${delivery.id}:1:EMAIL`,
+      sentAt: new Date(delivery.createdAt || Date.now()).toISOString(),
+      reason: null
+    };
   }
+
   if (!delivery.simulatedNotification) {
     delivery.simulatedNotification = {
-      channel: 'SMS',
+      channel: 'EMAIL',
+      provider: 'demo',
+      status: 'SIMULATED',
       recipientPhone: delivery.customer?.phone || '+91 90191 44983',
+      recipientEmail: delivery.customer?.email || `${(delivery.customer?.name || 'customer').toLowerCase().replace(/[^a-z0-9]/g, '.')}@example.com`,
       recipientName: delivery.customer?.name || 'Customer',
       sentAt: new Date(delivery.createdAt || Date.now()).toISOString(),
-      message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: http://localhost:${PORT}/verify/${delivery.id}`,
-      verificationUrl: `http://localhost:${PORT}/verify/${delivery.id}`
+      message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: ${delivery.verificationUrl}`,
+      verificationUrl: delivery.verificationUrl
     };
   }
   return delivery.auditTimeline;
@@ -1798,7 +1851,7 @@ const server = http.createServer((req, res) => {
         }
 
         // Initialize / append verification audit timeline with actual system timestamps
-        order.verificationUrl = `http://localhost:${PORT}/verify/${order.id}`;
+        order.verificationUrl = notificationService.getVerificationUrl(order.id);
         if (!order.auditTimeline) order.auditTimeline = [];
         const nowMs = Date.now();
         order.auditTimeline.push(
@@ -1809,18 +1862,18 @@ const server = http.createServer((req, res) => {
         );
 
         if (decision === 'REVIEW') {
+          order.requiresCustomerConfirmation = true;
           order.auditTimeline.push(
-            { timestamp: new Date(nowMs + 1000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' },
-            { timestamp: new Date(nowMs + 2000).toISOString(), event: 'CUSTOMER_NOTIFICATION_CREATED', description: 'Customer notification created' }
+            { timestamp: new Date(nowMs + 1000).toISOString(), event: 'CUSTOMER_LINK_GENERATED', description: 'Customer verification link generated' }
           );
-          order.simulatedNotification = {
-            channel: 'SMS',
-            recipientPhone: order.customer?.phone || '+91 90191 44983',
-            recipientName: order.customer?.name || 'Customer',
-            sentAt: new Date(nowMs + 2000).toISOString(),
-            message: `SABOOT: Your delivery requires confirmation. Did you receive your package? Verify here: ${order.verificationUrl}`,
-            verificationUrl: order.verificationUrl
-          };
+
+          // Automated transactional email notification via NotificationService (Resend / Demo)
+          await notificationService.sendCustomerVerificationEmail({
+            delivery: order,
+            attemptId: auditId || '1'
+          });
+        } else {
+          order.requiresCustomerConfirmation = false;
         }
 
         saveDeliveries();
@@ -2112,3 +2165,11 @@ server.listen(PORT, HOST, () => {
   console.log(`  Events:  http://localhost:${PORT}/api/events (SSE)`);
   console.log(`======================================================\n`);
 });
+
+module.exports = {
+  server,
+  deliveries,
+  notificationService,
+  ensureDeliveryAuditTimeline,
+  broadcastEvent
+};

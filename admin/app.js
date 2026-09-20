@@ -562,6 +562,20 @@ function handleIncomingRealtimeEvent(event) {
     return;
   }
 
+  // Real-time Customer Email Notification Updates
+  if ((event.type === 'CUSTOMER_EMAIL_SENT' || event.type === 'CUSTOMER_EMAIL_SIMULATED' || event.type === 'CUSTOMER_EMAIL_FAILED') && event.deliveryId) {
+    let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
+    if (order) {
+      if (event.notification) order.customerNotification = event.notification;
+      if (event.auditTimeline) order.auditTimeline = event.auditTimeline;
+      if (selectedOrderId === order.id) {
+        selectOrder(order.id);
+      }
+      showNotification(`✉️ Email Notification [${order.id}]: ${event.notification?.status || event.type}`);
+    }
+    return;
+  }
+
   // Real-time Customer Verification Response from Customer Portal
   if (event.type === 'CUSTOMER_RESPONSE_RECORDED' && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
@@ -1466,6 +1480,77 @@ function selectOrder(orderId) {
   document.getElementById('auditId').innerText = order.auditId;
   document.getElementById('auditTime').innerText = new Date().toLocaleTimeString();
 
+  // Render Customer Notification Status Card
+  const notifBadge = document.getElementById('notifStatusBadge');
+  const notifDetails = document.getElementById('adminNotificationDetails');
+  if (notifDetails) {
+    const notif = order.customerNotification || (order.simulatedNotification && order.simulatedNotification.channel === 'EMAIL' ? order.simulatedNotification : null);
+    if (!notif) {
+      if (notifBadge) {
+        notifBadge.innerText = 'NONE';
+        notifBadge.style.background = '#E2E8F0';
+        notifBadge.style.color = '#475569';
+      }
+      notifDetails.innerHTML = `
+        <div style="font-size: 11px; color: #64748B; font-style: italic;">
+          No customer notification required for this status.
+        </div>
+      `;
+    } else {
+      const status = notif.status || 'PENDING';
+      let badgeBg = '#FEF3C7';
+      let badgeColor = '#92400E';
+      if (status === 'SENT') {
+        badgeBg = '#DCFCE7';
+        badgeColor = '#166534';
+      } else if (status === 'SIMULATED') {
+        badgeBg = '#E0F2FE';
+        badgeColor = '#0369A1';
+      } else if (status === 'FAILED') {
+        badgeBg = '#FEE2E2';
+        badgeColor = '#991B1B';
+      }
+      if (notifBadge) {
+        notifBadge.innerText = status;
+        notifBadge.style.background = badgeBg;
+        notifBadge.style.color = badgeColor;
+      }
+
+      const providerDisplay = (notif.provider || 'demo').toUpperCase();
+      const sentTimeStr = notif.sentAt ? new Date(notif.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
+
+      let extraReason = '';
+      if (status === 'FAILED' && notif.reason) {
+        extraReason = `<div style="color: #DC2626; font-weight: 600; margin-top: 5px;">Reason: ${escapeHtml(notif.reason)}</div>`;
+      }
+
+      notifDetails.innerHTML = `
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Channel:</span>
+          <strong>Email</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Provider:</span>
+          <strong>${escapeHtml(providerDisplay)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Status:</span>
+          <strong style="color: ${badgeColor};">${escapeHtml(status)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span style="color: #64748B;">Sent:</span>
+          <span>${escapeHtml(sentTimeStr)}</span>
+        </div>
+        ${notif.recipientEmail ? `
+        <div style="display: flex; justify-content: space-between; margin-top: 4px; border-top: 1px dashed #E2E8F0; padding-top: 4px;">
+          <span style="color: #64748B;">Recipient:</span>
+          <span style="font-family: monospace; font-size: 10px; color: #475569;">${escapeHtml(notif.recipientEmail)}</span>
+        </div>` : ''}
+        ${extraReason}
+      `;
+    }
+  }
+
   // Render Verification Audit Timeline
   const timelineContainer = document.getElementById('adminTimelineContainer');
   const timelineCount = document.getElementById('auditTimelineCount');
@@ -1485,10 +1570,12 @@ function selectOrder(orderId) {
         const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
         let dotClass = 'review';
         const ev = (entry.event || '').toUpperCase();
-        if (ev.includes('VERIFIED') || ev.includes('SUCCESSFUL') || ev.includes('CONFIRMED_RECEIVED')) {
+        if (ev.includes('VERIFIED') || ev.includes('SUCCESSFUL') || ev.includes('CONFIRMED_RECEIVED') || ev.includes('EMAIL_SENT')) {
           dotClass = 'success';
-        } else if (ev.includes('FAILURE') || ev.includes('REJECTED') || ev.includes('CONFIRMED_NOT_RECEIVED')) {
+        } else if (ev.includes('FAILURE') || ev.includes('REJECTED') || ev.includes('CONFIRMED_NOT_RECEIVED') || ev.includes('EMAIL_FAILED')) {
           dotClass = 'failure';
+        } else if (ev.includes('EMAIL_SIMULATED')) {
+          dotClass = 'review';
         }
         return `
           <div class="timeline-item">
