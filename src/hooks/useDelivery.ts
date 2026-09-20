@@ -165,6 +165,26 @@ export function useDelivery() {
               : d
           )
         );
+      } else if (event.type === 'CUSTOMER_RESPONSE_RECORDED' && event.deliveryId) {
+        setDeliveries((prev) =>
+          prev.map((d) => {
+            if (d.id === event.deliveryId) {
+              const updatedDelivery: Delivery = {
+                ...d,
+                status: (event.status as DeliveryStatus) || d.status,
+                customerResponse: event.customerResponse,
+                customerResponseAt: event.recordedAt,
+                retryRequired: event.retryRequired !== undefined ? event.retryRequired : (event.customerResponse === 'PACKAGE_NOT_RECEIVED'),
+                notes: event.notes || d.notes,
+              };
+              insertOrUpdateDeliveryInDB(updatedDelivery).catch((err) =>
+                console.warn('[useDelivery] Error persisting customer response to SQLite:', err)
+              );
+              return updatedDelivery;
+            }
+            return d;
+          })
+        );
       }
     });
 

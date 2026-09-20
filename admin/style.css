@@ -1179,3 +1179,291 @@ body {
   padding-top: 4px;
   border-top: 1px solid #E2E8F0;
 }
+
+/* ==========================================================================
+   Admin Operations Navigation Tabs
+   ========================================================================== */
+.admin-tab-bar {
+  display: flex;
+  background: #FFFFFF;
+  border-bottom: 2px solid var(--border);
+  padding: 0 20px;
+  gap: 12px;
+}
+
+.admin-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 12px 14px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: var(--slate);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.admin-tab-btn:hover {
+  color: var(--dark);
+  background: #F8FAFC;
+}
+
+.admin-tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.tab-badge-count {
+  background: #FEE2E2;
+  color: #B91C1C;
+  border: 1px solid #FCA5A5;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+/* ==========================================================================
+   Customer Confirmed Failures Dedicated Panel
+   ========================================================================== */
+.failures-dashboard-panel {
+  padding: 24px 28px;
+  background: #F8FAFC;
+  min-height: calc(100vh - 120px);
+}
+
+.failures-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.failures-header h2 {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--dark);
+  letter-spacing: -0.3px;
+  margin: 0 0 4px 0;
+}
+
+.failures-subtitle {
+  font-size: 13px;
+  color: var(--slate);
+  margin: 0;
+}
+
+.failures-pill-alert {
+  background: #FEE2E2;
+  color: #B91C1C;
+  border: 1.5px solid #FCA5A5;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.8px;
+}
+
+.failures-table-container {
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  overflow-x: auto;
+}
+
+.failures-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.failures-table th {
+  background: #F1F5F9;
+  color: #475569;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.failures-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #F1F5F9;
+  color: var(--dark);
+  vertical-align: middle;
+}
+
+.failures-table tr:hover {
+  background: #FAFAFA;
+}
+
+.failures-empty-row {
+  text-align: center;
+  padding: 36px 14px;
+  color: var(--slate);
+  font-size: 13px;
+}
+
+.pill-failure-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #FEF2F2;
+  color: #B91C1C;
+  border: 1px solid #FECACA;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-weight: 800;
+  font-size: 11px;
+}
+
+.pill-retry-required {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #FFFBEB;
+  color: #B45309;
+  border: 1px solid #FDE68A;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-weight: 800;
+  font-size: 11px;
+}
+
+.btn-table-inspect {
+  background: var(--dark);
+  color: #FFFFFF;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-table-inspect:hover {
+  background: #334155;
+}
+
+/* ==========================================================================
+   Simulated Notification Box
+   ========================================================================== */
+.simulated-notification-box {
+  margin-top: 10px;
+  background: #F8FAFC;
+  border: 1px solid #CBD5E1;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.simulated-notif-label {
+  font-size: 9px;
+  font-weight: 800;
+  color: #475569;
+  letter-spacing: 0.6px;
+  margin-bottom: 4px;
+}
+
+.simulated-notif-msg {
+  font-size: 11px;
+  color: #0F172A;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.simulated-notif-url {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.simulated-link-text {
+  color: #D94A27;
+  text-decoration: underline;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+/* ==========================================================================
+   Verification Audit Timeline
+   ========================================================================== */
+.audit-timeline-card {
+  margin-top: 14px;
+  background: #FFFFFF;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+}
+
+.audit-timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #F1F5F9;
+  padding-bottom: 8px;
+}
+
+.timeline-count-badge {
+  font-size: 9px;
+  font-weight: 800;
+  color: #475569;
+  background: #F1F5F9;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.timeline-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.timeline-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  position: relative;
+}
+
+.timeline-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748B;
+  min-width: 65px;
+  padding-top: 1px;
+}
+
+.timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.timeline-dot.success { background: #15803D; }
+.timeline-dot.failure { background: #B91C1C; }
+.timeline-dot.review { background: #B45309; }
+
+.timeline-content {
+  flex: 1;
+}
+
+.timeline-desc {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1E293B;
+  line-height: 1.35;
+}

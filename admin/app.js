@@ -569,10 +569,19 @@ function handleIncomingRealtimeEvent(event) {
       order.customerResponse = event.customerResponse;
       order.customerResponseAt = event.recordedAt;
       order.customerResponseSource = 'customer_portal';
+      if (event.status) order.status = event.status;
+      if (event.decision) order.decision = event.decision;
+      if (event.retryRequired !== undefined) order.retryRequired = event.retryRequired;
+      if (event.auditTimeline) order.auditTimeline = event.auditTimeline;
+
+      updateKPICounters();
+      renderOrderList();
+      renderCustomerConfirmedFailuresTable();
       if (selectedOrderId === order.id) {
         selectOrder(order.id);
       }
-      showNotification(`Customer response received for ${order.id}: ${event.customerResponse === 'CUSTOMER_AVAILABLE' ? 'I WAS AVAILABLE' : 'I WAS NOT AVAILABLE'}`);
+      const isReceived = event.customerResponse === 'PACKAGE_RECEIVED' || event.customerResponse === 'CUSTOMER_AVAILABLE';
+      showNotification(`Customer confirmation received for ${order.id}: ${isReceived ? 'PACKAGE RECEIVED' : 'PACKAGE NOT RECEIVED'}`);
     }
     return;
   }
@@ -1371,22 +1380,34 @@ function selectOrder(orderId) {
   const custDetailEl = document.getElementById('customerResponseDetail');
   const custPortalLink = document.getElementById('btnOpenCustomerPortal');
   const custUrlText = document.getElementById('customerPortalUrlText');
+  const notifBox = document.getElementById('simulatedNotificationBox');
+  const notifMsg = document.getElementById('simulatedNotifMsg');
+  const notifLink = document.getElementById('simulatedPortalLink');
 
   const verifyUrl = `/verify/${encodeURIComponent(order.id)}`;
+  const fullVerifyUrl = `http://${window.location.hostname || 'localhost'}:${window.location.port || 3001}${verifyUrl}`;
+
   if (custPortalLink) {
     custPortalLink.href = verifyUrl;
   }
   if (custUrlText) {
     custUrlText.innerText = verifyUrl;
   }
+  if (notifLink) {
+    notifLink.href = verifyUrl;
+    notifLink.innerText = fullVerifyUrl;
+  }
+  if (notifMsg) {
+    notifMsg.innerText = `SABOOT: Your delivery requires confirmation. Did you receive your package?`;
+  }
 
   if (custBadgeEl && custDetailEl) {
     if (order.customerResponse) {
-      const isAvailable = order.customerResponse === 'CUSTOMER_AVAILABLE';
-      custBadgeEl.className = `customer-response-status-badge ${isAvailable ? 'badge-cust-available' : 'badge-cust-unavailable'}`;
-      custBadgeEl.innerHTML = `<span>${isAvailable ? '✓' : '✕'}</span> Customer says: <strong>${isAvailable ? 'I WAS AVAILABLE' : 'I WAS NOT AVAILABLE'}</strong>`;
+      const isReceived = order.customerResponse === 'PACKAGE_RECEIVED' || order.customerResponse === 'CUSTOMER_AVAILABLE';
+      custBadgeEl.className = `customer-response-status-badge ${isReceived ? 'badge-cust-available' : 'badge-cust-unavailable'}`;
+      custBadgeEl.innerHTML = `<span>${isReceived ? '✓' : '✕'}</span> Customer: <strong>${isReceived ? 'PACKAGE RECEIVED' : 'PACKAGE NOT RECEIVED'}</strong>`;
       const recordedTime = order.customerResponseAt ? new Date(order.customerResponseAt).toLocaleTimeString() : 'Recorded';
-      custDetailEl.innerHTML = `Evidence: <strong>Customer Verification Portal</strong> • Logged: <strong>${recordedTime}</strong>`;
+      custDetailEl.innerHTML = `Confirmation: <strong>${isReceived ? 'Receipt Confirmed' : 'Package Not Received'}</strong> • Logged: <strong>${recordedTime}</strong>`;
     } else {
       custBadgeEl.className = 'customer-response-status-badge badge-cust-none';
       custBadgeEl.innerText = 'No customer response recorded yet';
@@ -1444,6 +1465,43 @@ function selectOrder(orderId) {
   // Audit Box
   document.getElementById('auditId').innerText = order.auditId;
   document.getElementById('auditTime').innerText = new Date().toLocaleTimeString();
+
+  // Render Verification Audit Timeline
+  const timelineContainer = document.getElementById('adminTimelineContainer');
+  const timelineCount = document.getElementById('auditTimelineCount');
+  if (timelineContainer) {
+    const timeline = Array.isArray(order.auditTimeline) ? order.auditTimeline : [];
+    if (timelineCount) {
+      timelineCount.innerText = `${timeline.length} EVENT${timeline.length === 1 ? '' : 'S'}`;
+    }
+    if (timeline.length === 0) {
+      timelineContainer.innerHTML = `
+        <div style="font-size: 11px; color: #64748B; font-style: italic; padding: 6px 0;">
+          No timeline events recorded yet.
+        </div>
+      `;
+    } else {
+      timelineContainer.innerHTML = timeline.map((entry) => {
+        const timeStr = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
+        let dotClass = 'review';
+        const ev = (entry.event || '').toUpperCase();
+        if (ev.includes('VERIFIED') || ev.includes('SUCCESSFUL') || ev.includes('CONFIRMED_RECEIVED')) {
+          dotClass = 'success';
+        } else if (ev.includes('FAILURE') || ev.includes('REJECTED') || ev.includes('CONFIRMED_NOT_RECEIVED')) {
+          dotClass = 'failure';
+        }
+        return `
+          <div class="timeline-item">
+            <span class="timeline-time">${escapeHtml(timeStr)}</span>
+            <span class="timeline-dot ${dotClass}"></span>
+            <div class="timeline-content">
+              <div class="timeline-desc">${escapeHtml(entry.description || entry.event)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
 
   // Residence Buttons
   document.querySelectorAll('.btn-cat').forEach((btn) => {
@@ -1994,6 +2052,109 @@ window.onload = () => {
     try {
       await loadPersistentDeliveries();
       await fetchInitialDriverTelemetry();
+      renderCustomerConfirmedFailuresTable();
     } catch (e) {}
   }, 10000);
+
+  renderCustomerConfirmedFailuresTable();
 };
+
+function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function switchAdminTab(tab) {
+  const btnOps = document.getElementById('tabBtnOperations');
+  const btnFailures = document.getElementById('tabBtnFailures');
+  const viewOps = document.getElementById('operationsDashboardView');
+  const viewFailures = document.getElementById('failuresDashboardView');
+
+  if (tab === 'failures') {
+    if (btnOps) btnOps.classList.remove('active');
+    if (btnFailures) btnFailures.classList.add('active');
+    if (viewOps) viewOps.style.display = 'none';
+    if (viewFailures) viewFailures.style.display = 'block';
+    renderCustomerConfirmedFailuresTable();
+  } else {
+    if (btnFailures) btnFailures.classList.remove('active');
+    if (btnOps) btnOps.classList.add('active');
+    if (viewFailures) viewFailures.style.display = 'none';
+    if (viewOps) viewOps.style.display = 'grid';
+    if (lMap) {
+      setTimeout(() => lMap.invalidateSize(), 150);
+    }
+  }
+}
+
+function renderCustomerConfirmedFailuresTable() {
+  const tbody = document.getElementById('failuresTableBody');
+  const badgeCount = document.getElementById('confirmedFailuresCount');
+  const pillTotal = document.getElementById('failuresTotalPill');
+
+  const failureOrders = orders.filter((o) =>
+    o.customerResponse === 'PACKAGE_NOT_RECEIVED' ||
+    o.customerResponse === 'CUSTOMER_UNAVAILABLE' ||
+    o.status === 'CUSTOMER_CONFIRMED_FAILURE' ||
+    o.status === 'RETRY_REQUIRED' ||
+    o.retryRequired === true
+  );
+
+  if (badgeCount) badgeCount.innerText = failureOrders.length;
+  if (pillTotal) pillTotal.innerText = `${failureOrders.length} RETR${failureOrders.length === 1 ? 'Y' : 'IES'} REQUIRED`;
+
+  if (!tbody) return;
+
+  if (failureOrders.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="failures-empty-row">
+          🛡️ No customer confirmed delivery failures recorded yet.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = failureOrders.map((order) => {
+    const attemptTime = order.customerResponseAt 
+      ? new Date(order.customerResponseAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : (order.createdAt ? new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--');
+
+    const originalResult = order.originalDecision || order.decision || 'REVIEW';
+    const customerConfirm = 'PACKAGE NOT RECEIVED';
+    const currentStatus = order.status || 'CUSTOMER_CONFIRMED_FAILURE';
+    const retryStatus = 'RETRY REQUIRED';
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(order.id)}</strong><br><span style="font-size:10px;color:#64748B;">${escapeHtml(order.trackingNumber)}</span></td>
+        <td><strong>${escapeHtml(order.customer?.name || 'Customer')}</strong><br><span style="font-size:10px;color:#64748B;">${escapeHtml(order.customer?.phone || '')}</span></td>
+        <td>${escapeHtml(attemptTime)}</td>
+        <td><span class="status-badge review">${escapeHtml(originalResult)}</span></td>
+        <td><span class="pill-failure-confirm">✕ ${escapeHtml(customerConfirm)}</span></td>
+        <td><strong style="color:#B91C1C; font-size:11px;">${escapeHtml(currentStatus)}</strong></td>
+        <td><span class="pill-retry-required">🔄 ${escapeHtml(retryStatus)}</span></td>
+        <td>
+          <button class="btn-table-inspect" onclick="inspectFailureDelivery('${escapeHtml(order.id)}')">
+            Inspect Stop ↗
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function inspectFailureDelivery(orderId) {
+  switchAdminTab('operations');
+  selectOrder(orderId);
+}
+
+window.switchAdminTab = switchAdminTab;
+window.renderCustomerConfirmedFailuresTable = renderCustomerConfirmedFailuresTable;
+window.inspectFailureDelivery = inspectFailureDelivery;

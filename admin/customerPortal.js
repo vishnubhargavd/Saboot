@@ -492,30 +492,30 @@ function renderCustomerPortalHtml(delivery) {
     <!-- Customer Confirmation -->
     <section class="response-section" id="customerResponseContainer">
       ${customerResponse ? `
-        <div class="recorded-card">
-          <div class="recorded-header">
-            <span>✓</span>
-            <span>Your response has been recorded</span>
+        <div class="recorded-card ${customerResponse === 'PACKAGE_RECEIVED' || customerResponse === 'CUSTOMER_AVAILABLE' ? 'card-received' : 'card-not-received'}" style="${customerResponse === 'PACKAGE_NOT_RECEIVED' || customerResponse === 'CUSTOMER_UNAVAILABLE' ? 'background: #FEF2F2; border: 1.5px solid #FECACA;' : 'background: #F0FDF4; border: 1.5px solid #BBF7D0;'}">
+          <div class="recorded-header" style="${customerResponse === 'PACKAGE_NOT_RECEIVED' || customerResponse === 'CUSTOMER_UNAVAILABLE' ? 'color: #B91C1C;' : 'color: #15803D;'}">
+            <span>${customerResponse === 'PACKAGE_RECEIVED' || customerResponse === 'CUSTOMER_AVAILABLE' ? '✓' : '✕'}</span>
+            <span>${customerResponse === 'PACKAGE_RECEIVED' || customerResponse === 'CUSTOMER_AVAILABLE' ? 'Package Receipt Confirmed' : 'Package Not Received'}</span>
           </div>
-          <div class="recorded-value">
-            ${customerResponse === 'CUSTOMER_AVAILABLE' ? 'I WAS AVAILABLE' : 'I WAS NOT AVAILABLE'}
+          <div class="recorded-value" style="font-size: 15px; font-weight: 800; color: #0F172A; margin: 6px 0;">
+            ${customerResponse === 'PACKAGE_RECEIVED' || customerResponse === 'CUSTOMER_AVAILABLE' ? 'You confirmed that you received this package.' : 'Your response has been recorded.'}
           </div>
-          <div class="recorded-subtext">
-            Recorded at ${escapeHtml(customerResponseAt || 'recently')}.<br>
-            Your response has been added as additional delivery verification evidence in the audit log.
+          <div class="recorded-subtext" style="font-size: 12px; color: #475569; line-height: 1.4;">
+            ${customerResponse === 'PACKAGE_RECEIVED' || customerResponse === 'CUSTOMER_AVAILABLE' ? 'Delivery verification has been completed.' : 'This delivery has been marked for another delivery attempt.'}
+            <div style="margin-top: 6px; font-size: 11px; color: #64748B;">Recorded at ${escapeHtml(customerResponseAt || 'recently')} via Customer Verification Portal.</div>
           </div>
         </div>
       ` : `
-        <div class="question-prompt">Were you available to receive this delivery?</div>
+        <div class="question-prompt">Did you receive your package?</div>
         <div class="question-helper">
-          Please confirm your availability during the attempt window. Your response will be appended directly to the delivery audit record.
+          Please confirm whether you received your package. Your response will be appended directly to the delivery audit record.
         </div>
         <div class="btn-group" id="responseButtonGroup">
-          <button type="button" class="response-btn btn-available" id="btnAvailable" onclick="submitCustomerResponse('CUSTOMER_AVAILABLE')">
-            ✓ I WAS AVAILABLE
+          <button type="button" class="response-btn btn-available" id="btnAvailable" onclick="submitCustomerResponse('PACKAGE_RECEIVED')">
+            📦 I RECEIVED THE PACKAGE
           </button>
-          <button type="button" class="response-btn btn-unavailable" id="btnUnavailable" onclick="submitCustomerResponse('CUSTOMER_UNAVAILABLE')">
-            ✕ I WAS NOT AVAILABLE
+          <button type="button" class="response-btn btn-unavailable" id="btnUnavailable" onclick="submitCustomerResponse('PACKAGE_NOT_RECEIVED')">
+            📦 I DID NOT RECEIVE THE PACKAGE
           </button>
         </div>
         <div id="responseStatusMsg" style="margin-top: 12px; font-size: 12px; font-weight: 700; color: var(--slate-600); display: none;"></div>
@@ -552,22 +552,42 @@ function renderCustomerPortalHtml(delivery) {
         const data = await res.json();
 
         if (res.ok && data.success) {
-          const choiceText = responseType === 'CUSTOMER_AVAILABLE' ? 'I WAS AVAILABLE' : 'I WAS NOT AVAILABLE';
+          const isReceived = responseType === 'PACKAGE_RECEIVED' || responseType === 'CUSTOMER_AVAILABLE';
           const timeText = data.recordedAt ? new Date(data.recordedAt).toLocaleString() : new Date().toLocaleString();
 
-          container.innerHTML = \`
-            <div class="recorded-card">
-              <div class="recorded-header">
-                <span>✓</span>
-                <span>Your response has been recorded</span>
+          if (isReceived) {
+            container.innerHTML = \`
+              <div class="recorded-card card-received" style="background: #F0FDF4; border: 1.5px solid #BBF7D0; border-radius: 6px; padding: 16px 18px;">
+                <div class="recorded-header" style="font-size: 13px; font-weight: 800; color: #15803D; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                  <span>✓</span>
+                  <span>Package Receipt Confirmed</span>
+                </div>
+                <div class="recorded-value" style="font-size: 15px; font-weight: 800; color: #0F172A; margin-bottom: 6px;">
+                  You confirmed that you received this package.
+                </div>
+                <div class="recorded-subtext" style="font-size: 12px; color: #475569; line-height: 1.4;">
+                  Delivery verification has been completed.
+                  <div style="margin-top: 6px; font-size: 11px; color: #64748B;">Recorded at \${timeText}.</div>
+                </div>
               </div>
-              <div class="recorded-value">\${choiceText}</div>
-              <div class="recorded-subtext">
-                Recorded at \${timeText}.<br>
-                Your response has been added as additional delivery verification evidence in the audit log.
+            \`;
+          } else {
+            container.innerHTML = \`
+              <div class="recorded-card card-not-received" style="background: #FEF2F2; border: 1.5px solid #FECACA; border-radius: 6px; padding: 16px 18px;">
+                <div class="recorded-header" style="font-size: 13px; font-weight: 800; color: #B91C1C; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                  <span>✕</span>
+                  <span>Package Not Received</span>
+                </div>
+                <div class="recorded-value" style="font-size: 15px; font-weight: 800; color: #0F172A; margin-bottom: 6px;">
+                  Your response has been recorded.
+                </div>
+                <div class="recorded-subtext" style="font-size: 12px; color: #475569; line-height: 1.4;">
+                  This delivery has been marked for another delivery attempt.
+                  <div style="margin-top: 6px; font-size: 11px; color: #64748B;">Recorded at \${timeText}.</div>
+                </div>
               </div>
-            </div>
-          \`;
+            \`;
+          }
         } else {
           if (statusMsg) {
             statusMsg.innerText = 'Error: ' + (data.error || 'Failed to submit response.');
