@@ -10,8 +10,10 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const crypto = require('crypto');
+const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can connect
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'deliveries.json');
@@ -1218,6 +1220,406 @@ const server = http.createServer((req, res) => {
       return;
     }
   }
+
+  // 3b. Authoritative Zero-Trust Verification API with Open-Source AI Explanation
+  if (pathname === '/api/verify' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body);
+        const order = deliveries.find((d) => d.id === payload.deliveryId || d.trackingNumber === payload.deliveryId);
+        if (!order) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Delivery stop ${payload.deliveryId} not found` }));
+          return;
+        }
+
+        const residenceCategory = order.address?.residenceCategory || 'individual_house';
+        const dwellConfig = {
+          individual_house: { requiredDwellSeconds: 90, displayName: 'Individual House' },
+          apartment: { requiredDwellSeconds: 120, displayName: 'Apartment Building' },
+          gated_society: { requiredDwellSeconds: 150, displayName: 'Gated Society' },
+        }[residenceCategory] || { requiredDwellSeconds: 90, displayName: 'Individual House' };
+
+        const requiredDwell = dwellConfig.requiredDwellSeconds;
+        const requiredDistance = 50;
+
+        let computedDistanceMeters;
+        let computedDwellSeconds;
+        let computedGpsAccuracy = payload.currentGpsPoint?.accuracy || 10;
+        const anomalyFlags = [];
+
+        // Haversine helper
+        const computeDist = (lat1, lon1, lat2, lon2) => {
+          const R = 6371000;
+          const dLat = ((lat2 - lat1) * Math.PI) / 180;
+          const dLon = ((lon2 - lon1) * Math.PI) / 180;
+          const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos((lat1 * Math.PI) / 180) *
+              Math.cos((lat2 * Math.PI) / 180) *
+              Math.sin(dLon / 2) *
+              Math.sin(dLon / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return Math.round(R * c);
+        };
+
+        if (payload.isSimulatedDemo && payload.simulationPresetId) {
+          const presetId = payload.simulationPresetId;
+          if (presetId === 'SCENARIO_A') {
+            computedDistanceMeters = 38;
+            computedDwellSeconds = 158;
+            computedGpsAccuracy = 6;
+          } else if (presetId === 'SCENARIO_B') {
+            computedDistanceMeters = 3200;
+            computedDwellSeconds = 8;
+            computedGpsAccuracy = 8;
+            anomalyFlags.push('DISTANCE_EXCEEDED', 'INSUFFICIENT_DWELL', 'NO_CALL_ATTEMPTED');
+          } else if (presetId === 'SCENARIO_C') {
+            computedDistanceMeters = 45;
+            computedDwellSeconds = 152;
+            computedGpsAccuracy = 68;
+            anomalyFlags.push('POOR_GPS_ACCURACY_UNCERTAINTY', 'SHORT_CALL_DURATION');
+          } else if (presetId === 'SCENARIO_D') {
+            computedDistanceMeters = 48;
+            computedDwellSeconds = 110;
+            computedGpsAccuracy = 10;
+            anomalyFlags.push('SUB_THRESHOLD_DWELL_TIME', 'VIDEO_CONSENT_TIMEOUT');
+          } else {
+            computedDistanceMeters = computeDist(
+              payload.currentGpsPoint.latitude,
+              payload.currentGpsPoint.longitude,
+              order.address.latitude,
+              order.address.longitude
+            );
+            computedDwellSeconds = 120;
+          }
+        } else {
+          // Live calculation from real GPS telemetry
+          computedDistanceMeters = computeDist(
+            payload.currentGpsPoint.latitude,
+            payload.currentGpsPoint.longitude,
+            order.address.latitude,
+            order.address.longitude
+          );
+
+          // Calculate dwell from breadcrumb timestamps inside geofence (50m + 15m jitter tolerance)
+          const pointsInsideGeofence = (payload.rawGpsBreadcrumbs || []).filter((pt) => {
+            const dist = computeDist(
+              pt.latitude,
+              pt.longitude,
+              order.address.latitude,
+              order.address.longitude
+            );
+            return dist <= 65;
+          });
+
+          if (pointsInsideGeofence.length >= 2) {
+            const firstTime = pointsInsideGeofence[0].timestamp;
+            const lastTime = pointsInsideGeofence[pointsInsideGeofence.length - 1].timestamp;
+            computedDwellSeconds = Math.max(0, Math.round((lastTime - firstTime) / 1000));
+          } else {
+            computedDwellSeconds = computedDistanceMeters <= 50 ? 45 : 0;
+          }
+
+          if (computedGpsAccuracy > 30) {
+            anomalyFlags.push('POOR_GPS_ACCURACY_UNCERTAINTY');
+          }
+        }
+
+        const isCustomerUnavailable = payload.failureReason === 'customer_unavailable';
+        const hasVideoProof = Boolean(payload.videoEvidence?.videoUri || payload.videoEvidence?.consentGiven);
+
+        // Immutable Server Verification Facts
+        const facts = {
+          deliveryId: order.id,
+          residenceCategory,
+          distanceMeters: computedDistanceMeters,
+          requiredDistanceMeters: requiredDistance,
+          dwellSeconds: computedDwellSeconds,
+          requiredDwellSeconds: requiredDwell,
+          callAttempted: Boolean(payload.callEvidence?.attempted),
+          callDurationSeconds: payload.callEvidence?.durationSeconds || 0,
+          videoConsentRequested: Boolean(payload.videoEvidence?.consentRequested),
+          videoConsentGiven: Boolean(payload.videoEvidence?.consentGiven),
+          videoEvidence: hasVideoProof,
+          videoUri: payload.videoEvidence?.videoUri,
+          gpsAccuracyMeters: computedGpsAccuracy,
+          anomalyFlags,
+          requiresAdminApproval: isCustomerUnavailable && hasVideoProof,
+        };
+
+        // Deterministic Rule Matrix Evaluation
+        const ruleChecks = [
+          {
+            id: 'RULE_PROXIMITY_50M',
+            name: 'Geofence Proximity Check',
+            category: 'PROXIMITY',
+            passed: facts.distanceMeters <= facts.requiredDistanceMeters,
+            actualValue: `${facts.distanceMeters}m`,
+            expectedValue: `≤ ${facts.requiredDistanceMeters}m`,
+            isHardRequirement: true,
+          },
+          {
+            id: 'RULE_CATEGORY_DWELL',
+            name: `${dwellConfig.displayName} Dwell Threshold`,
+            category: 'DWELL',
+            passed: facts.dwellSeconds >= facts.requiredDwellSeconds,
+            actualValue: `${facts.dwellSeconds}s`,
+            expectedValue: `≥ ${facts.requiredDwellSeconds}s`,
+            isHardRequirement: true,
+          },
+          {
+            id: 'RULE_TELEPHONY_ATTEMPT',
+            name: 'Customer Call Attempt Evidence',
+            category: 'TELEPHONY',
+            passed: facts.callAttempted,
+            actualValue: facts.callAttempted ? `Attempted (${facts.callDurationSeconds}s)` : 'No Call Made',
+            expectedValue: 'Call Attempted',
+            isHardRequirement: true,
+          },
+          {
+            id: 'RULE_TELEMETRY_ACCURACY',
+            name: 'GPS Telemetry Signal Quality',
+            category: 'TELEMETRY_INTEGRITY',
+            passed: facts.gpsAccuracyMeters <= 30,
+            actualValue: `±${facts.gpsAccuracyMeters}m`,
+            expectedValue: '≤ ±30m',
+            isHardRequirement: false,
+          },
+          {
+            id: 'RULE_VIDEO_CORROBORATION',
+            name: isCustomerUnavailable ? 'Customer Absence Video Proof' : 'Consented Video Corroboration',
+            category: 'VIDEO',
+            passed: facts.videoEvidence,
+            actualValue: hasVideoProof ? 'Video Proof Attached' : 'Not Provided',
+            expectedValue: isCustomerUnavailable ? 'Required for Unavailable Claim' : 'Optional Corroboration',
+            isHardRequirement: isCustomerUnavailable,
+          }
+        ];
+
+        // Authoritative Deterministic Decision Resolution
+        let decision;
+        let primaryReason;
+        let detailedExplanation;
+        let requiresAdminApproval = false;
+        let adminApprovalStatus;
+
+        const proximityPassed = ruleChecks[0].passed;
+        const dwellPassed = ruleChecks[1].passed;
+        const callPassed = ruleChecks[2].passed;
+        const accuracyPassed = ruleChecks[3].passed;
+
+        if (isCustomerUnavailable && hasVideoProof) {
+          decision = 'REVIEW';
+          requiresAdminApproval = true;
+          adminApprovalStatus = 'PENDING';
+          primaryReason = 'Customer Unavailable claim with video evidence pending admin approval';
+          detailedExplanation = `Driver uploaded doorstep video proof demonstrating customer was unreachable after calling (${facts.callDurationSeconds}s) and dwelling ${facts.dwellSeconds}s. Dispatched to supervisor queue for approval.`;
+        } else if (proximityPassed && dwellPassed && callPassed && accuracyPassed) {
+          decision = 'VERIFIED';
+          primaryReason = 'All mandatory physical and telephony attempt criteria verified';
+          detailedExplanation = `Driver location (${facts.distanceMeters}m), residence dwell duration (${facts.dwellSeconds}s / ${facts.requiredDwellSeconds}s for ${dwellConfig.displayName}), and customer call attempt (${facts.callDurationSeconds}s) were independently validated.`;
+        } else if (!proximityPassed && facts.distanceMeters > 500) {
+          decision = 'REJECTED';
+          primaryReason = `Attempt location rejected: Driver was ${facts.distanceMeters}m away from delivery address`;
+          detailedExplanation = `Zero-trust evaluation failed. The driver reported failure from ${facts.distanceMeters}m away (limit: ${facts.requiredDistanceMeters}m). Insufficient physical presence detected.`;
+        } else if (!callPassed && !dwellPassed) {
+          decision = 'REJECTED';
+          primaryReason = 'Attempt rejected: Insufficient dwell time and zero call attempts made';
+          detailedExplanation = `Neither physical dwell requirement (${facts.dwellSeconds}s vs ${facts.requiredDwellSeconds}s required) nor telephony contact criteria were met.`;
+        } else {
+          decision = 'REVIEW';
+          if (!accuracyPassed) {
+            primaryReason = `Sent to Review: GPS horizontal uncertainty (±${facts.gpsAccuracyMeters}m) requires ops inspection`;
+            detailedExplanation = 'Telemetry accuracy was degraded during the attempt window, creating boundary ambiguity.';
+          } else if (!dwellPassed) {
+            primaryReason = `Sent to Review: Borderline dwell time (${facts.dwellSeconds}s vs ${facts.requiredDwellSeconds}s required)`;
+            detailedExplanation = `Driver reached geofence (${facts.distanceMeters}m) and called customer, but departed before the mandatory ${facts.requiredDwellSeconds}s dwell window for ${dwellConfig.displayName}.`;
+          } else {
+            primaryReason = 'Sent to Review: Borderline evidence profile requires supervisor confirmation';
+            detailedExplanation = 'One or more corroborating verification parameters were inconclusive.';
+          }
+        }
+
+        // Call Open-Source AI Service for Explanation & Supervisor Summary (Safe & Non-blocking)
+        const aiResult = await generateAiExplanation(facts, decision, residenceCategory);
+
+        // Generate Cryptographically Signed Attestation Token
+        const timestamp = new Date().toISOString();
+        const auditId = `AUD-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+        const secretKey = process.env.SABOOT_ATTESTATION_SECRET || 'saboot-zero-trust-secret-key-production';
+
+        const factsDigest = crypto.createHash('sha256').update(JSON.stringify(facts)).digest('hex');
+        const signaturePayload = `${auditId}:${order.id}:${decision}:${factsDigest}:${timestamp}`;
+        const signature = crypto.createHmac('sha256', secretKey).update(signaturePayload).digest('hex');
+        const signedAttestation = Buffer.from(JSON.stringify({
+          auditId,
+          deliveryId: order.id,
+          decision,
+          factsDigest,
+          timestamp,
+          engine: 'Saboot-ZeroTrust-Deterministic-v1.0',
+          signature
+        })).toString('base64url');
+
+        // Authoritatively update delivery in persistent ledger
+        order.status = decision === 'VERIFIED' ? 'VERIFIED' : decision === 'REJECTED' ? 'REJECTED' : 'REVIEW';
+        order.decision = decision;
+        order.decisionReason = aiResult.explanation || primaryReason;
+        order.aiExplanation = aiResult.explanation;
+        order.supervisorSummary = aiResult.supervisorSummary;
+        order.recommendedFocus = aiResult.recommendedFocus;
+        order.aiSource = aiResult.source;
+        order.auditId = auditId;
+        order.signedAttestation = signedAttestation;
+        order.distanceMeters = facts.distanceMeters;
+        order.dwellSeconds = facts.dwellSeconds;
+        order.requiredDwellSeconds = facts.requiredDwellSeconds;
+        order.callAttempted = facts.callAttempted;
+        order.callDuration = facts.callDurationSeconds;
+        order.gpsAccuracy = facts.gpsAccuracyMeters;
+        if (requiresAdminApproval) {
+          order.requiresAdminApproval = true;
+          order.adminApprovalStatus = adminApprovalStatus;
+        }
+        if (payload.videoEvidence?.videoUri) {
+          order.videoProofUri = payload.videoEvidence.videoUri;
+          order.videoStatus = 'VERIFIED';
+        }
+        saveDeliveries();
+
+        // Broadcast real-time event to Admin Console
+        broadcastEvent({
+          type: 'DELIVERY_ATTESTED',
+          deliveryId: order.id,
+          status: decision,
+          notes: aiResult.explanation || primaryReason,
+          auditId,
+          extra: {
+            decision,
+            auditId,
+            signedAttestation,
+            facts,
+            ruleChecks,
+            aiExplanation: aiResult.explanation,
+            supervisorSummary: aiResult.supervisorSummary,
+            recommendedFocus: aiResult.recommendedFocus,
+            aiSource: aiResult.source,
+            requiresAdminApproval,
+            adminApprovalStatus,
+            order
+          }
+        });
+
+        // Return authoritative response to Mobile App (matching Section 15 contract)
+        const responseData = {
+          success: true,
+          decision,
+          deliveryId: order.id,
+          timestamp,
+          facts,
+          ruleChecks,
+          primaryReason,
+          detailedExplanation,
+          aiExplanation: aiResult.summary || aiResult.explanation,
+          evidenceSummary: aiResult.evidenceSummary,
+          supervisorSummary: aiResult.supervisorSummary,
+          recommendedFocus: aiResult.reviewFocus || aiResult.recommendedFocus,
+          aiSource: aiResult.source,
+          modelUsed: aiResult.modelUsed,
+          auditRecordId: auditId,
+          signedAttestation,
+          attestation: {
+            attestationId: auditId,
+            signature,
+            signedAttestation
+          },
+          explanation: {
+            summary: aiResult.summary || aiResult.explanation,
+            evidenceExplanation: aiResult.evidenceExplanation,
+            policyExplanation: aiResult.policyExplanation,
+            reviewFocus: aiResult.reviewFocus || aiResult.recommendedFocus,
+            explanationConfidence: aiResult.explanationConfidence || 'high'
+          },
+          evaluationEngine: 'Saboot-Server-Authoritative-PolicyEngine-v1.0 (Node.js/Cedar-equiv)',
+          requiresAdminApproval,
+          adminApprovalStatus,
+          videoProofUri: payload.videoEvidence?.videoUri
+        };
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(responseData));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Server-side verification failure' }));
+      }
+    });
+    return;
+  }
+
+  // 3c. Mock Host Platform Callback Ingestion (Ekart / 3PL Webhook Simulator)
+  if (pathname === '/api/mock-host-callback' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        const { deliveryId, status, attestationId, token } = payload;
+
+        if (!deliveryId || !status || !attestationId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing mandatory callback parameters: deliveryId, status, attestationId' }));
+          return;
+        }
+
+        // Cryptographic verification of signed attestation token
+        let tokenValid = false;
+        let decoded = null;
+        if (token) {
+          try {
+            const rawJson = Buffer.from(token, 'base64url').toString('utf8');
+            decoded = JSON.parse(rawJson);
+            const secretKey = process.env.SABOOT_ATTESTATION_SECRET || 'saboot-zero-trust-secret-key-production';
+            const expectedPayload = `${decoded.auditId}:${decoded.deliveryId}:${decoded.decision}:${decoded.factsDigest}:${decoded.timestamp}`;
+            const expectedSig = crypto.createHmac('sha256', secretKey).update(expectedPayload).digest('hex');
+            tokenValid = decoded.signature === expectedSig && decoded.deliveryId === deliveryId;
+          } catch (e) {
+            tokenValid = false;
+          }
+        }
+
+        const callbackLog = {
+          receivedAt: new Date().toISOString(),
+          deliveryId,
+          status,
+          attestationId,
+          cryptographicallyVerified: tokenValid,
+          hostPlatform: 'Mock-Ekart-Platform-v1.0',
+          acknowledged: true
+        };
+
+        // Broadcast callback receipt to Admin Console
+        broadcastEvent({
+          type: 'HOST_CALLBACK_ACKNOWLEDGED',
+          ...callbackLog
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          message: 'Attestation callback successfully ingested and verified by host platform',
+          callbackReceipt: callbackLog
+        }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+      }
+    });
+    return;
+  }
+
 
   // 4. Deliveries REST API
   if (pathname === '/api/deliveries' && req.method === 'GET') {

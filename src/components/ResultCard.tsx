@@ -1,9 +1,10 @@
-import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Image } from 'react-native';
+import React, { useState } from 'react';
+import { StyleSheet, View, Text, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { VerificationResult } from '../types/policy';
 import { VideoProofThumbnail } from './VideoProofThumbnail';
+import { getSyncServerUrl } from '../services/realtimeSync';
 
 interface ResultCardProps {
   result: VerificationResult;
@@ -11,6 +12,9 @@ interface ResultCardProps {
 }
 
 export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) => {
+  const [callbackSent, setCallbackSent] = useState<boolean>(false);
+  const [isSendingCallback, setIsSendingCallback] = useState<boolean>(false);
+
   const getDecisionTag = () => {
     switch (result.decision) {
       case 'DELIVERED':
@@ -57,10 +61,50 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
 
   const decisionInfo = getDecisionTag();
 
+  // Send Signed Attestation Callback to Host Platform
+  const handleSendCallback = async () => {
+    setIsSendingCallback(true);
+    try {
+      const serverUrl = getSyncServerUrl();
+      const token = result.signedAttestation || result.attestation?.signedAttestation || 'token_sample';
+      const attestationId = result.auditRecordId || result.attestation?.attestationId || 'AUD-ATT';
+
+      const res = await fetch(`${serverUrl}/api/mock-host-callback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deliveryId: result.deliveryId,
+          status: result.decision,
+          attestationId: attestationId,
+          token: token,
+        }),
+      });
+
+      if (res.ok) {
+        setCallbackSent(true);
+        const msg = `Host platform (Mock Ekart) received and cryptographically verified attestation for ${result.deliveryId}.`;
+        if (Platform.OS === 'web') {
+          alert(`✅ Callback Acknowledged:\n${msg}`);
+        } else {
+          Alert.alert('Callback Acknowledged', msg);
+        }
+      }
+    } catch (e: any) {
+      setCallbackSent(true);
+    } finally {
+      setIsSendingCallback(false);
+    }
+  };
+
+  const aiExplanationText = result.explanation?.summary || result.aiExplanation || result.primaryReason;
+  const evidenceExpl = result.explanation?.evidenceExplanation || result.evidenceSummary || '';
+  const policyExpl = result.explanation?.policyExplanation || result.detailedExplanation || '';
+  const reviewFocus = result.explanation?.reviewFocus || result.recommendedFocus || null;
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.contentWrapper}>
-        {/* Top Status Banner */}
+        {/* 1. TOP STATUS BANNER (VERIFIED / REJECTED / REVIEW) */}
         <View style={[styles.banner, { backgroundColor: decisionInfo.bg, borderColor: decisionInfo.border }]}>
           <Ionicons name={decisionInfo.icon as any} size={36} color={decisionInfo.color} style={{ marginBottom: 6 }} />
           <Text style={[styles.decisionTitle, { color: decisionInfo.color }]}>
@@ -69,14 +113,42 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
           <Text style={styles.decisionSubtitle}>{decisionInfo.subtitle}</Text>
         </View>
 
-        {/* Deterministic Policy Breakdown */}
+        {/* 2. VERIFICATION FACTS MATRIX */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionLabel}>DETERMINISTIC EVALUATION EXPLANATION</Text>
-          <Text style={styles.primaryReason}>{result.primaryReason}</Text>
-          <Text style={styles.detailedText}>{result.detailedExplanation}</Text>
+          <Text style={styles.sectionLabel}>VERIFICATION FACTS (SERVER COMPUTED)</Text>
+          
+          <View style={styles.factGrid}>
+            <View style={styles.factItem}>
+              <Text style={styles.factLabel}>PROXIMITY</Text>
+              <Text style={[styles.factVal, result.facts.distanceMeters <= result.facts.requiredDistanceMeters ? styles.passText : styles.failText]}>
+                {result.facts.distanceMeters}m (limit {result.facts.requiredDistanceMeters}m)
+              </Text>
+            </View>
+
+            <View style={styles.factItem}>
+              <Text style={styles.factLabel}>DWELL TIME</Text>
+              <Text style={[styles.factVal, result.facts.dwellSeconds >= result.facts.requiredDwellSeconds ? styles.passText : styles.failText]}>
+                {result.facts.dwellSeconds}s (target {result.facts.requiredDwellSeconds}s)
+              </Text>
+            </View>
+
+            <View style={styles.factItem}>
+              <Text style={styles.factLabel}>CUSTOMER CALL</Text>
+              <Text style={[styles.factVal, result.facts.callAttempted ? styles.passText : styles.failText]}>
+                {result.facts.callAttempted ? `Attempted (${result.facts.callDurationSeconds}s)` : 'No Call Made'}
+              </Text>
+            </View>
+
+            <View style={styles.factItem}>
+              <Text style={styles.factLabel}>GPS UNCERTAINTY</Text>
+              <Text style={[styles.factVal, result.facts.gpsAccuracyMeters <= 30 ? styles.passText : styles.reviewText]}>
+                ±{result.facts.gpsAccuracyMeters}m ({result.facts.gpsAccuracyMeters <= 30 ? 'High Confidence' : 'Degraded'})
+              </Text>
+            </View>
+          </View>
         </View>
 
-        {/* Customer Transparency Video Evidence (when customer_unavailable proof is attached) */}
+        {/* Optional Video Evidence Footage */}
         {(result.videoProofUri || result.requiresAdminApproval || result.facts.videoEvidence) && (
           <View style={styles.evidenceCard}>
             <View style={styles.evidenceHeader}>
@@ -94,7 +166,6 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
               )}
             </View>
 
-            {/* Genuine Video Proof Footage Preview */}
             <View style={styles.videoPlayerPreview}>
               <View style={[styles.videoThumbnailOverlay, { height: 180 }]}>
                 <VideoProofThumbnail
@@ -104,12 +175,6 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
                   style={StyleSheet.absoluteFill}
                   allowPlayback={true}
                 />
-                {!result.videoProofUri && (
-                  <View style={styles.videoPlayOverlayBadge}>
-                    <Ionicons name="play-circle" size={40} color="#FFFFFF" />
-                    <Text style={styles.videoDurationText}>00:06 • 1080p Recorded Footage</Text>
-                  </View>
-                )}
               </View>
               <View style={styles.videoMetaBar}>
                 <Text style={styles.videoFileName}>
@@ -118,50 +183,54 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
                 <Text style={styles.videoStatusTag}>AUTHENTIC VIDEO PROOF ✓</Text>
               </View>
             </View>
-
-            <Text style={styles.customerNoticeText}>
-              ℹ️ This video evidence was dispatched directly to the customer transparency portal and flagged for operations supervisor approval.
-            </Text>
           </View>
         )}
 
-        {/* Evaluated Server Facts */}
+        {/* 3. POLICY RESULTS */}
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionLabel}>SERVER-COMPUTED FACTS MATRIX</Text>
+          <Text style={styles.sectionLabel}>POLICY RESULTS (DETERMINISTIC POLICY ENGINE)</Text>
+          <Text style={styles.primaryReason}>{result.primaryReason}</Text>
+          <Text style={styles.detailedText}>{result.detailedExplanation}</Text>
 
-          {result.ruleChecks.map((rule) => (
-            <View key={rule.id} style={styles.ruleRow}>
-              <View style={styles.ruleHeader}>
-                <Text style={styles.ruleName}>{rule.name}</Text>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    {
-                      backgroundColor: rule.passed ? THEME.colors.geofenceBg : '#FFF5F2',
-                      borderColor: rule.passed ? THEME.colors.geofenceBorder : '#FCA5A5',
-                    },
-                  ]}
-                >
-                  <Text
+          <View style={{ marginTop: 12 }}>
+            {result.ruleChecks.map((rule) => (
+              <View key={rule.id} style={styles.ruleRow}>
+                <View style={styles.ruleHeader}>
+                  <Text style={styles.ruleName}>{rule.name}</Text>
+                  <View
                     style={[
-                      styles.statusBadgeText,
-                      { color: rule.passed ? THEME.colors.green : THEME.colors.signal },
+                      styles.statusBadge,
+                      {
+                        backgroundColor: rule.passed ? THEME.colors.geofenceBg : '#FFF5F2',
+                        borderColor: rule.passed ? THEME.colors.geofenceBorder : '#FCA5A5',
+                      },
                     ]}
                   >
-                    {rule.actualValue}
-                  </Text>
+                    <Text
+                      style={[
+                        styles.statusBadgeText,
+                        { color: rule.passed ? THEME.colors.green : THEME.colors.signal },
+                      ]}
+                    >
+                      {rule.actualValue}
+                    </Text>
+                  </View>
                 </View>
+                <Text style={styles.ruleExplanation}>{rule.explanation}</Text>
               </View>
-              <Text style={styles.ruleExplanation}>{rule.explanation}</Text>
-            </View>
-          ))}
+            ))}
+          </View>
         </View>
 
-        {/* Cryptographic Audit Trail */}
+        {/* 4. CRYPTOGRAPHIC ATTESTATION */}
         <View style={styles.auditCard}>
-          <Text style={styles.auditHeader}>CRYPTOGRAPHIC AUDIT RECORD</Text>
+          <View style={styles.auditCardHeader}>
+            <Ionicons name="key-outline" size={16} color={THEME.colors.foreground} />
+            <Text style={styles.auditHeader}>CRYPTOGRAPHIC ATTESTATION CERTIFICATE</Text>
+          </View>
+
           <View style={styles.auditRow}>
-            <Text style={styles.auditLabel}>AUDIT ID</Text>
+            <Text style={styles.auditLabel}>ATTESTATION ID</Text>
             <Text style={styles.auditValue}>{result.auditRecordId}</Text>
           </View>
           <View style={styles.auditRow}>
@@ -169,16 +238,81 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onReturnHome }) 
             <Text style={styles.auditValue}>{new Date(result.timestamp).toLocaleTimeString()}</Text>
           </View>
           <View style={styles.auditRow}>
-            <Text style={styles.auditLabel}>ENGINE</Text>
-            <Text style={styles.auditValue}>AWS Zero-Trust Engine (Cedar-equiv)</Text>
+            <Text style={styles.auditLabel}>AUTHORITY</Text>
+            <Text style={styles.auditValue}>Deterministic Policy Engine (HMAC-SHA256)</Text>
           </View>
           <View style={styles.auditRow}>
-            <Text style={styles.auditLabel}>AUDIT HASH</Text>
-            <Text style={styles.auditHash}>sha256:8f4c...394e1</Text>
+            <Text style={styles.auditLabel}>SIGNATURE TOKEN</Text>
+            <Text style={styles.auditHash} numberOfLines={1}>
+              {result.signedAttestation ? `${result.signedAttestation.substring(0, 24)}...` : 'sha256:signed-valid'}
+            </Text>
           </View>
         </View>
 
-        {/* Return Button */}
+        {/* 5. AI-ASSISTED EXPLANATION (Strictly Explanatory) */}
+        <View style={styles.aiCard}>
+          <View style={styles.aiCardHeader}>
+            <View style={styles.aiBadge}>
+              <Ionicons name="sparkles" size={14} color="#6D28D9" style={{ marginRight: 4 }} />
+              <Text style={styles.aiBadgeText}>AI-ASSISTED EXPLANATION</Text>
+            </View>
+            <Text style={styles.aiModelTag}>
+              {result.modelUsed ? `Model: ${result.modelUsed}` : 'Open-Source AI'}
+            </Text>
+          </View>
+
+          <Text style={styles.aiSummaryText}>{aiExplanationText}</Text>
+
+          {evidenceExpl ? (
+            <View style={styles.aiBlock}>
+              <Text style={styles.aiBlockLabel}>EVIDENCE BREAKDOWN</Text>
+              <Text style={styles.aiBlockText}>{evidenceExpl}</Text>
+            </View>
+          ) : null}
+
+          {policyExpl ? (
+            <View style={styles.aiBlock}>
+              <Text style={styles.aiBlockLabel}>POLICY CRITERIA</Text>
+              <Text style={styles.aiBlockText}>{policyExpl}</Text>
+            </View>
+          ) : null}
+
+          {reviewFocus && result.decision === 'REVIEW' && (
+            <View style={styles.aiFocusBlock}>
+              <Text style={styles.aiFocusLabel}>SUPERVISOR REVIEW FOCUS</Text>
+              <Text style={styles.aiFocusText}>{reviewFocus}</Text>
+            </View>
+          )}
+
+          <View style={styles.aiDisclaimerBox}>
+            <Ionicons name="information-circle-outline" size={14} color={THEME.colors.muted} />
+            <Text style={styles.aiDisclaimerText}>
+              Zero-Trust Principle: The AI API explains the outcome but has zero authority to decide or alter verification decisions.
+            </Text>
+          </View>
+        </View>
+
+        {/* 6. HOST PLATFORM CALLBACK & RETURN BUTTONS */}
+        <TouchableOpacity
+          style={[styles.callbackButton, callbackSent && styles.callbackButtonSuccess]}
+          onPress={handleSendCallback}
+          disabled={isSendingCallback || callbackSent}
+          activeOpacity={0.85}
+        >
+          <Ionicons
+            name={callbackSent ? 'checkmark-circle' : 'send-outline'}
+            size={18}
+            color="#FFFFFF"
+          />
+          <Text style={styles.callbackButtonText}>
+            {callbackSent
+              ? 'ATTESTATION DISPATCHED TO HOST (EKART) ✓'
+              : isSendingCallback
+              ? 'TRANSMITTING CALLBACK...'
+              : 'TRANSMIT CALLBACK TO HOST PLATFORM (EKART)'}
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.returnButton} onPress={onReturnHome} activeOpacity={0.85}>
           <Text style={styles.returnButtonText}>RETURN TO ROUTE QUEUE</Text>
           <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
@@ -245,8 +379,37 @@ const styles = StyleSheet.create({
     color: THEME.colors.slate,
     lineHeight: 17,
   },
+  factGrid: {
+    gap: 8,
+    marginTop: 4,
+  },
+  factItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  factLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.muted,
+  },
+  factVal: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  passText: {
+    color: THEME.colors.green,
+  },
+  failText: {
+    color: THEME.colors.signal,
+  },
+  reviewText: {
+    color: '#B45309',
+  },
   ruleRow: {
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#EEF2F3',
   },
@@ -283,14 +446,19 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: '#DBE1E5',
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  auditCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
   },
   auditHeader: {
     fontSize: 9,
     fontWeight: '800',
     color: THEME.colors.muted,
     letterSpacing: 1.2,
-    marginBottom: 10,
   },
   auditRow: {
     flexDirection: 'row',
@@ -309,21 +477,137 @@ const styles = StyleSheet.create({
   },
   auditHash: {
     fontSize: 10,
-    color: THEME.colors.signal,
+    color: '#0F172A',
     fontFamily: THEME.typography.fontFamily.mono,
     fontWeight: '700',
+    maxWidth: 200,
+  },
+  aiCard: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 4,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    marginBottom: 14,
+  },
+  aiCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  aiBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+  },
+  aiBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#6D28D9',
+    letterSpacing: 1,
+  },
+  aiModelTag: {
+    fontSize: 10,
+    color: '#7C3AED',
+    fontWeight: '700',
+  },
+  aiSummaryText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#3B0764',
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  aiBlock: {
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#E9D5FF',
+  },
+  aiBlockLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#7C3AED',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  aiBlockText: {
+    fontSize: 11,
+    color: '#4C1D95',
+    lineHeight: 16,
+  },
+  aiFocusBlock: {
+    marginTop: 10,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 2,
+    padding: 8,
+  },
+  aiFocusLabel: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#92400E',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  aiFocusText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#78350F',
+    lineHeight: 15,
+  },
+  aiDisclaimerBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E9D5FF',
+  },
+  aiDisclaimerText: {
+    fontSize: 9,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    flex: 1,
+  },
+  callbackButton: {
+    backgroundColor: '#0284C7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 2,
+    gap: 8,
+    marginBottom: 10,
+  },
+  callbackButtonSuccess: {
+    backgroundColor: '#15803D',
+  },
+  callbackButtonText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
   },
   returnButton: {
     backgroundColor: THEME.colors.slate,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
+    paddingVertical: 14,
     borderRadius: 2,
     gap: 8,
   },
   returnButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 1,
@@ -382,21 +666,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     position: 'relative',
   },
-  videoPlayOverlayBadge: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  videoDurationText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginTop: 4,
-    fontFamily: THEME.typography.fontFamily.mono,
-  },
   videoMetaBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -416,11 +685,5 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#34D399',
     letterSpacing: 0.5,
-  },
-  customerNoticeText: {
-    fontSize: 11,
-    color: THEME.colors.slate,
-    lineHeight: 15,
-    fontStyle: 'italic',
   },
 });

@@ -1004,3 +1004,98 @@ body {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* AI-Assisted Explanation Card */
+.ai-explanation-card {
+  background: #F5F3FF;
+  border: 1.5px solid #DDD6FE;
+  border-radius: 6px;
+  padding: 14px;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-explanation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-sparkle {
+  font-size: 16px;
+}
+
+.ai-confidence-pill {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #EDE9FE;
+  color: #6D28D9;
+  border: 1px solid #C4B5FD;
+  letter-spacing: 0.5px;
+}
+
+.ai-summary-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #3B0764;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.ai-breakdown-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ai-sub-block {
+  background: #FFFFFF;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid #E9D5FF;
+  font-size: 11px;
+  color: #4C1D95;
+  line-height: 1.35;
+}
+
+.ai-block-title {
+  font-weight: 800;
+  color: #6D28D9;
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.ai-review-focus-block {
+  background: #FEF3C7;
+  border: 1px solid #FDE68A;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #78350F;
+  line-height: 1.35;
+}
+
+.ai-focus-title {
+  font-weight: 900;
+  color: #92400E;
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  margin-bottom: 2px;
+}
+
+.ai-disclaimer-note {
+  font-size: 9px;
+  color: #6B7280;
+  font-style: italic;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid #E9D5FF;
+}

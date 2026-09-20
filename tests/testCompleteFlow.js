@@ -28,11 +28,12 @@ async function main() {
   console.log('  ✅ Cartoon wooden door completely eliminated from admin portal\n');
 
   // Test 3: Check admin/server.js upload endpoint and Range streaming
-  console.log('3. Checking admin server endpoints on port 3000...');
+  const PORT = process.env.PORT || 3001;
+  console.log(`3. Checking admin server endpoints on port ${PORT}...`);
   
   // 3a: Stream Rahul Varma video
   await new Promise((resolve, reject) => {
-    http.get('http://localhost:3000/api/uploads/bf19b2c4-0e55-49f4-ba43-09bac0181646.mp4', (res) => {
+    http.get(`http://localhost:${PORT}/api/uploads/bf19b2c4-0e55-49f4-ba43-09bac0181646.mp4`, (res) => {
       assert.strictEqual(res.statusCode, 200, 'Expected 200 OK');
       assert.strictEqual(res.headers['content-type'], 'video/mp4', 'Expected video/mp4');
       assert(parseInt(res.headers['content-length'], 10) > 0, 'Expected non-empty video file');
@@ -43,7 +44,7 @@ async function main() {
 
   // 3b: Range request (HTTP 206 Partial Content)
   await new Promise((resolve, reject) => {
-    const req = http.request('http://localhost:3000/api/uploads/bf19b2c4-0e55-49f4-ba43-09bac0181646.mp4', {
+    const req = http.request(`http://localhost:${PORT}/api/uploads/bf19b2c4-0e55-49f4-ba43-09bac0181646.mp4`, {
       headers: { Range: 'bytes=0-499' }
     }, (res) => {
       assert.strictEqual(res.statusCode, 206, 'Expected 206 Partial Content');
@@ -66,7 +67,7 @@ async function main() {
   const multipartBody = Buffer.concat([Buffer.from(header, 'utf8'), sampleBytes, Buffer.from(footer, 'utf8')]);
 
   await new Promise((resolve, reject) => {
-    const req = http.request('http://localhost:3000/api/upload', {
+    const req = http.request(`http://localhost:${PORT}/api/upload`, {
       method: 'POST',
       headers: {
         'Content-Type': `multipart/form-data; boundary=${boundary}`,

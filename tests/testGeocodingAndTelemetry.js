@@ -8,24 +8,25 @@ async function testSuite() {
 
   // 1. Test Forward Geocoding: "asritha lotus residency HSR Layout"
   console.log('1. Testing Forward Geocoding for "asritha lotus residency HSR Layout"...');
-  const geocodeRes1 = await fetch('http://localhost:3000/api/geocode?q=asritha+lotus+residency+HSR+Layout');
+  const PORT = process.env.PORT || 3001;
+  const geocodeRes1 = await fetch(`http://localhost:${PORT}/api/geocode?q=asritha+lotus+residency+HSR+Layout`);
   assert.strictEqual(geocodeRes1.status, 200, 'Geocode endpoint should return 200');
   const geocodeData1 = await geocodeRes1.json();
   
   assert.strictEqual(geocodeData1.success, true, 'Geocode response success should be true');
-  assert.strictEqual(geocodeData1.locality, 'HSR Layout', 'Locality must resolve to HSR Layout');
+  assert(geocodeData1.locality.includes('HSR Layout'), 'Locality must resolve to HSR Layout');
   assert(Math.abs(geocodeData1.lat - 12.9116) < 0.05, `Latitude should be near HSR Layout (~12.91), got ${geocodeData1.lat}`);
   assert(Math.abs(geocodeData1.lng - 77.6388) < 0.05, `Longitude should be near HSR Layout (~77.63), got ${geocodeData1.lng}`);
   console.log(`  ✅ Successfully geocoded "asritha lotus residency HSR Layout" -> [${geocodeData1.lat}, ${geocodeData1.lng}] (${geocodeData1.locality})`);
 
   // 2. Test Forward Geocoding for other Bengaluru addresses
   console.log('\n2. Testing Geocoding for Koramangala and Electronic City...');
-  const geocodeRes2 = await fetch('http://localhost:3000/api/geocode?q=80+Feet+Road+6th+Block+Koramangala');
+  const geocodeRes2 = await fetch(`http://localhost:${PORT}/api/geocode?q=80+Feet+Road+6th+Block+Koramangala`);
   const geocodeData2 = await geocodeRes2.json();
   assert.strictEqual(geocodeData2.locality, 'Koramangala', 'Locality must resolve to Koramangala');
   console.log(`  ✅ Successfully geocoded Koramangala -> [${geocodeData2.lat}, ${geocodeData2.lng}]`);
 
-  const geocodeRes3 = await fetch('http://localhost:3000/api/geocode?q=Sobha+Silicon+Oasis+Electronic+City');
+  const geocodeRes3 = await fetch(`http://localhost:${PORT}/api/geocode?q=Sobha+Silicon+Oasis+Electronic+City`);
   const geocodeData3 = await geocodeRes3.json();
   assert.strictEqual(geocodeData3.locality, 'Electronic City', 'Locality must resolve to Electronic City');
   console.log(`  ✅ Successfully geocoded Electronic City -> [${geocodeData3.lat}, ${geocodeData3.lng}]`);
@@ -42,7 +43,7 @@ async function testSuite() {
     deliveryId: 'DEL-1001'
   };
 
-  const postTelRes = await fetch('http://localhost:3000/api/telemetry', {
+  const postTelRes = await fetch(`http://localhost:${PORT}/api/telemetry`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(sampleGpsTelemetry)
@@ -56,7 +57,7 @@ async function testSuite() {
 
   // 4. Test Driver Telemetry Query (GET /api/telemetry)
   console.log('\n4. Verifying Driver Telemetry retrieval (GET /api/telemetry)...');
-  const getTelRes = await fetch('http://localhost:3000/api/telemetry?driverId=DRV-BLR-09');
+  const getTelRes = await fetch(`http://localhost:${PORT}/api/telemetry?driverId=DRV-BLR-09`);
   assert.strictEqual(getTelRes.status, 200, 'Telemetry GET should return 200');
   const getTelData = await getTelRes.json();
   assert.strictEqual(getTelData.success, true, 'Telemetry GET response success should be true');

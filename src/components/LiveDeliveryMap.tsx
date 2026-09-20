@@ -159,12 +159,12 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             if (lMap) return;
             lMap = L.map('map', { zoomControl: false, attributionControl: false });
 
-            // Overture Maps Foundation / Carto Voyager tiles with authenticated API key (removes watermark)
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=eyJhbGciOiJIUzI1NiJ9.eyJhIjoiYWNfemUydmszZnQiLCJqdGkiOiI1NTVmYjZiNCIsImV4cCI6MTgyMTQxNjQwMH0.o6X2QeVYgp8GcrhKAUZuAowYGxlxl9DfPkeroe-1r74', {
-              maxZoom: 20,
-              subdomains: 'abcd',
+            // Overture Maps Foundation / OpenFreeMap / OpenStreetMap open-source tiles (zero watermarks, no API key required)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              maxZoom: 19,
+              subdomains: 'abc',
               opacity: 0.98,
-              attribution: '© OpenStreetMap contributors | Overture Maps Foundation | CARTO'
+              attribution: '© OpenStreetMap contributors | Overture Maps Foundation | OpenFreeMap'
             }).addTo(lMap);
 
             // 50m Geofence Circle
