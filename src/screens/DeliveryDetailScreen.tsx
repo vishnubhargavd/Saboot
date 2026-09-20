@@ -650,7 +650,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
           videoProofUri: finalVideoUri || deliveryVideoUri || undefined,
           facts: {
             deliveryId: delivery.id,
-            residenceCategory: delivery.address.residenceCategory,
+            residenceCategory: delivery.address?.residenceCategory || 'individual_house',
             distanceMeters: distanceMeters || 0,
             requiredDistanceMeters: 50,
             dwellSeconds: dwellSeconds,
@@ -772,7 +772,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
 
           {/* Stop Content: Circular Dwell Ring + Stop Meta */}
           <DwellGauge
-            residenceCategory={delivery.address.residenceCategory}
+            residenceCategory={delivery.address?.residenceCategory || 'individual_house'}
             currentDwellSeconds={dwellSeconds}
             isInsideGeofence={isInsideGeofence}
             distanceMeters={distanceMeters}
@@ -1661,7 +1661,7 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
               timestamp: new Date().toISOString(),
               facts: {
                 deliveryId: delivery.id,
-                residenceCategory: delivery.address.residenceCategory,
+                residenceCategory: delivery.address?.residenceCategory || 'individual_house',
                 distanceMeters: distanceMeters || 12,
                 requiredDistanceMeters: 50,
                 dwellSeconds: dwellSeconds,

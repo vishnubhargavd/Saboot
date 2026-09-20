@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { THEME } from '../constants/theme';
 import { ResidenceCategory } from '../types/delivery';
-import { DWELL_POLICY_CONFIG } from '../constants/dwellPolicy';
+import { DWELL_POLICY_CONFIG, getDwellRule } from '../constants/dwellPolicy';
 
 interface DwellGaugeProps {
   residenceCategory: ResidenceCategory;
@@ -27,7 +27,7 @@ export const DwellGauge: React.FC<DwellGaugeProps> = ({
   isPaused = false,
   onTogglePause,
 }) => {
-  const dwellRule = DWELL_POLICY_CONFIG[residenceCategory];
+  const dwellRule = getDwellRule(residenceCategory);
   const targetSeconds = dwellRule.requiredDwellSeconds;
   const remainingSeconds = Math.max(0, targetSeconds - currentDwellSeconds);
   const isSatisfied = currentDwellSeconds >= targetSeconds;

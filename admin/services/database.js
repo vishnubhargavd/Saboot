@@ -132,13 +132,15 @@ function rowToDelivery(row, db) {
     phone: row.customer_phone || '',
     email: row.customer_email || ''
   };
-  const address = row.address_json ? JSON.parse(row.address_json) : {
-    street: 'Delivery Address',
-    city: 'Bengaluru',
-    postalCode: '560102',
-    latitude: 12.9719,
-    longitude: 77.6412,
-    residenceCategory: 'apartment'
+  const parsedAddress = row.address_json ? JSON.parse(row.address_json) : {};
+  const address = {
+    street: parsedAddress.street || 'Delivery Address',
+    city: parsedAddress.city || 'Bengaluru',
+    postalCode: parsedAddress.postalCode || '560102',
+    latitude: parsedAddress.latitude || 12.9719,
+    longitude: parsedAddress.longitude || 77.6412,
+    ...parsedAddress,
+    residenceCategory: parsedAddress.residenceCategory || 'apartment'
   };
   const extra = row.extra_json ? JSON.parse(row.extra_json) : {};
 

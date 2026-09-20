@@ -42,3 +42,10 @@ export const PROXIMITY_POLICY = {
   maxAcceptableGpsAccuracyMeters: 30, // beyond this, telemetry is flagged ambiguous
   maxPlausibleDriverSpeedKmh: 45, // speed anomalies within attempt window
 };
+
+export function getDwellRule(category?: string | null): ResidenceDwellRule {
+  if (category && (DWELL_POLICY_CONFIG as Record<string, ResidenceDwellRule>)[category]) {
+    return (DWELL_POLICY_CONFIG as Record<string, ResidenceDwellRule>)[category];
+  }
+  return DWELL_POLICY_CONFIG.individual_house;
+}

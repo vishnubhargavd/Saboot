@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import QRCode from 'react-native-qrcode-svg';
 import { THEME } from '../constants/theme';
 import { Delivery } from '../types/delivery';
-import { getSyncServerUrl, subscribeRealtimeEvents, RealtimeSyncEvent } from '../services/realtimeSync';
+import { getSyncServerUrl, subscribeToRealtimeEvents, RealtimeSyncEvent } from '../services/realtimeSync';
 
 interface CustomerQrModalProps {
   visible: boolean;
@@ -119,7 +119,7 @@ export const CustomerQrModal: React.FC<CustomerQrModalProps> = ({
   useEffect(() => {
     if (!visible) return;
 
-    const unsubscribe = subscribeRealtimeEvents((event: RealtimeSyncEvent) => {
+    const unsubscribe = subscribeToRealtimeEvents((event: RealtimeSyncEvent) => {
       if (event.deliveryId === delivery.id) {
         if (event.type === 'CUSTOMER_QR_SCANNED') {
           setCustomerScanned(true);

@@ -54,6 +54,9 @@ export interface Delivery {
   videoProofUri?: string;
   requiresAdminApproval?: boolean;
   adminApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  auditId?: string;
+  currentAttemptId?: string;
+  requiresCustomerConfirmation?: boolean;
   completedAt?: string;
   handoffType?: 'direct' | 'doorstep' | 'security';
   retryRequired?: boolean;

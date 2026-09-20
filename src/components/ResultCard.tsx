@@ -84,10 +84,11 @@ export const ResultCard: React.FC<ResultCardProps> = ({
       longitude: 77.6412,
       residenceCategory: result.facts?.residenceCategory || 'apartment',
     },
-    items: [],
     packageDescription: 'Delivery Order',
     estimatedDeliveryWindow: '10:00 AM - 12:00 PM',
     status: currentDecision as any,
+    createdAt: new Date().toISOString(),
+    assignedDriverId: 'DRV-BLR-09',
   };
 
   // Send Signed Attestation Callback to Host Platform

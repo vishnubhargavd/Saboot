@@ -192,6 +192,19 @@ function initWebStorage(): void {
     let existing: Delivery[] = stored ? JSON.parse(stored) : [];
     if (!Array.isArray(existing)) existing = [];
 
+    existing = existing.map((d: any) => ({
+      ...d,
+      address: {
+        street: 'Bengaluru Delivery Address',
+        city: 'Bengaluru',
+        postalCode: '560038',
+        latitude: 12.9719,
+        longitude: 77.6412,
+        ...d.address,
+        residenceCategory: d.address?.residenceCategory || 'individual_house',
+      },
+    }));
+
     let modified = false;
     for (const d of INITIAL_DELIVERIES) {
       if (!existing.some((e) => e.id === d.id)) {
@@ -223,12 +236,12 @@ export async function getDeliveriesFromDB(): Promise<Delivery[]> {
             phone: r.customer_phone,
           },
           address: {
-            street: r.street,
-            city: r.city,
+            street: r.street || 'Bengaluru Delivery Address',
+            city: r.city || 'Bengaluru',
             postalCode: '560100',
-            latitude: r.lat,
-            longitude: r.lng,
-            residenceCategory: r.residence_category,
+            latitude: r.lat || 12.9719,
+            longitude: r.lng || 77.6412,
+            residenceCategory: r.residence_category || 'individual_house',
           },
           packageDescription: r.package_desc,
           estimatedDeliveryWindow: 'Today',
@@ -258,8 +271,22 @@ export async function getDeliveriesFromDB(): Promise<Delivery[]> {
     if (data) {
       try {
         const parsed = JSON.parse(data);
-        inMemoryDeliveriesCache = parsed;
-        return parsed;
+        if (Array.isArray(parsed)) {
+          const sanitized = parsed.map((d: any) => ({
+            ...d,
+            address: {
+              street: 'Bengaluru Delivery Address',
+              city: 'Bengaluru',
+              postalCode: '560038',
+              latitude: 12.9719,
+              longitude: 77.6412,
+              ...d.address,
+              residenceCategory: d.address?.residenceCategory || 'individual_house',
+            },
+          }));
+          inMemoryDeliveriesCache = sanitized;
+          return sanitized;
+        }
       } catch (e) {}
     }
   }
