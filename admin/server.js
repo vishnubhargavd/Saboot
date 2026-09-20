@@ -523,6 +523,129 @@ const MIME_TYPES = {
   '.webm': 'video/webm'
 };
 
+// Active Driver Real-Time Telemetry Map
+const activeDriverTelemetry = new Map();
+
+// Seed initial driver DRV-BLR-09 with default online position
+activeDriverTelemetry.set('DRV-BLR-09', {
+  driverId: 'DRV-BLR-09',
+  driverName: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+  latitude: 12.9719,
+  longitude: 77.6412,
+  accuracy: 5,
+  speed: 0,
+  heading: 0,
+  isOnline: true,
+  updatedAt: Date.now()
+});
+
+// Curated Bengaluru locality directory with precise centroid coordinates
+const BENGALURU_LOCALITIES = [
+  { name: 'HSR Layout', aliases: ['hsr', 'hsr layout', 'asritha', 'lotus residency'], lat: 12.9116, lng: 77.6388, postcode: '560102' },
+  { name: 'Koramangala', aliases: ['koramangala'], lat: 12.9352, lng: 77.6245, postcode: '560095' },
+  { name: 'Indiranagar', aliases: ['indiranagar', 'indira nagar'], lat: 12.9784, lng: 77.6408, postcode: '560038' },
+  { name: 'Whitefield', aliases: ['whitefield', 'kadugodi'], lat: 12.9698, lng: 77.7500, postcode: '560066' },
+  { name: 'Bellandur', aliases: ['bellandur', 'ecospace'], lat: 12.9260, lng: 77.6762, postcode: '560103' },
+  { name: 'Electronic City', aliases: ['electronic city', 'ecity', 'elec city', 'silicon oasis'], lat: 12.8452, lng: 77.6602, postcode: '560100' },
+  { name: 'Jayanagar', aliases: ['jayanagar', 'jaya nagar'], lat: 12.9308, lng: 77.5838, postcode: '560041' },
+  { name: 'JP Nagar', aliases: ['jp nagar', 'jayaprakash nagar'], lat: 12.9063, lng: 77.5857, postcode: '560078' },
+  { name: 'BTM Layout', aliases: ['btm', 'btm layout'], lat: 12.9166, lng: 77.6101, postcode: '560076' },
+  { name: 'Marathahalli', aliases: ['marathahalli', 'marathalli'], lat: 12.9591, lng: 77.6974, postcode: '560037' },
+  { name: 'Sarjapur Road', aliases: ['sarjapur', 'sarjapur road'], lat: 12.9100, lng: 77.6800, postcode: '560035' },
+  { name: 'Hebbal', aliases: ['hebbal', 'godrej platinum'], lat: 13.0358, lng: 77.5970, postcode: '560024' },
+  { name: 'Yelahanka', aliases: ['yelahanka'], lat: 13.1007, lng: 77.5963, postcode: '560064' },
+  { name: 'Domlur', aliases: ['domlur', 'embassy golf links', 'egl'], lat: 12.9609, lng: 77.6387, postcode: '560071' },
+  { name: 'Rajajinagar', aliases: ['rajajinagar', 'rajaji nagar', 'phoenix one'], lat: 12.9982, lng: 77.5530, postcode: '560010' },
+  { name: 'Malleshwaram', aliases: ['malleshwaram', 'malleswaram'], lat: 13.0031, lng: 77.5643, postcode: '560003' },
+  { name: 'Sadashivanagar', aliases: ['sadashivanagar', 'sadashiva nagar', 'sankey'], lat: 13.0068, lng: 77.5813, postcode: '560080' },
+  { name: 'Vasanth Nagar', aliases: ['vasanth nagar', 'vasanthanagar', 'cunningham'], lat: 12.9866, lng: 77.5968, postcode: '560052' },
+  { name: 'Ashok Nagar', aliases: ['ashok nagar', 'lavelle road', 'shanthala nagar'], lat: 12.9716, lng: 77.5946, postcode: '560001' },
+  { name: 'Banashankari', aliases: ['banashankari', 'bsk'], lat: 12.9255, lng: 77.5468, postcode: '560050' },
+  { name: 'Bannerghatta Road', aliases: ['bannerghatta', 'bg road'], lat: 12.8950, lng: 77.5980, postcode: '560076' },
+  { name: 'Basavanagudi', aliases: ['basavanagudi', 'dvk'], lat: 12.9421, lng: 77.5753, postcode: '560004' }
+];
+
+const geocodeCache = new Map();
+
+async function geocodeAddressQuery(queryText) {
+  if (!queryText || typeof queryText !== 'string') {
+    return { lat: 12.9716, lng: 77.5946, locality: 'Bengaluru Central', formatted: 'Bengaluru, Karnataka' };
+  }
+
+  const clean = queryText.trim();
+  const cacheKey = clean.toLowerCase();
+  if (geocodeCache.has(cacheKey)) {
+    return geocodeCache.get(cacheKey);
+  }
+
+  // 1. Check if an explicit Bengaluru locality is detected in the text
+  let detectedLocality = null;
+  for (const loc of BENGALURU_LOCALITIES) {
+    for (const alias of loc.aliases) {
+      const rx = new RegExp(`\\b${alias.replace(/\\s+/g, '\\s+')}\\b`, 'i');
+      if (rx.test(clean)) {
+        detectedLocality = loc;
+        break;
+      }
+    }
+    if (detectedLocality) break;
+  }
+
+  // 2. Try online Nominatim lookup with 1.8s timeout
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1800);
+    const searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(clean + ', Bengaluru')}&limit=1`;
+    const res = await fetch(searchUrl, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Saboot-ZeroTrust-Logistics/1.0' }
+    });
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.length > 0) {
+        const result = {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+          locality: detectedLocality?.name || 'Bengaluru',
+          formatted: data[0].display_name
+        };
+        geocodeCache.set(cacheKey, result);
+        return result;
+      }
+    }
+  } catch (err) {
+    // Network timeout or error — proceed to locality match
+  }
+
+  // 3. Locality fallback with deterministic micro-offset based on apartment name hash
+  if (detectedLocality) {
+    let hash = 0;
+    for (let i = 0; i < clean.length; i++) hash = ((hash << 5) - hash) + clean.charCodeAt(i);
+    const offsetLat = ((Math.abs(hash) % 40) - 20) * 0.0001; // +/- 0.002 deg (~200m)
+    const offsetLng = ((Math.abs(hash >> 3) % 40) - 20) * 0.0001;
+
+    const result = {
+      lat: +(detectedLocality.lat + offsetLat).toFixed(6),
+      lng: +(detectedLocality.lng + offsetLng).toFixed(6),
+      locality: detectedLocality.name,
+      formatted: `${clean}, ${detectedLocality.name}, Bengaluru, ${detectedLocality.postcode}`
+    };
+    geocodeCache.set(cacheKey, result);
+    return result;
+  }
+
+  // 4. Default fallback: Bengaluru Central
+  const fallback = {
+    lat: 12.9716,
+    lng: 77.5946,
+    locality: 'Bengaluru Central',
+    formatted: `${clean}, Bengaluru, Karnataka`
+  };
+  geocodeCache.set(cacheKey, fallback);
+  return fallback;
+}
+
 const server = http.createServer((req, res) => {
   // CORS Headers for cross-origin mobile apps / web clients
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -572,6 +695,71 @@ const server = http.createServer((req, res) => {
     const filtered = recentEvents.filter((e) => e._t > since);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ events: filtered, now: Date.now() }));
+    return;
+  }
+
+  // 2b. Forward Geocoding API (Zero-trust address to GPS coordinates)
+  if (pathname === '/api/geocode' && req.method === 'GET') {
+    const q = parsedUrl.query.q || '';
+    geocodeAddressQuery(q).then((result) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, ...result }));
+    }).catch((err) => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: err.message }));
+    });
+    return;
+  }
+
+  // 2c. Driver Real-Time Telemetry API (Phone -> Server -> Admin Broadcast)
+  if (pathname === '/api/telemetry' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk));
+    req.on('end', () => {
+      try {
+        const tel = JSON.parse(body);
+        const driverId = tel.driverId || 'DRV-BLR-09';
+        const existing = activeDriverTelemetry.get(driverId) || {};
+        const updated = {
+          ...existing,
+          driverId,
+          latitude: typeof tel.latitude === 'number' ? tel.latitude : existing.latitude || 12.9719,
+          longitude: typeof tel.longitude === 'number' ? tel.longitude : existing.longitude || 77.6412,
+          accuracy: tel.accuracy || existing.accuracy || 5,
+          speed: typeof tel.speed === 'number' ? tel.speed : existing.speed || 0,
+          heading: typeof tel.heading === 'number' ? tel.heading : existing.heading || 0,
+          deliveryId: tel.deliveryId || existing.deliveryId,
+          isOnline: true,
+          updatedAt: Date.now()
+        };
+        activeDriverTelemetry.set(driverId, updated);
+
+        // Broadcast to all connected Admin Consoles via SSE and poll queue
+        broadcastEvent({
+          type: 'DRIVER_LOCATION_UPDATE',
+          ...updated
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, telemetry: updated }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid telemetry JSON' }));
+      }
+    });
+    return;
+  }
+
+  if (pathname === '/api/telemetry' && req.method === 'GET') {
+    const driverId = parsedUrl.query.driverId;
+    if (driverId) {
+      const tel = activeDriverTelemetry.get(driverId);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, telemetry: tel || null }));
+    } else {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: true, drivers: Array.from(activeDriverTelemetry.values()) }));
+    }
     return;
   }
 

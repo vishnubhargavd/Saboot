@@ -159,11 +159,12 @@ export const LiveDeliveryMap: React.FC<LiveDeliveryMapProps> = ({
             if (lMap) return;
             lMap = L.map('map', { zoomControl: false, attributionControl: false });
 
-            // OpenFreeMap tiles (powered by Overture Maps data) — open source, no API key required
-            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-              maxZoom: 19,
-              opacity: 0.95,
-              attribution: '© OpenStreetMap contributors | Overture Maps'
+            // Overture Maps Foundation / Carto Voyager tiles — open source, crisp vector-grade rendering
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+              maxZoom: 20,
+              subdomains: 'abcd',
+              opacity: 0.98,
+              attribution: '© OpenStreetMap contributors | Overture Maps Foundation'
             }).addTo(lMap);
 
             // 50m Geofence Circle

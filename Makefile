@@ -48,9 +48,11 @@ expo:
 	@npx expo start
 
 test:
+	@node tests/testGeocodingAndTelemetry.js
 	@node tests/runTests.js
 	@node tests/testOvertureAndDispatchSync.js
 	@node tests/verifyPhoneToDbToAdmin.js
+	@node tests/testCompleteFlow.js
 
 stop:
 	@echo "Stopping Saboot services on ports 3000 and 8081..."

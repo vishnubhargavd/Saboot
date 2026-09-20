@@ -199,6 +199,45 @@ export function broadcastRealtimeEvent(event: RealtimeSyncEvent): void {
 }
 
 /**
+ * Stream Driver Live GPS telemetry directly to the backend & Admin Operations Console
+ */
+let lastTelemetrySentTime = 0;
+
+export async function sendDriverLocationTelemetry(telemetry: {
+  driverId: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number | null;
+  speed?: number | null;
+  heading?: number | null;
+  deliveryId?: string;
+}): Promise<boolean> {
+  const now = Date.now();
+  // Throttle to at most once per 2.5 seconds to conserve mobile battery & bandwidth
+  if (now - lastTelemetrySentTime < 2500) {
+    return true;
+  }
+  lastTelemetrySentTime = now;
+
+  try {
+    const serverUrl = `${getSyncServerUrl()}/api/telemetry`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(serverUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(telemetry),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return res.ok;
+  } catch (err) {
+    // Non-blocking telemetry
+    return false;
+  }
+}
+
+/**
  * Subscribe to real-time events across native hooks, HTTP server SSE, and web windows
  */
 export function subscribeToRealtimeEvents(

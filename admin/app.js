@@ -451,8 +451,116 @@ function broadcastToApp(event) {
   } catch (err) {}
 }
 
+// Live Driver Telemetry Cache (driverId -> { lat, lng, speed, accuracy, heading, updatedAt })
+const driverLiveTelemetry = {};
+
+function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // metres
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+async function fetchInitialDriverTelemetry() {
+  try {
+    const res = await fetch('/api/telemetry');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.drivers)) {
+        data.drivers.forEach((d) => {
+          if (d.driverId && typeof d.latitude === 'number' && typeof d.longitude === 'number') {
+            driverLiveTelemetry[d.driverId] = {
+              lat: d.latitude,
+              lng: d.longitude,
+              accuracy: d.accuracy || 5,
+              speed: d.speed || 0,
+              heading: d.heading || 0,
+              updatedAt: d.updatedAt || Date.now()
+            };
+          }
+        });
+        const curr = orders.find((o) => o.id === selectedOrderId);
+        if (curr) renderSelectedOrderMap(curr);
+      }
+    }
+  } catch (e) {}
+}
+
+function handleDriverLocationUpdate(event) {
+  if (!event || typeof event.latitude !== 'number' || typeof event.longitude !== 'number') return;
+  const driverId = event.driverId || 'DRV-BLR-09';
+  driverLiveTelemetry[driverId] = {
+    lat: event.latitude,
+    lng: event.longitude,
+    accuracy: event.accuracy || 5,
+    speed: event.speed || 0,
+    heading: event.heading || 0,
+    updatedAt: event.timestamp || Date.now()
+  };
+
+  const selectedOrder = orders.find((o) => o.id === selectedOrderId);
+  if (selectedOrder && (selectedOrder.assignedDriverId === driverId || selectedOrder.driver?.includes(driverId))) {
+    // Update marker on map smoothly
+    if (lTruckMarker) {
+      lTruckMarker.setLatLng([event.latitude, event.longitude]);
+      if (lRoutePolyline) {
+        lRoutePolyline.setLatLngs([
+          [event.latitude, event.longitude],
+          [selectedOrder.address.lat, selectedOrder.address.lng]
+        ]);
+      }
+    }
+
+    // Recalculate real Haversine distance
+    const liveDist = Math.round(calculateHaversineDistance(
+      event.latitude,
+      event.longitude,
+      selectedOrder.address.lat,
+      selectedOrder.address.lng
+    ));
+
+    // Update telemetry bar and banner
+    const telemDist = document.getElementById('telemetryDistance');
+    if (telemDist) {
+      telemDist.innerHTML = `${liveDist}m (${liveDist <= 50 ? '≤50m OK' : 'OUTSIDE'})`;
+    }
+
+    const telemDriver = document.getElementById('telemetryDriver');
+    if (telemDriver) {
+      const kmh = Math.round((event.speed || 0) * 3.6);
+      telemDriver.innerHTML = `${driverId} • <span style="color:#10B981;font-weight:900;">LIVE GPS (${kmh} km/h)</span>`;
+    }
+
+    const banner = document.getElementById('geofenceStatusBanner');
+    const bannerText = document.getElementById('geofenceStatusText');
+    if (banner && bannerText) {
+      if (liveDist <= 50) {
+        banner.className = 'geofence-status-banner banner-inside';
+        bannerText.innerText = `INSIDE 50M GEOFENCE • ${liveDist}M TO DOOR (LIVE)`;
+      } else {
+        banner.className = 'geofence-status-banner banner-outside';
+        bannerText.innerText = `OUTSIDE GEOFENCE • ${liveDist}M FROM DESTINATION (LIVE)`;
+      }
+    }
+  }
+}
+
 function handleIncomingRealtimeEvent(event) {
   if (!event || !event.type) return;
+
+  // Real-time Driver GPS Telemetry Stream from Phone
+  if (event.type === 'DRIVER_LOCATION_UPDATE') {
+    handleDriverLocationUpdate(event);
+    return;
+  }
 
   if (event.type === 'DELIVERY_COMPLETED' && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
@@ -665,19 +773,27 @@ function renderSelectedOrderMap(order) {
   const driverOffsetLat = order.distanceMeters > 500 ? destLat + 0.022 : destLat + 0.0003;
   const driverOffsetLng = order.distanceMeters > 500 ? destLng + 0.022 : destLng + 0.0003;
 
+  // Use live GPS telemetry if driver is active, otherwise fallback to destination offset
+  const live = driverLiveTelemetry[order.assignedDriverId] || driverLiveTelemetry['DRV-BLR-09'];
+  const hasLiveGps = live && typeof live.lat === 'number' && typeof live.lng === 'number';
+  const driverPos = hasLiveGps ? [live.lat, live.lng] : [driverOffsetLat, driverOffsetLng];
+
+  const currentDist = hasLiveGps
+    ? Math.round(calculateHaversineDistance(live.lat, live.lng, destLat, destLng))
+    : order.distanceMeters;
+
   if (lGeofenceCircle) lMap.removeLayer(lGeofenceCircle);
   if (lRoutePolyline) lMap.removeLayer(lRoutePolyline);
   if (lCustomerMarker) lMap.removeLayer(lCustomerMarker);
   if (lTruckMarker) lMap.removeLayer(lTruckMarker);
 
   const dest = [destLat, destLng];
-  const driverPos = [driverOffsetLat, driverOffsetLng];
 
   // 50m Geofence Circle
   lGeofenceCircle = L.circle(dest, {
-    color: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
-    fillColor: order.distanceMeters <= 50 ? '#15803D' : '#D94A27',
-    fillOpacity: order.distanceMeters <= 50 ? 0.18 : 0.08,
+    color: currentDist <= 50 ? '#15803D' : '#D94A27',
+    fillColor: currentDist <= 50 ? '#15803D' : '#D94A27',
+    fillOpacity: currentDist <= 50 ? 0.18 : 0.08,
     weight: 2.5,
     dashArray: '5, 5',
     radius: 50
@@ -1521,6 +1637,11 @@ document.getElementById('btnCloseCreateModal').onclick = () => {
 };
 
 document.getElementById('btnSubmitNewOrder').onclick = async () => {
+  const btn = document.getElementById('btnSubmitNewOrder');
+  const originalText = btn.innerText;
+  btn.innerText = 'GEOCODING REAL ADDRESS...';
+  btn.disabled = true;
+
   const name = document.getElementById('inputCustName').value || 'Customer';
   const phone = document.getElementById('inputCustPhone').value || '+91 90191 44983';
   const street = document.getElementById('inputStreet').value || '100 Feet Road';
@@ -1529,11 +1650,35 @@ document.getElementById('btnSubmitNewOrder').onclick = async () => {
   const driverId = driverSelect.value;
   const driverName = driverSelect.options[driverSelect.selectedIndex].text;
 
+  // Real-world Forward Geocoding via Saboot backend
+  let geoLat = 12.9116;
+  let geoLng = 77.6388;
+  let geoLocality = 'Bengaluru';
+  let geoPostal = '560102';
+
+  try {
+    const geoRes = await fetch(`/api/geocode?q=${encodeURIComponent(street)}`);
+    if (geoRes.ok) {
+      const geoData = await geoRes.json();
+      if (geoData.success && typeof geoData.lat === 'number' && typeof geoData.lng === 'number') {
+        geoLat = geoData.lat;
+        geoLng = geoData.lng;
+        geoLocality = geoData.locality || 'Bengaluru';
+        console.log(`[Geocode] Successfully geocoded "${street}" -> [${geoLat}, ${geoLng}] (${geoLocality})`);
+      }
+    }
+  } catch (err) {
+    console.warn('[Geocode] Forward geocode error, using safe fallback:', err);
+  }
+
+  btn.innerText = originalText;
+  btn.disabled = false;
+
   const newOrder = {
     id: `DEL-${Math.floor(1000 + Math.random() * 9000)}`,
     trackingNumber: `SBT-BLR-${Math.floor(100000 + Math.random() * 900000)}`,
     customer: { id: `CUST-${Date.now()}`, name, phone },
-    address: { street, city: 'Bengaluru', postalCode: '560038', residenceCategory: cat, lat: 12.9719, lng: 77.6412 },
+    address: { street, city: 'Bengaluru', postalCode: geoPostal, residenceCategory: cat, lat: geoLat, lng: geoLng },
     packageDescription: 'New Dispatch Order',
     driver: driverName,
     assignedDriverId: driverId,
@@ -1546,7 +1691,7 @@ document.getElementById('btnSubmitNewOrder').onclick = async () => {
     gpsAccuracy: 5,
     auditId: `AUD-${Date.now().toString(36).toUpperCase()}`,
     decision: 'REVIEW',
-    decisionReason: 'Order newly dispatched — waiting for driver arrival and telemetry stream.',
+    decisionReason: `Order dispatched to ${geoLocality} — waiting for driver arrival and telemetry stream.`,
     createdAt: new Date().toISOString()
   };
 
@@ -1581,13 +1726,34 @@ document.getElementById('btnSubmitNewOrder').onclick = async () => {
     }
   });
 
-  showNotification(`🚀 New Task Dispatched: ${newOrder.id} assigned to ${driverName}`);
+  showNotification(`🚀 New Task Dispatched: ${newOrder.id} (${geoLocality}) assigned to ${driverName}`);
 };
+
+// Auto-resolve coordinates preview on address blur in dispatch modal
+const streetInputEl = document.getElementById('inputStreet');
+if (streetInputEl) {
+  streetInputEl.addEventListener('blur', async () => {
+    const val = streetInputEl.value.trim();
+    if (!val) return;
+    const statusText = document.getElementById('geocodeStatusText');
+    if (statusText) statusText.innerText = 'Resolving Bengaluru coordinates...';
+    try {
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(val)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && statusText) {
+          statusText.innerText = `Geocoded: ${data.locality} (${data.lat.toFixed(4)}, ${data.lng.toFixed(4)})`;
+        }
+      }
+    } catch (e) {}
+  });
+}
 
 // Boot
 window.onload = () => {
   loadPersistentDeliveries();
   initMap();
+  fetchInitialDriverTelemetry();
   renderOrderList();
   selectOrder(selectedOrderId);
 
@@ -1595,6 +1761,7 @@ window.onload = () => {
   setInterval(async () => {
     try {
       await loadPersistentDeliveries();
+      await fetchInitialDriverTelemetry();
     } catch (e) {}
   }, 10000);
 };

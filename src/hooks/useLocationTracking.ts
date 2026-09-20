@@ -8,6 +8,7 @@ import {
 } from '../services/locationService';
 import { SimulationService } from '../services/simulationService';
 import { DemoScenarioPreset } from '../constants/demoData';
+import { sendDriverLocationTelemetry } from '../services/realtimeSync';
 
 interface UseLocationTrackingProps {
   targetLatitude?: number;
@@ -47,6 +48,16 @@ export function useLocationTracking({ targetLatitude, targetLongitude }: UseLoca
       setCurrentLocation(point);
       setBreadcrumbs((prev) => [...prev.slice(-25), point]); // Keep last 25 breadcrumbs
       updateDistance(point);
+
+      // Stream live GPS coordinates to Saboot Admin Operations Console
+      sendDriverLocationTelemetry({
+        driverId: 'DRV-BLR-09',
+        latitude: point.latitude,
+        longitude: point.longitude,
+        accuracy: point.accuracy,
+        speed: point.speed,
+        heading: point.heading,
+      }).catch(() => {});
     },
     [updateDistance]
   );

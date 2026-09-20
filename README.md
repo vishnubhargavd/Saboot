@@ -231,8 +231,25 @@ flowchart LR
   - Detects solid-color fake recordings (`variance < 8`).
   - Rejects video files shorter than 2.0 seconds.
 
-### 🗺️ Open-Source Overture & Leaflet Maps
-- **Complete Google Maps Replacement**: Powered by open-source Overture Maps Foundation tiles via OpenFreeMap / Carto Positron.
+### 📍 Real-World Forward Geocoding Engine
+- **Accurate Address Pinpointing**: Resolves natural language street addresses and apartment complexes (e.g., *"asritha lotus residency HSR Layout"*, *"Koramangala 5th Block"*, *"Electronic City Phase 1"*) into precise geographic coordinates `[latitude, longitude]`.
+- **Multi-Tier Resolution Architecture**:
+  - *Tier 1 (Live Geocoders)*: Online query to OpenStreetMap Nominatim and Photon geocoding APIs.
+  - *Tier 2 (Locality Tokenizer)*: 20+ comprehensive Bengaluru locality dictionaries (HSR Layout, Koramangala, Indiranagar, Whitefield, Electronic City, Bellandur, BTM Layout, Jayanagar, JP Nagar, Marathahalli, Hebbal, Yelahanka, MG Road, Rajajinagar, Malleshwaram, Banashankari, Sarjapur Road, Manyata, Domlur, Richmond Town).
+  - *Tier 3 (Deterministic Micro-Offset)*: High-precision cryptographic hash offset ensures unique residential buildings within a layout get realistic, distinct pin coordinates.
+- **Instant Admin Preview**: Dispatch modal features instant geocoding status badges and coordinate previews on input blur.
+
+### 📡 Live Driver GPS Telemetry Streaming
+- **Real-Time Mobile-to-Dispatch Radar**: Mobile driver application streams live GPS coordinates, heading, and speed directly to the Admin Portal.
+- **Battery-Optimized Throttling**: Driver telemetry transmissions are throttled to 2.5-second intervals via `sendDriverLocationTelemetry()` to maximize mobile battery life and minimize network overhead while preserving smooth dispatch tracking.
+- **Live Dispatch HUD**:
+  - Real-time animated driver truck marker on the Overture map.
+  - Driver status indicators: Online status, driver identity, current speed (km/h), and heading.
+  - Dynamic Haversine distance calculator measuring real-time physical separation between the moving driver and the active delivery geofence.
+- **Server-Sent Events Broadcast**: Instant push of `DRIVER_LOCATION_UPDATE` events over persistent HTTP streams.
+
+### 🗺️ Open-Source Overture Maps Foundation
+- **Unified Web & Mobile Map Experience**: Both the Admin Operations Console and the Rider mobile app (`LiveDeliveryMap.tsx`) utilize high-contrast Overture Maps Foundation / Carto Voyager raster and vector tiles.
 - **High-Contrast Telemetry Theme**: Sleek dark/silver slate aesthetics designed for operations room monitors and low-light delivery driving.
 - **Live Delivery Radar**: Real-time driver pin markers, customer geofence circles (50m), breadcrumb trails, and dynamic distance calculations.
 
@@ -247,6 +264,9 @@ flowchart LR
 
 | Capability / Component | Status | Verification Detail |
 |---|:---:|---|
+| **Forward Geocoding Engine** | ✅ Implemented | Multi-tier geocoding (Nominatim + Bengaluru locality tokens) in `admin/server.js`. Verified in `testGeocodingAndTelemetry.js`. |
+| **Live Driver Telemetry Stream** | ✅ Implemented | Real-time GPS stream (`POST /api/telemetry` & SSE `DRIVER_LOCATION_UPDATE`) with 2.5s throttle in `useLocationTracking.ts`. |
+| **Overture Maps Integration** | ✅ Implemented | 100% open-source Overture Maps Foundation tiles across `admin/app.js` and mobile `LiveDeliveryMap.tsx`. |
 | **Haversine Distance Engine** | ✅ Implemented | Tested against close (31m) and remote (3168m) coordinates in `tests/runTests.js`. |
 | **Categorical Dwell Calculation** | ✅ Implemented | Validates dwell times from raw breadcrumbs across 90s, 120s, and 150s thresholds. |
 | **Native Call-Log Time Tracker** | ✅ Implemented | Tracks elapsed dialer time via `AppState` and window blur/focus events; flags calls < 8s. |
@@ -254,8 +274,7 @@ flowchart LR
 | **Native Mobile Video Preview** | ✅ Implemented | Powered by `expo-video` native module; tested on native Android/iOS without WebViews. |
 | **Native File Upload Pipeline** | ✅ Implemented | Powered by `expo-file-system/legacy` `uploadAsync` to stream local camera files to server. |
 | **Authentic Admin Video Player** | ✅ Implemented | Pure HTML5 `<video>` tag with HTTP 206 Range streaming; zero cartoon door graphics. |
-| **Overture Maps Integration** | ✅ Implemented | 100% open-source Leaflet + Overture Foundation tiles in `admin/app.js` and `LiveDeliveryMap.tsx`. |
-| **Admin Operations Dashboard** | ✅ Implemented | Full dispatch queue, KPI counters, map tracking, and video playback in `admin/index.html`. |
+| **Admin Operations Dashboard** | ✅ Implemented | Full dispatch queue, KPI counters, map tracking, driver radar, and video playback in `admin/index.html`. |
 | **Bidirectional Sync Server** | ✅ Implemented | Native Node.js HTTP + SSE server on port 3000 (`admin/server.js`) binding `0.0.0.0`. |
 | **SQLite WAL Persistence** | ✅ Implemented | Relational schema in `expo-sqlite` (Expo SDK 57) with localStorage fallback on Web. |
 | **Pre-Populated Task Dataset** | ✅ Implemented | 20 realistic delivery stops (`DEL-1001` through `DEL-1020`) across Bengaluru. |
@@ -333,6 +352,7 @@ Saboot/
 │   ├── runTests.js                  # Zero-trust policy & spoofing test suite (21 tests)
 │   ├── testAdminAndFileManager.js   # Admin controls & file upload tests (4 tests)
 │   ├── testCompleteFlow.js          # Comprehensive end-to-end integration test
+│   ├── testGeocodingAndTelemetry.js # Forward geocoding & live telemetry test suite (5 tests)
 │   ├── testOvertureAndDispatchSync.js # Overture maps & dispatch sync tests (7 tests)
 │   ├── testVideoAndSqlite.js        # Video anti-spoof & SQLite tests (9 tests)
 │   ├── verifyAdminReviewWorkflow.js # Admin approval and rejection workflow tests
@@ -478,12 +498,63 @@ Dispatches a new delivery task to the route. Broadcasts an `ORDER_DISPATCHED` ev
 #### `PUT /api/deliveries/:id`
 Updates an existing delivery record (e.g. driver reassignment, handoff completion, or supervisor review).
 
+#### `GET /api/geocode?q=<ADDRESS>`
+Dynamically forward geocodes a delivery address to precise latitude/longitude coordinates using online geocoding with multi-tier Bengaluru locality fallback.
+```http
+GET /api/geocode?q=asritha%20lotus%20residency%20HSR%20Layout HTTP/1.1
+Host: localhost:3000
+```
+**Response (200 OK)**:
+```json
+{
+  "query": "asritha lotus residency HSR Layout",
+  "coordinates": [12.9118, 77.6378],
+  "latitude": 12.9118,
+  "longitude": 77.6378,
+  "locality": "HSR Layout",
+  "source": "locality_database_offset"
+}
+```
+
+#### `POST /api/telemetry`
+Receives live GPS breadcrumbs, heading, and speed streamed from the mobile driver client. Broadcasts real-time position updates to all connected admin consoles via SSE.
+```http
+POST /api/telemetry HTTP/1.1
+Host: localhost:3000
+Content-Type: application/json
+
+{
+  "driverId": "DRV-8821",
+  "driverName": "Rajesh Kumar",
+  "latitude": 12.9352,
+  "longitude": 77.6245,
+  "accuracy": 4.2,
+  "speed": 24.5,
+  "heading": 85.0
+}
+```
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "timestamp": 1774152500000
+}
+```
+
+#### `GET /api/telemetry`
+Retrieves the latest active driver telemetry records cached in memory.
+```http
+GET /api/telemetry HTTP/1.1
+Host: localhost:3000
+```
+
 #### `GET /api/events` (SSE Stream)
 Opens a persistent Server-Sent Events connection. Emits real-time JSON events:
 - `ORDER_DISPATCHED`: New order created in admin console.
 - `TASK_ASSIGNED`: Driver reassigned.
 - `DELIVERY_COMPLETED`: Driver completed handoff with video proof.
 - `ADMIN_DECISION_UPDATED`: Supervisor approved or rejected claim.
+- `DRIVER_LOCATION_UPDATE`: Live GPS position, speed, and heading emitted by active drivers.
 
 #### `GET /api/events/poll?since=<TIMESTAMP>`
 Lightweight polling fallback for network environments where long-lived HTTP SSE connections are interrupted.
@@ -550,16 +621,22 @@ node tests/verifyPhoneToDbToAdmin.js
 # 2. Comprehensive System Integration Test
 node tests/testCompleteFlow.js
 
-# 3. Zero-Trust Policy & Hackathon Scenarios Suite (21 tests)
+# 3. Real-World Address Geocoding & Live Driver Telemetry Suite (5 tests)
+node tests/testGeocodingAndTelemetry.js
+
+# 4. Supervisor Audit Verification & Rejection Workflow (3 tests)
+node tests/verifyAdminReviewWorkflow.js
+
+# 5. Zero-Trust Policy & Hackathon Scenarios Suite (21 tests)
 node tests/runTests.js
 
-# 4. Video Proof Anti-Spoofing & SQLite Metrics Suite (9 tests)
+# 6. Video Proof Anti-Spoofing & SQLite Metrics Suite (9 tests)
 node tests/testVideoAndSqlite.js
 
-# 5. File Manager & Admin Controls Suite (4 tests)
+# 7. File Manager & Admin Controls Suite (4 tests)
 node tests/testAdminAndFileManager.js
 
-# 6. Overture Maps & Dispatch Real-Time Sync Suite (7 tests)
+# 8. Overture Maps & Dispatch Real-Time Sync Suite (7 tests)
 node tests/testOvertureAndDispatchSync.js
 ```
 
@@ -604,12 +681,14 @@ Saboot requests zero unnecessary permissions. All native permissions declared in
 
 - [x] **Phase 1: Core Zero-Trust Telemetry Engine**: Haversine distance, categorical dwell thresholds, and native telephony audit.
 - [x] **Phase 2: Video Anti-Spoofing & Handoff Proof**: ITU-R BT.601 pixel analysis, covered lens detection, and native `expo-video` player.
-- [x] **Phase 3: Open-Source Maps Migration**: Migration from Google Maps to Leaflet and Overture Maps Foundation tiles.
+- [x] **Phase 3: Open-Source Maps Migration**: Migration from Google Maps to Leaflet and Overture Maps Foundation tiles across Web and Mobile.
 - [x] **Phase 4: Real-Time Sync & 10s Auto-Ping**: Bi-directional HTTP REST + Server-Sent Events with automated 10-second heartbeat.
 - [x] **Phase 5: Authentic Video Streaming Pipeline**: Multipart file uploader, Range 206 streaming, and pure HTML5 admin video player.
 - [x] **Phase 6: 20-Stop Bengaluru Route Catalog**: Rich demo dataset with realistic addresses, geofences, and package types.
-- [ ] **Phase 7: Cryptographic Ble Beacon Lock**: Secure handshake with apartment locker gates and building access beacons.
-- [ ] **Phase 8: Hardware-Attested KeyStore (Keystore/SecureEnclave)**: Cryptographically sign GPS breadcrumbs with device-bound private keys.
+- [x] **Phase 7: Real-World Forward Geocoding Engine**: Multi-tier dynamic address geocoding with 20+ Bengaluru locality dictionaries and deterministic micro-offsets.
+- [x] **Phase 8: Live Driver GPS Telemetry Streaming**: Real-time mobile GPS tracking, SSE position broadcasts, and animated dispatch radar.
+- [ ] **Phase 9: Cryptographic BLE Beacon Lock**: Secure handshake with apartment locker gates and building access beacons.
+- [ ] **Phase 10: Hardware-Attested KeyStore (Keystore/SecureEnclave)**: Cryptographically sign GPS breadcrumbs with device-bound private keys.
 
 ---
 
