@@ -2133,8 +2133,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 5. Health Check
-  if (pathname === '/api/health') {
+  // 5. Health Check (AWS App Runner / ALB compatible)
+  if (pathname === '/api/health' || pathname === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', uptime: process.uptime(), deliveriesCount: deliveries.length }));
     return;

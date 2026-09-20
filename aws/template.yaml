@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Saboot Zero-Trust Delivery Attestation Engine - AWS App Runner Public HTTPS Service'
+
+Parameters:
+  RepositoryUrl:
+    Type: String
+    Default: 'https://github.com/vishnubhargavd/Saboot'
+    Description: 'GitHub Repository URL for Saboot'
+  BranchName:
+    Type: String
+    Default: 'feature/saboot-ai-zero-trust'
+    Description: 'Git branch name to deploy'
+  EmailFrom:
+    Type: String
+    Default: 'onboarding@resend.dev'
+    Description: 'Verified Resend sender address'
+
+Resources:
+  SabootAppRunnerService:
+    Type: 'AWS::AppRunner::Service'
+    Properties:
+      ServiceName: 'saboot-zero-trust-engine'
+      SourceConfiguration:
+        AutoDeploymentsEnabled: true
+        CodeRepository:
+          RepositoryUrl: !Ref RepositoryUrl
+          SourceCodeVersion:
+            Type: BRANCH
+            Value: !Ref BranchName
+          CodeConfiguration:
+            ConfigurationSource: REPOSITORY
+      InstanceConfiguration:
+        Cpu: '1 vCPU'
+        Memory: '2 GB'
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: '/api/health'
+        Interval: 10
+        Timeout: 5
+        HealthyThreshold: 1
+        UnhealthyThreshold: 3
+
+Outputs:
+  ServiceUrl:
+    Description: 'Public HTTPS URL for Saboot Admin Console and Customer Verification Portal'
+    Value: !Sub 'https://${SabootAppRunnerService.ServiceUrl}'
+  CustomerPortalVerificationUrlExample:
+    Description: 'Example Customer Verification Portal URL'
+    Value: !Sub 'https://${SabootAppRunnerService.ServiceUrl}/verify/DEL-ASR-01'

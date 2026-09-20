@@ -1399,7 +1399,9 @@ function selectOrder(orderId) {
   const notifLink = document.getElementById('simulatedPortalLink');
 
   const verifyUrl = `/verify/${encodeURIComponent(order.id)}`;
-  const fullVerifyUrl = `http://${window.location.hostname || 'localhost'}:${window.location.port || 3001}${verifyUrl}`;
+  const fullVerifyUrl = (order.verificationUrl && !order.verificationUrl.includes('localhost'))
+    ? order.verificationUrl
+    : `${window.location.origin}${verifyUrl}`;
 
   if (custPortalLink) {
     custPortalLink.href = verifyUrl;
