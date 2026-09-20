@@ -11,6 +11,13 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
+const db = require('./services/database');
+const { SEED_DELIVERIES } = require('./data/seedData');
+let QRCode = null;
+try {
+  QRCode = require('qrcode');
+} catch (e) {}
+
 const { generateVerificationExplanation, generateAiExplanation } = require('./services/aiExplanationService');
 const {
   renderCustomerPortalHtml,
@@ -49,54 +56,105 @@ const HOST = '0.0.0.0'; // Bind to all interfaces so mobile devices on Wi-Fi can
 // Configurable time-to-live for customer verification QR tokens (Default: 300 seconds / 5 minutes)
 const QR_TTL_SECONDS = parseInt(process.env.CUSTOMER_QR_TTL_SECONDS || '300', 10);
 
-// In-memory store for cryptographically secure verification tokens
-// Key: token -> { token, deliveryId, attemptId, createdAt, expiresAt, status, customerResponse, scannedAt, consumedAt }
-const customerVerificationTokens = new Map();
+// Rate limiter map: IP -> { count, resetAt }
+const rateLimitMap = new Map();
+function checkRateLimit(ip, limit = 60, windowMs = 60000) {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip) || { count: 0, resetAt: now + windowMs };
+  if (now > entry.resetAt) {
+    entry.count = 1;
+    entry.resetAt = now + windowMs;
+  } else {
+    entry.count++;
+  }
+  rateLimitMap.set(ip, entry);
+  return entry.count <= limit;
+}
+
+// In-memory cache for active verification tokens (Session ID/Hash -> { rawToken, verificationUrl, qrSvg, expiresAt })
+const activeSessionsMemory = new Map();
 
 function getCustomerPortalBaseUrl(req) {
+  if (process.env.PUBLIC_BASE_URL && process.env.PUBLIC_BASE_URL.trim()) {
+    return process.env.PUBLIC_BASE_URL.trim().replace(/\/+$/, '');
+  }
   if (process.env.CUSTOMER_PORTAL_BASE_URL && process.env.CUSTOMER_PORTAL_BASE_URL.trim()) {
     return process.env.CUSTOMER_PORTAL_BASE_URL.trim().replace(/\/+$/, '');
   }
-  if (req && req.headers && req.headers.host) {
-    const proto = req.headers['x-forwarded-proto'] || 'http';
-    return `${proto}://${req.headers.host}`;
+  if (req && req.headers) {
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    if (host) {
+      const proto = req.headers['x-forwarded-proto'] || 'http';
+      return `${proto}://${host}`;
+    }
   }
   return `http://localhost:${PORT}`;
 }
 
-function createCustomerVerificationToken(delivery, req) {
-  const token = crypto.randomBytes(24).toString('base64url');
+async function createCustomerVerificationToken(delivery, req, customAttemptId = null) {
+  const rawToken = crypto.randomBytes(32).toString('base64url');
+  const tokenHash = db.hashToken(rawToken);
   const now = new Date();
   const expiresAt = new Date(now.getTime() + QR_TTL_SECONDS * 1000).toISOString();
-  const attemptId = delivery.auditId || `ATT-${Date.now().toString(36).toUpperCase()}`;
+  const attemptId = customAttemptId || delivery.auditId || `ATT-${Date.now().toString(36).toUpperCase()}`;
 
-  const tokenRecord = {
-    token,
+  const clientIp = req?.socket?.remoteAddress || req?.headers?.['x-forwarded-for'] || '127.0.0.1';
+  const userAgent = req?.headers?.['user-agent'] || 'driver-app';
+
+  // Authoritative persistence in SQLite
+  const session = db.createVerificationSession({
     deliveryId: delivery.id,
     attemptId,
-    createdAt: now.toISOString(),
-    expiresAt,
-    status: 'ACTIVE',
-    customerResponse: null,
-    scannedAt: null,
-    consumedAt: null
-  };
-
-  customerVerificationTokens.set(token, tokenRecord);
+    tokenHash,
+    ttlSeconds: QR_TTL_SECONDS,
+    clientIp,
+    userAgent
+  });
 
   const baseUrl = getCustomerPortalBaseUrl(req);
-  const verificationUrl = `${baseUrl}/v/${token}`;
+  const verificationUrl = `${baseUrl}/v/${rawToken}`;
 
-  delivery.verificationToken = token;
+  // Generate SVG QR representation
+  let qrSvg = null;
+  if (QRCode) {
+    try {
+      qrSvg = await QRCode.toString(verificationUrl, { type: 'svg', margin: 1 });
+    } catch (qrErr) {
+      console.warn('[Server] QRCode SVG generation error:', qrErr.message);
+    }
+  }
+
+  // Cache session info for fast Admin rendering
+  activeSessionsMemory.set(session.id, {
+    rawToken,
+    verificationUrl,
+    qrSvg,
+    expiresAt,
+    deliveryId: delivery.id,
+    attemptId
+  });
+  activeSessionsMemory.set(tokenHash, {
+    rawToken,
+    verificationUrl,
+    qrSvg,
+    expiresAt,
+    deliveryId: delivery.id,
+    attemptId
+  });
+
+  delivery.verificationToken = rawToken;
   delivery.verificationUrl = verificationUrl;
   delivery.qrExpiresAt = expiresAt;
   delivery.qrStatus = 'ACTIVE';
+  delivery.customerResponse = null;
+  delivery.customerResponseAt = null;
+  delivery.customerResponseSource = null;
 
   if (!delivery.auditTimeline) delivery.auditTimeline = [];
   delivery.auditTimeline.push({
     timestamp: now.toISOString(),
     event: 'CUSTOMER_QR_GENERATED',
-    description: `Customer verification QR generated (expires in ${Math.round(QR_TTL_SECONDS / 60)}m)`
+    description: `Customer verification QR generated (attempt: ${attemptId}, expires in ${Math.round(QR_TTL_SECONDS / 60)}m)`
   });
 
   saveDeliveries();
@@ -104,8 +162,10 @@ function createCustomerVerificationToken(delivery, req) {
   broadcastEvent({
     type: 'CUSTOMER_QR_GENERATED',
     deliveryId: delivery.id,
-    token,
+    attemptId,
+    token: rawToken,
     verificationUrl,
+    qrSvg,
     expiresAt,
     expiresInSeconds: QR_TTL_SECONDS,
     timestamp: now.toISOString(),
@@ -114,22 +174,42 @@ function createCustomerVerificationToken(delivery, req) {
 
   return {
     success: true,
-    token,
+    token: rawToken,
     verificationUrl,
+    qrSvg,
     expiresAt,
     expiresInSeconds: QR_TTL_SECONDS,
-    deliveryId: delivery.id
+    deliveryId: delivery.id,
+    attemptId
   };
 }
 
 function getVerificationTokenRecord(token) {
   if (!token) return null;
-  const record = customerVerificationTokens.get(token);
-  if (!record) return null;
-  if (record.status !== 'CONSUMED' && Date.now() > new Date(record.expiresAt).getTime()) {
-    record.status = 'EXPIRED';
+  const tokenHash = db.hashToken(token);
+  const session = db.getVerificationSessionByHash(tokenHash);
+  if (!session) return null;
+
+  if (session.status !== 'CONSUMED' && Date.now() > new Date(session.expires_at).getTime()) {
+    session.status = 'EXPIRED';
   }
-  return record;
+
+  const cached = activeSessionsMemory.get(tokenHash);
+  return {
+    id: session.id,
+    token: cached?.rawToken || token,
+    tokenHash: session.token_hash,
+    deliveryId: session.delivery_id,
+    attemptId: session.attempt_id,
+    status: session.status,
+    createdAt: session.created_at,
+    expiresAt: session.expires_at,
+    openedAt: session.opened_at,
+    consumedAt: session.consumed_at,
+    customerResponse: session.response,
+    verificationUrl: cached?.verificationUrl || `/v/${token}`,
+    qrSvg: cached?.qrSvg || null
+  };
 }
 
 const DATA_DIR = path.join(__dirname, 'data');
@@ -779,35 +859,30 @@ const DEFAULT_DELIVERIES = [
   }
 ];
 
-// Load persisted deliveries or initialize with defaults
+// Load persisted deliveries from authoritative SQLite Database
+const isProduction = process.env.NODE_ENV === 'production';
 let deliveries = [];
+
 try {
-  if (fs.existsSync(DATA_FILE)) {
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    deliveries = JSON.parse(raw);
-    if (!Array.isArray(deliveries) || deliveries.length === 0) {
-      deliveries = [...DEFAULT_DELIVERIES];
-    }
-  } else {
-    deliveries = [...DEFAULT_DELIVERIES];
+  deliveries = db.getAllDeliveries();
+  if (deliveries.length === 0 && !isProduction) {
+    console.log('[Server] Non-production environment detected: seeding initial deliveries into SQLite...');
+    db.seedIfEmpty(DEFAULT_DELIVERIES);
+    deliveries = db.getAllDeliveries();
   }
-} catch (e) {
+} catch (dbErr) {
+  console.error('[Server] Failed to initialize deliveries from SQLite:', dbErr);
   deliveries = [...DEFAULT_DELIVERIES];
 }
-
-// Always ensure all DEFAULT_DELIVERIES exist in the server's deliveries list
-let needsSave = false;
-for (const def of DEFAULT_DELIVERIES) {
-  if (!deliveries.some((d) => d.id === def.id)) {
-    deliveries.push(def);
-    needsSave = true;
-  }
-}
-saveDeliveries();
 
 function saveDeliveries() {
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(deliveries, null, 2), 'utf8');
+    for (const d of deliveries) {
+      try {
+        db.upsertDelivery(d);
+      } catch (e) {}
+    }
   } catch (err) {
     console.warn('[Server] Error saving deliveries to disk:', err);
   }
@@ -1075,7 +1150,15 @@ const server = http.createServer((req, res) => {
   // CORS Headers for cross-origin mobile apps / web clients
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Driver-Id, X-Admin-Api-Key');
+
+  // Security Headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -1188,47 +1271,119 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 2b. Generate Customer Verification QR Token (POST & GET /api/deliveries/:id/customer-verification/qr)
-  const qrGenMatch = pathname ? pathname.match(/^\/api\/deliveries\/([^/]+)\/customer-verification\/qr$/) : null;
-  if (qrGenMatch && (req.method === 'POST' || req.method === 'GET')) {
-    const deliveryId = decodeURIComponent(qrGenMatch[1]);
-    const delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+  // 2b. Attempt-Scoped Customer Verification QR API
+  // POST & GET /api/deliveries/:deliveryId/attempts/:attemptId/customer-verification
+  // Legacy aliases: POST & GET /api/deliveries/:id/customer-verification/qr
+  const attemptQrMatch = pathname ? pathname.match(/^\/api\/deliveries\/([^/]+)\/attempts\/([^/]+)\/customer-verification$/) : null;
+  const legacyQrMatch = pathname ? pathname.match(/^\/api\/deliveries\/([^/]+)\/customer-verification\/qr$/) : null;
+
+  if (attemptQrMatch || legacyQrMatch) {
+    const clientIp = req.socket.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
+    if (!checkRateLimit(clientIp, 60, 60000)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests. Please try again later.' }));
+      return;
+    }
+
+    const deliveryId = decodeURIComponent((attemptQrMatch || legacyQrMatch)[1]);
+    let delivery = deliveries.find((d) => d.id === deliveryId || d.trackingNumber === deliveryId);
+    if (!delivery) {
+      delivery = db.getDelivery(deliveryId);
+      if (delivery) deliveries.push(delivery);
+    }
+
     if (!delivery) {
       res.writeHead(404, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: false, error: `Delivery ${deliveryId} not found` }));
       return;
     }
 
-    // If active valid token already exists and is not expired and method is GET, return it
-    if (req.method === 'GET' && delivery.verificationToken) {
-      const existing = getVerificationTokenRecord(delivery.verificationToken);
-      if (existing && existing.status === 'ACTIVE' && Date.now() < new Date(existing.expiresAt).getTime()) {
+    const attemptId = attemptQrMatch
+      ? decodeURIComponent(attemptQrMatch[2])
+      : (delivery.auditId || `ATT-${delivery.id}`);
+
+    // Driver Authorization: If X-Driver-Id is provided, enforce that it matches assignedDriverId
+    const driverIdHeader = req.headers['x-driver-id'];
+    if (driverIdHeader && delivery.assignedDriverId && delivery.assignedDriverId !== driverIdHeader) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: false,
+        error: 'UNAUTHORIZED_DRIVER',
+        message: `Driver '${driverIdHeader}' is not authorized to generate QR for delivery assigned to '${delivery.assignedDriverId}'`
+      }));
+      return;
+    }
+
+    // GET: Query active QR session without creating a new session or resetting expiration
+    if (req.method === 'GET') {
+      const activeSession = db.getActiveVerificationSessionForAttempt(delivery.id, attemptId);
+      if (activeSession) {
+        const expiresInSeconds = Math.max(0, Math.round((new Date(activeSession.expires_at).getTime() - Date.now()) / 1000));
+        const cached = activeSessionsMemory.get(activeSession.token_hash) || activeSessionsMemory.get(activeSession.id);
         const baseUrl = getCustomerPortalBaseUrl(req);
+        const verificationUrl = cached?.verificationUrl || (cached?.rawToken ? `${baseUrl}/v/${cached.rawToken}` : `${baseUrl}/v/${delivery.id}`);
+
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           success: true,
-          token: existing.token,
-          verificationUrl: `${baseUrl}/v/${existing.token}`,
-          expiresAt: existing.expiresAt,
-          expiresInSeconds: Math.max(0, Math.round((new Date(existing.expiresAt).getTime() - Date.now()) / 1000)),
-          deliveryId: delivery.id
+          active: true,
+          status: activeSession.status,
+          sessionId: activeSession.id,
+          deliveryId: delivery.id,
+          attemptId: activeSession.attempt_id,
+          expiresAt: activeSession.expires_at,
+          expiresInSeconds,
+          verificationUrl,
+          qrSvg: cached?.qrSvg || null
         }));
         return;
       }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        active: false,
+        status: 'NONE',
+        deliveryId: delivery.id,
+        attemptId,
+        message: 'No active customer verification session for this attempt'
+      }));
+      return;
     }
 
-    // Create a new cryptographically secure token
-    const qrData = createCustomerVerificationToken(delivery, req);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(qrData));
+    // POST: Generate fresh cryptographically secure verification token
+    if (req.method === 'POST') {
+      createCustomerVerificationToken(delivery, req, attemptId).then((qrData) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(qrData));
+      }).catch((err) => {
+        console.error('[Server QR Gen Error]:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'INTERNAL_ERROR', message: err.message }));
+      });
+      return;
+    }
+
+    res.writeHead(405, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
     return;
   }
 
   // 2c. Secure QR Customer Verification Portal (GET /v/:token)
   const tokenPortalMatch = pathname ? pathname.match(/^\/v\/([^/]+)$/) : null;
   if (tokenPortalMatch && req.method === 'GET') {
+    const clientIp = req.socket.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
+    if (!checkRateLimit(clientIp, 60, 60000)) {
+      res.writeHead(429, { 'Content-Type': 'text/plain' });
+      res.end('Too many requests. Please try again later.');
+      return;
+    }
+
     const token = decodeURIComponent(tokenPortalMatch[1]);
     const tokenRecord = getVerificationTokenRecord(token);
+
+    // Apply strict CSP for customer portal
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;");
 
     if (!tokenRecord) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1236,7 +1391,12 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+    let delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+    if (!delivery) {
+      delivery = db.getDelivery(tokenRecord.deliveryId);
+      if (delivery) deliveries.push(delivery);
+    }
+
     if (!delivery) {
       res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(renderTokenInvalidHtml());
@@ -1252,34 +1412,39 @@ const server = http.createServer((req, res) => {
     }
 
     // Check if already completed
-    if (tokenRecord.status === 'CONSUMED' || delivery.customerResponse) {
+    if (tokenRecord.status === 'CONSUMED') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(renderTokenCompletedHtml(delivery));
       return;
     }
 
-    // Active token opened by customer -> mark as SCANNED
-    tokenRecord.status = 'SCANNED';
-    tokenRecord.scannedAt = new Date().toISOString();
-    delivery.qrStatus = 'SCANNED';
+    // Active token opened by customer -> mark as OPENED in authoritative SQLite DB
+    if (tokenRecord.status !== 'OPENED') {
+      const userAgent = req.headers['user-agent'] || 'customer-browser';
+      db.markVerificationSessionOpened(tokenRecord.tokenHash, clientIp, userAgent);
+      tokenRecord.status = 'OPENED';
+      tokenRecord.openedAt = new Date().toISOString();
+      delivery.qrStatus = 'OPENED';
 
-    ensureDeliveryAuditTimeline(delivery);
-    const hasScanned = delivery.auditTimeline.some((e) => e.event === 'CUSTOMER_QR_SCANNED');
-    if (!hasScanned) {
-      const scanTime = new Date().toISOString();
-      delivery.auditTimeline.push(
-        { timestamp: scanTime, event: 'CUSTOMER_QR_SCANNED', description: 'Customer scanned verification QR' },
-        { timestamp: scanTime, event: 'CUSTOMER_VERIFICATION_OPENED', description: 'Customer opened verification portal' }
-      );
-      saveDeliveries();
-      broadcastEvent({
-        type: 'CUSTOMER_QR_SCANNED',
-        deliveryId: delivery.id,
-        token: tokenRecord.token,
-        timestamp: scanTime,
-        notes: `Customer scanned QR for ${delivery.id}`,
-        auditTimeline: delivery.auditTimeline
-      });
+      ensureDeliveryAuditTimeline(delivery);
+      const hasOpened = delivery.auditTimeline.some((e) => e.event === 'CUSTOMER_VERIFICATION_OPENED');
+      if (!hasOpened) {
+        const scanTime = new Date().toISOString();
+        delivery.auditTimeline.push(
+          { timestamp: scanTime, event: 'CUSTOMER_QR_SCANNED', description: 'Customer scanned verification QR code' },
+          { timestamp: scanTime, event: 'CUSTOMER_VERIFICATION_OPENED', description: 'Customer opened verification portal' }
+        );
+        saveDeliveries();
+        broadcastEvent({
+          type: 'CUSTOMER_VERIFICATION_OPENED',
+          deliveryId: delivery.id,
+          attemptId: tokenRecord.attemptId,
+          token: tokenRecord.token,
+          timestamp: scanTime,
+          notes: `Customer opened verification portal for ${delivery.id}`,
+          auditTimeline: delivery.auditTimeline
+        });
+      }
     }
 
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1320,13 +1485,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 2e. Customer Verification Response API (POST /api/customer-verification/token/:token & POST /api/customer-verification/:deliveryId)
+  // 2e. Customer Verification Response API
+  // POST /api/customer-verification/:token/confirm
+  // Legacy aliases: POST /api/customer-verification/token/:token & POST /api/customer-verification/:deliveryId
+  const tokenConfirmMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)\/confirm$/) : null;
   const tokenSubmitMatch = pathname ? pathname.match(/^\/api\/customer-verification\/token\/([^/]+)$/) : null;
   const legacySubmitMatch = pathname ? pathname.match(/^\/api\/customer-verification\/([^/]+)$/) : null;
 
-  if (tokenSubmitMatch || legacySubmitMatch) {
-    const isTokenRoute = Boolean(tokenSubmitMatch);
-    const param = decodeURIComponent((tokenSubmitMatch || legacySubmitMatch)[1]);
+  if (tokenConfirmMatch || tokenSubmitMatch || legacySubmitMatch) {
+    const clientIp = req.socket.remoteAddress || req.headers['x-forwarded-for'] || '127.0.0.1';
+    if (!checkRateLimit(clientIp, 30, 60000)) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'RATE_LIMIT_EXCEEDED', message: 'Too many requests' }));
+      return;
+    }
+
+    const isTokenRoute = Boolean(tokenConfirmMatch || tokenSubmitMatch);
+    const param = decodeURIComponent((tokenConfirmMatch || tokenSubmitMatch || legacySubmitMatch)[1]);
 
     let tokenRecord = null;
     let delivery = null;
@@ -1339,12 +1514,20 @@ const server = http.createServer((req, res) => {
         return;
       }
       delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
+      if (!delivery) {
+        delivery = db.getDelivery(tokenRecord.deliveryId);
+        if (delivery) deliveries.push(delivery);
+      }
     } else {
       tokenRecord = getVerificationTokenRecord(param);
       if (tokenRecord) {
         delivery = deliveries.find((d) => d.id === tokenRecord.deliveryId);
       } else {
         delivery = deliveries.find((d) => d.id === param || d.trackingNumber === param);
+      }
+      if (!delivery && tokenRecord) {
+        delivery = db.getDelivery(tokenRecord.deliveryId);
+        if (delivery) deliveries.push(delivery);
       }
     }
 
@@ -1393,116 +1576,60 @@ const server = http.createServer((req, res) => {
             return;
           }
 
-          // Token Expiration check
-          if (tokenRecord && (tokenRecord.status === 'EXPIRED' || Date.now() > new Date(tokenRecord.expiresAt).getTime())) {
-            tokenRecord.status = 'EXPIRED';
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-              success: false,
-              expired: true,
-              error: 'This verification QR has expired. Please ask the delivery driver to generate a new verification QR.'
-            }));
-            return;
-          }
+          const userAgent = req.headers['user-agent'] || 'customer-browser';
+          const tokenHash = tokenRecord ? tokenRecord.tokenHash : db.hashToken(param);
 
-          // Single-use / Replay Protection
-          if (delivery.customerResponse || (tokenRecord && tokenRecord.status === 'CONSUMED')) {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-              success: true,
-              alreadyRecorded: true,
-              message: 'This verification has already been completed.',
-              deliveryId: delivery.id,
-              customerResponse: delivery.customerResponse || tokenRecord?.customerResponse,
-              recordedAt: delivery.customerResponseAt,
-              status: delivery.status,
-              decision: delivery.decision,
-              retryRequired: !!delivery.retryRequired
-            }));
-            return;
-          }
-
-          // Zero-Trust Security Rule:
-          // Customer input is evidence only.
-          // Client-supplied fields attempting to manipulate status, decision, distance, dwell, etc. are strictly ignored.
-          const recordedAt = new Date().toISOString();
-          delivery.customerResponse = resp;
-          delivery.customerResponseAt = recordedAt;
-          delivery.customerResponseSource = tokenRecord ? 'qr_portal' : 'customer_portal';
-
-          if (tokenRecord) {
-            tokenRecord.status = 'CONSUMED';
-            tokenRecord.consumedAt = recordedAt;
-            tokenRecord.customerResponse = resp;
-            delivery.qrStatus = 'CONSUMED';
-          }
-
-          delivery.auditTimeline.push({
-            timestamp: recordedAt,
-            event: resp === 'PACKAGE_RECEIVED' ? 'CUSTOMER_CONFIRMED_RECEIVED' : 'CUSTOMER_CONFIRMED_NOT_RECEIVED',
-            description: resp === 'PACKAGE_RECEIVED'
-              ? 'Customer confirmed: PACKAGE RECEIVED'
-              : 'Customer confirmed: PACKAGE NOT RECEIVED'
+          // Atomic SQLite Transaction with Replay Protection & Zero-Trust Decision Rules
+          const atomicResult = db.consumeVerificationSessionAtomic({
+            tokenHash,
+            response: resp,
+            ip: clientIp,
+            userAgent
           });
 
-          const currentDecision = (delivery.decision || delivery.status || 'REVIEW').toUpperCase();
-
-          // Authoritative State Transitions
-          if (currentDecision === 'REJECTED') {
-            // ZERO-TRUST RULE:
-            // Do NOT allow customer confirmation to override a hard evidence rejection (e.g. driver 4km away).
-            // Hard deterministic policy rejection remains authoritative.
-            delivery.auditTimeline.push({
-              timestamp: new Date().toISOString(),
-              event: 'ZERO_TRUST_POLICY_ENFORCED',
-              description: 'Zero-Trust Rule: Hard physical evidence rejection remains authoritative over customer claim'
-            });
-          } else if (resp === 'PACKAGE_RECEIVED') {
-            // CASE 1: REVIEW + PACKAGE_RECEIVED
-            // Customer confirms package received -> automatically becomes VERIFIED / SUCCESSFUL.
-            delivery.status = 'VERIFIED';
-            delivery.decision = 'VERIFIED';
-            delivery.requiresAdminApproval = false;
-            delivery.adminApprovalStatus = 'APPROVED';
-            delivery.retryRequired = false;
-
-            delivery.auditTimeline.push(
-              { timestamp: new Date().toISOString(), event: 'SABOOT_VERIFIED', description: 'Saboot → VERIFIED' },
-              { timestamp: new Date().toISOString(), event: 'DELIVERY_MARKED_SUCCESSFUL', description: 'Delivery marked successful' }
-            );
-          } else if (resp === 'PACKAGE_NOT_RECEIVED') {
-            // CASE 2: REVIEW + PACKAGE_NOT_RECEIVED
-            // Customer confirms package not received -> CUSTOMER_CONFIRMED_FAILURE -> RETRY_REQUIRED
-            delivery.status = 'CUSTOMER_CONFIRMED_FAILURE';
-            delivery.decision = 'CUSTOMER_CONFIRMED_FAILURE';
-            delivery.retryRequired = true;
-            delivery.adminApprovalStatus = 'REJECTED';
-
-            delivery.auditTimeline.push(
-              { timestamp: new Date().toISOString(), event: 'DELIVERY_CUSTOMER_CONFIRMED_FAILURE', description: 'Delivery → CUSTOMER_CONFIRMED_FAILURE' },
-              { timestamp: new Date().toISOString(), event: 'DELIVERY_RETRY_REQUIRED', description: 'Delivery → RETRY_REQUIRED' },
-              { timestamp: new Date().toISOString(), event: 'DRIVER_RETRY_TASK_CREATED', description: 'Driver retry task created' }
-            );
+          if (!atomicResult.success) {
+            const statusCode = atomicResult.code || 400;
+            res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              error: atomicResult.error,
+              message: atomicResult.message
+            }));
+            return;
           }
 
-          saveDeliveries();
+          // Sync updated delivery into in-memory array
+          if (atomicResult.delivery) {
+            const idx = deliveries.findIndex((d) => d.id === atomicResult.delivery.id);
+            if (idx !== -1) {
+              deliveries[idx] = atomicResult.delivery;
+            } else {
+              deliveries.push(atomicResult.delivery);
+            }
+            delivery = atomicResult.delivery;
+          }
 
-          // Broadcast to Admin Console, Driver App, and connected clients in real time
+          // Broadcast authoritative update to Admin Console and Driver App
+          const eventType = atomicResult.decision === 'VERIFIED'
+            ? 'CUSTOMER_VERIFIED'
+            : (atomicResult.decision === 'CUSTOMER_CONFIRMED_FAILURE' ? 'CUSTOMER_CONFIRMED_FAILURE' : 'CUSTOMER_RESPONSE_RECORDED');
+
           broadcastEvent({
-            type: 'CUSTOMER_RESPONSE_RECORDED',
+            type: eventType,
             deliveryId: delivery.id,
+            attemptId: atomicResult.attemptId,
             token: tokenRecord?.token || null,
             customerResponse: resp,
-            recordedAt: recordedAt,
+            recordedAt: atomicResult.recordedAt,
             status: delivery.status,
             decision: delivery.decision,
             retryRequired: !!delivery.retryRequired,
             auditTimeline: delivery.auditTimeline,
             notes: resp === 'PACKAGE_RECEIVED'
-              ? (currentDecision === 'REJECTED'
-                  ? 'Customer confirmed package received, but hard rejection preserved (Zero-Trust)'
-                  : 'Customer confirmed package received — automatically verified')
-              : 'Customer confirmed package NOT received — marked for retry',
+              ? (delivery.decision === 'REJECTED'
+                  ? 'Customer confirmed package received, but physical evidence rejection preserved (Zero-Trust)'
+                  : 'Customer confirmed package received — attempt verified')
+              : 'Customer confirmed package NOT received — delivery flagged for re-attempt',
             extra: {
               order: delivery,
               delivery
@@ -1513,14 +1640,16 @@ const server = http.createServer((req, res) => {
           res.end(JSON.stringify({
             success: true,
             deliveryId: delivery.id,
+            attemptId: atomicResult.attemptId,
             customerResponse: resp,
-            recordedAt: recordedAt,
+            recordedAt: atomicResult.recordedAt,
             status: delivery.status,
             decision: delivery.decision,
             retryRequired: !!delivery.retryRequired,
             auditTimeline: delivery.auditTimeline
           }));
         } catch (err) {
+          console.error('[Server Customer Confirm Error]:', err);
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ success: false, error: 'Malformed request JSON' }));
         }
@@ -2361,7 +2490,8 @@ server.listen(PORT, HOST, () => {
 module.exports = {
   server,
   deliveries,
-  customerVerificationTokens,
+  customerVerificationTokens: activeSessionsMemory,
+  activeSessionsMemory,
   createCustomerVerificationToken,
   getVerificationTokenRecord,
   ensureDeliveryAuditTimeline,

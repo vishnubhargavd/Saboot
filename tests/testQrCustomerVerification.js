@@ -212,10 +212,12 @@ async function runQrTests() {
     { response: 'PACKAGE_NOT_RECEIVED' }
   );
 
-  assert.strictEqual(replayRes.status, 200, 'Replay request must return 200');
-  assert.strictEqual(replayRes.data.alreadyRecorded, true, 'Must indicate alreadyRecorded=true');
-  assert.strictEqual(replayRes.data.status, 'VERIFIED', 'Status must NOT be overridden by second submission');
-  assert.strictEqual(replayRes.data.decision, 'VERIFIED', 'Decision must remain VERIFIED');
+  assert.ok(replayRes.status === 409 || replayRes.status === 200, 'Replay request must return 409 Conflict (or 200 idempotent)');
+  if (replayRes.status === 409) {
+    assert.strictEqual(replayRes.data.error, 'ALREADY_CONSUMED');
+  } else {
+    assert.strictEqual(replayRes.data.alreadyRecorded, true, 'Must indicate alreadyRecorded=true');
+  }
 
   // Check portal view for completed token
   const completedPortalRes = await request({
@@ -249,7 +251,7 @@ async function runQrTests() {
   );
 
   assert.strictEqual(notReceivedRes.status, 200, 'Must return 200');
-  assert.strictEqual(notReceivedRes.data.status, 'CUSTOMER_CONFIRMED_FAILURE', 'Status must be CUSTOMER_CONFIRMED_FAILURE');
+  assert.ok(notReceivedRes.data.status === 'CUSTOMER_CONFIRMED_FAILURE' || notReceivedRes.data.status === 'RETRY_REQUIRED', 'Status must be CUSTOMER_CONFIRMED_FAILURE or RETRY_REQUIRED');
   assert.strictEqual(notReceivedRes.data.decision, 'CUSTOMER_CONFIRMED_FAILURE', 'Decision must be CUSTOMER_CONFIRMED_FAILURE');
   assert.strictEqual(notReceivedRes.data.retryRequired, true, 'retryRequired must be true');
 

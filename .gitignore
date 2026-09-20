@@ -48,5 +48,8 @@ yarn-error.*
 .claude/
 .idea/
 skills-lock.json
-admin/data/
+admin/data/*.db*
+admin/data/deliveries.json
+admin/data/uploads/
+!admin/data/seedData.js
 

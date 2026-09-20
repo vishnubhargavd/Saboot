@@ -49,9 +49,13 @@ export const CustomerQrModal: React.FC<CustomerQrModalProps> = ({
 
     try {
       const serverUrl = getSyncServerUrl();
-      const res = await fetch(`${serverUrl}/api/deliveries/${encodeURIComponent(delivery.id)}/customer-verification/qr`, {
+      const attemptId = delivery.auditId || `ATT-${delivery.id}`;
+      const res = await fetch(`${serverUrl}/api/deliveries/${encodeURIComponent(delivery.id)}/attempts/${encodeURIComponent(attemptId)}/customer-verification`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Driver-Id': delivery.assignedDriverId || 'DRV-BLR-09'
+        },
       });
 
       if (res.ok) {

@@ -584,6 +584,7 @@ function handleIncomingRealtimeEvent(event) {
       order.verificationUrl = event.verificationUrl;
       order.qrExpiresAt = event.expiresAt;
       order.qrStatus = 'ACTIVE';
+      order.qrSvg = event.qrSvg || null;
       renderOrderList();
       if (selectedOrderId === order.id) {
         selectOrder(order.id);
@@ -593,11 +594,11 @@ function handleIncomingRealtimeEvent(event) {
     return;
   }
 
-  if (event.type === 'CUSTOMER_QR_SCANNED' && event.deliveryId) {
+  if ((event.type === 'CUSTOMER_VERIFICATION_OPENED' || event.type === 'CUSTOMER_QR_SCANNED') && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
     if (order) {
-      order.qrStatus = 'SCANNED';
-      order.customerScannedAt = event.scannedAt;
+      order.qrStatus = 'OPENED';
+      order.customerScannedAt = event.timestamp || event.scannedAt || new Date().toISOString();
       renderOrderList();
       if (selectedOrderId === order.id) {
         selectOrder(order.id);
@@ -608,11 +609,11 @@ function handleIncomingRealtimeEvent(event) {
   }
 
   // Real-time Customer Verification Response from Customer Portal
-  if (event.type === 'CUSTOMER_RESPONSE_RECORDED' && event.deliveryId) {
+  if ((event.type === 'CUSTOMER_RESPONSE_RECORDED' || event.type === 'CUSTOMER_VERIFIED' || event.type === 'CUSTOMER_CONFIRMED_FAILURE') && event.deliveryId) {
     let order = orders.find((o) => o.id === event.deliveryId || o.trackingNumber === event.deliveryId);
     if (order) {
       order.customerResponse = event.customerResponse;
-      order.customerResponseAt = event.recordedAt;
+      order.customerResponseAt = event.recordedAt || event.timestamp;
       order.customerResponseSource = event.source || 'qr_portal';
       order.qrStatus = 'COMPLETED';
       if (event.status) order.status = event.status;
@@ -627,7 +628,7 @@ function handleIncomingRealtimeEvent(event) {
         selectOrder(order.id);
       }
       const isReceived = event.customerResponse === 'PACKAGE_RECEIVED' || event.customerResponse === 'CUSTOMER_AVAILABLE';
-      showNotification(`Customer confirmation received for ${order.id}: ${isReceived ? 'PACKAGE RECEIVED' : 'PACKAGE NOT RECEIVED'}`);
+      showNotification(`Customer confirmation recorded for ${order.id}: ${isReceived ? 'PACKAGE RECEIVED' : 'PACKAGE NOT RECEIVED'}`);
     }
     return;
   }
@@ -1453,8 +1454,43 @@ function selectOrder(orderId) {
       : `Scan QR on driver phone to verify package handoff`;
   }
 
+  // Active QR Visual Graphic Display (Mirrors Driver Screen)
+  const qrPreview = document.getElementById('adminQrVisualPreview');
+  const qrSvgContainer = document.getElementById('adminQrSvgContainer');
+  const qrCountdown = document.getElementById('adminQrCountdown');
+
+  if (qrPreview && qrSvgContainer) {
+    const attemptId = order.auditId || `ATT-${order.id}`;
+    fetch(`/api/deliveries/${encodeURIComponent(order.id)}/attempts/${encodeURIComponent(attemptId)}/customer-verification`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.success && data.active && data.qrSvg) {
+          qrSvgContainer.innerHTML = data.qrSvg;
+          qrPreview.style.display = 'block';
+          if (qrCountdown) {
+            const mins = Math.floor((data.expiresInSeconds || 0) / 60);
+            const secs = (data.expiresInSeconds || 0) % 60;
+            qrCountdown.innerText = `${mins}:${secs < 10 ? '0' : ''}${secs} Remaining (Active Session)`;
+          }
+          if (custQrPill) {
+            custQrPill.style.display = 'inline-block';
+            custQrPill.className = 'card-video-pill';
+            custQrPill.style.background = '#F0FDF4';
+            custQrPill.style.color = '#16A34A';
+            custQrPill.style.borderColor = '#BBF7D0';
+            custQrPill.innerText = '📱 Driver Displaying QR Code';
+          }
+        } else {
+          qrPreview.style.display = 'none';
+        }
+      })
+      .catch(() => {
+        if (qrPreview) qrPreview.style.display = 'none';
+      });
+  }
+
   if (custQrPill) {
-    if (order.qrStatus === 'SCANNED') {
+    if (order.qrStatus === 'SCANNED' || order.qrStatus === 'OPENED') {
       custQrPill.style.display = 'inline-block';
       custQrPill.className = 'card-video-pill';
       custQrPill.style.background = '#E0F2FE';
