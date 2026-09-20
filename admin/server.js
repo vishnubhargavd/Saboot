@@ -26,8 +26,218 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-// Initial 8 deliveries (rich dataset for both driver app and admin portal)
+// Initial deliveries dataset (rich dataset for both driver app and admin portal)
 const DEFAULT_DELIVERIES = [
+  {
+    id: 'DEL-ASR-01',
+    trackingNumber: 'SBT-BLR-550101',
+    customer: { id: 'CUST-ASR-01', name: 'Abhinav Kamutala', phone: '+91 90191 44983' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 101, Block A, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Electronics — Apple iPad Pro 11-inch M4 with Magic Keyboard',
+    estimatedDeliveryWindow: '10:00 AM - 11:00 AM',
+    status: 'IN_TRANSIT',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 20,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 4,
+    auditId: 'AUD-ASR-550101',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Order in transit to Asritha Lotus Residency Flat 101.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-02',
+    trackingNumber: 'SBT-BLR-550102',
+    customer: { id: 'CUST-ASR-02', name: 'Priya Sundaram', phone: '+91 98451 22334' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 104, Block A, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Gourmet Grocery — Artisanal Coffee Beans & Organic Honey Hamper',
+    estimatedDeliveryWindow: '11:00 AM - 12:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 25,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550102',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 104.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-03',
+    trackingNumber: 'SBT-BLR-550103',
+    customer: { id: 'CUST-ASR-03', name: 'Rohan Nambiar', phone: '+91 99011 33445' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 202, Block B, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Apparel — Raymond Custom Tailored Linen Suit',
+    estimatedDeliveryWindow: '12:00 PM - 01:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 28,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550103',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 202.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-04',
+    trackingNumber: 'SBT-BLR-550104',
+    customer: { id: 'CUST-ASR-04', name: 'Ananya Deshmukh', phone: '+91 97422 44556' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 205, Block B, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Kitchenware — Le Creuset Cast Iron Dutch Oven (Cerise Red)',
+    estimatedDeliveryWindow: '01:00 PM - 02:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 22,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550104',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 205.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-05',
+    trackingNumber: 'SBT-BLR-550105',
+    customer: { id: 'CUST-ASR-05', name: 'Karthik Subramanian', phone: '+91 98863 55667' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 301, Block C, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Footwear — Nike Air Jordan 1 Retro High OG (Chicago)',
+    estimatedDeliveryWindow: '02:00 PM - 03:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 24,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550105',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 301.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-06',
+    trackingNumber: 'SBT-BLR-550106',
+    customer: { id: 'CUST-ASR-06', name: 'Sneha Hegde', phone: '+91 99164 66778' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 304, Block C, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Cosmetics — Forest Essentials Ayurvedic Skin Renewal Set',
+    estimatedDeliveryWindow: '03:00 PM - 04:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 26,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550106',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 304.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-07',
+    trackingNumber: 'SBT-BLR-550107',
+    customer: { id: 'CUST-ASR-07', name: 'Vikram Malhotra', phone: '+91 97315 77889' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 402, Block D, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Collectibles — Folio Society Limited Edition Hardcover Box Set',
+    estimatedDeliveryWindow: '04:00 PM - 05:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 21,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550107',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 402.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-08',
+    trackingNumber: 'SBT-BLR-550108',
+    customer: { id: 'CUST-ASR-08', name: 'Divya Chandran', phone: '+91 98446 88990' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 405, Block D, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Fitness — Theragun PRO Plus Percussive Therapy Massager',
+    estimatedDeliveryWindow: '05:00 PM - 06:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 29,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550108',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 405.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-09',
+    trackingNumber: 'SBT-BLR-550109',
+    customer: { id: 'CUST-ASR-09', name: 'Siddharth Rao', phone: '+91 99007 99001' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 501, Penthouse, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Audio Equipment — Bose QuietComfort Ultra Spatial Headphones',
+    estimatedDeliveryWindow: '06:00 PM - 07:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 23,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550109',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 501.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'DEL-ASR-10',
+    trackingNumber: 'SBT-BLR-550110',
+    customer: { id: 'CUST-ASR-10', name: 'Meera Krishnan', phone: '+91 98808 11223' },
+    address: { street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102', unitOrFlat: 'Flat 503, Penthouse, Asritha Lotus Residency', landmark: 'Near 24th Main Road / Parangi Palaya', city: 'Bengaluru', postalCode: '560102', latitude: 12.9080, longitude: 77.6475, lat: 12.9080, lng: 77.6475, residenceCategory: 'apartment' },
+    packageDescription: 'Fine Jewelry — Tanishq 22K Gold Filigree Pendant Gift Box',
+    estimatedDeliveryWindow: '07:00 PM - 08:00 PM',
+    status: 'ASSIGNED',
+    driver: 'Ramesh Kumar (Unit 24 - DRV-BLR-09)',
+    assignedDriverId: 'DRV-BLR-09',
+    distanceMeters: 27,
+    dwellSeconds: 0,
+    requiredDwellSeconds: 120,
+    callAttempted: false,
+    callDuration: 0,
+    gpsAccuracy: 5,
+    auditId: 'AUD-ASR-550110',
+    decision: 'IN_TRANSIT',
+    decisionReason: 'Dispatched to Asritha Lotus Residency Flat 503.',
+    createdAt: new Date().toISOString()
+  },
   {
     id: 'DEL-1001',
     trackingNumber: 'SBT-BLR-882190',
@@ -539,14 +749,55 @@ activeDriverTelemetry.set('DRV-BLR-09', {
   updatedAt: Date.now()
 });
 
+// High-precision building, society & doorstep database for Bengaluru addresses
+const PRECISE_BUILDINGS = [
+  {
+    name: 'Asritha Lotus Residency',
+    aliases: ['asritha lotus', 'asritha lotus residency', 'asritha', 'lotus residency', '44, 23rd cross', 'parangi palaya'],
+    lat: 12.9080,
+    lng: 77.6475,
+    street: '44, 23rd Cross Rd, Parangi Palaya, Sector 2, HSR Layout, Bengaluru, Karnataka 560102',
+    locality: 'Sector 2, HSR Layout',
+    postcode: '560102'
+  },
+  {
+    name: 'Sobha Silicon Oasis',
+    aliases: ['sobha silicon oasis', 'silicon oasis'],
+    lat: 12.8715,
+    lng: 77.6534,
+    street: 'Tower 4, Sobha Silicon Oasis, Hosa Road, Electronic City, Bengaluru 560100',
+    locality: 'Electronic City',
+    postcode: '560100'
+  },
+  {
+    name: 'Salarpuria Sattva Greenage',
+    aliases: ['salarpuria greenage', 'sattva greenage', 'greenage'],
+    lat: 12.9022,
+    lng: 77.6254,
+    street: 'Alpine Tower, Salarpuria Sattva Greenage, Hosur Road, Bommanahalli, Bengaluru 560068',
+    locality: 'Bommanahalli',
+    postcode: '560068'
+  },
+  {
+    name: 'Phoenix One Bangalore West',
+    aliases: ['phoenix one', 'phoenix one bangalore west'],
+    lat: 13.0102,
+    lng: 77.5518,
+    street: 'Phoenix One Bangalore West, Dr. Rajkumar Road, Rajajinagar, Bengaluru 560010',
+    locality: 'Rajajinagar',
+    postcode: '560010'
+  }
+];
+
 // Curated Bengaluru locality directory with precise centroid coordinates
 const BENGALURU_LOCALITIES = [
-  { name: 'HSR Layout', aliases: ['hsr', 'hsr layout', 'asritha', 'lotus residency'], lat: 12.9116, lng: 77.6388, postcode: '560102' },
+  { name: 'HSR Layout Sector 2', aliases: ['hsr sector 2', 'sector 2, hsr', 'sector 2 hsr', 'parangi palaya', '23rd cross'], lat: 12.9080, lng: 77.6475, postcode: '560102' },
+  { name: 'HSR Layout', aliases: ['hsr', 'hsr layout'], lat: 12.9116, lng: 77.6388, postcode: '560102' },
   { name: 'Koramangala', aliases: ['koramangala'], lat: 12.9352, lng: 77.6245, postcode: '560095' },
   { name: 'Indiranagar', aliases: ['indiranagar', 'indira nagar'], lat: 12.9784, lng: 77.6408, postcode: '560038' },
   { name: 'Whitefield', aliases: ['whitefield', 'kadugodi'], lat: 12.9698, lng: 77.7500, postcode: '560066' },
   { name: 'Bellandur', aliases: ['bellandur', 'ecospace'], lat: 12.9260, lng: 77.6762, postcode: '560103' },
-  { name: 'Electronic City', aliases: ['electronic city', 'ecity', 'elec city', 'silicon oasis'], lat: 12.8452, lng: 77.6602, postcode: '560100' },
+  { name: 'Electronic City', aliases: ['electronic city', 'ecity', 'elec city'], lat: 12.8452, lng: 77.6602, postcode: '560100' },
   { name: 'Jayanagar', aliases: ['jayanagar', 'jaya nagar'], lat: 12.9308, lng: 77.5838, postcode: '560041' },
   { name: 'JP Nagar', aliases: ['jp nagar', 'jayaprakash nagar'], lat: 12.9063, lng: 77.5857, postcode: '560078' },
   { name: 'BTM Layout', aliases: ['btm', 'btm layout'], lat: 12.9166, lng: 77.6101, postcode: '560076' },
@@ -555,7 +806,7 @@ const BENGALURU_LOCALITIES = [
   { name: 'Hebbal', aliases: ['hebbal', 'godrej platinum'], lat: 13.0358, lng: 77.5970, postcode: '560024' },
   { name: 'Yelahanka', aliases: ['yelahanka'], lat: 13.1007, lng: 77.5963, postcode: '560064' },
   { name: 'Domlur', aliases: ['domlur', 'embassy golf links', 'egl'], lat: 12.9609, lng: 77.6387, postcode: '560071' },
-  { name: 'Rajajinagar', aliases: ['rajajinagar', 'rajaji nagar', 'phoenix one'], lat: 12.9982, lng: 77.5530, postcode: '560010' },
+  { name: 'Rajajinagar', aliases: ['rajajinagar', 'rajaji nagar'], lat: 12.9982, lng: 77.5530, postcode: '560010' },
   { name: 'Malleshwaram', aliases: ['malleshwaram', 'malleswaram'], lat: 13.0031, lng: 77.5643, postcode: '560003' },
   { name: 'Sadashivanagar', aliases: ['sadashivanagar', 'sadashiva nagar', 'sankey'], lat: 13.0068, lng: 77.5813, postcode: '560080' },
   { name: 'Vasanth Nagar', aliases: ['vasanth nagar', 'vasanthanagar', 'cunningham'], lat: 12.9866, lng: 77.5968, postcode: '560052' },
@@ -576,6 +827,22 @@ async function geocodeAddressQuery(queryText) {
   const cacheKey = clean.toLowerCase();
   if (geocodeCache.has(cacheKey)) {
     return geocodeCache.get(cacheKey);
+  }
+
+  // 0. High-priority exact building/doorstep database match
+  for (const bldg of PRECISE_BUILDINGS) {
+    for (const alias of bldg.aliases) {
+      if (clean.toLowerCase().includes(alias)) {
+        const result = {
+          lat: bldg.lat,
+          lng: bldg.lng,
+          locality: bldg.locality,
+          formatted: `${bldg.name}, ${bldg.street}`
+        };
+        geocodeCache.set(cacheKey, result);
+        return result;
+      }
+    }
   }
 
   // 1. Check if an explicit Bengaluru locality is detected in the text

@@ -640,7 +640,10 @@ body {
 
 .modal-box {
   background: #FFFFFF;
-  width: 480px;
+  width: 540px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
   border-radius: 8px;
   padding: 24px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);

@@ -231,13 +231,23 @@ flowchart LR
   - Detects solid-color fake recordings (`variance < 8`).
   - Rejects video files shorter than 2.0 seconds.
 
-### 📍 Real-World Forward Geocoding Engine
-- **Accurate Address Pinpointing**: Resolves natural language street addresses and apartment complexes (e.g., *"asritha lotus residency HSR Layout"*, *"Koramangala 5th Block"*, *"Electronic City Phase 1"*) into precise geographic coordinates `[latitude, longitude]`.
+### 📍 High-Precision Doorstep Geocoding & Pinpoint Engine
+- **Accurate Address & Society Pinpointing**: Resolves natural language street addresses, apartment complexes, and gated communities into exact doorstep geographic coordinates `[latitude, longitude]`.
+- **Descriptive Address Input Architecture**:
+  - *Flat / Door / Unit No.*: Specific apartment or office unit identifier (e.g., `Flat 101, Block A`).
+  - *Building / Society Name*: Explicit apartment complex or gated society name (e.g., `Asritha Lotus Residency`).
+  - *Street / Cross Road*: Immediate access street (e.g., `44, 23rd Cross Rd, Parangi Palaya`).
+  - *Locality / Sector & Pincode*: Macro-level geographic boundaries (e.g., `Sector 2, HSR Layout, 560102`).
+- **Interactive Doorstep Pinpoint Map**:
+  - Embedded Leaflet/CARTO map inside the Dispatch New Order modal.
+  - Interactive, draggable red pinpoint marker (`📍 DOORSTEP`) allowing supervisors to pinpoint the exact delivery gate or lobby entrance down to 6 decimal places.
+  - Click-to-pin support and live bi-directional numeric coordinate synchronizers (`Latitude`, `Longitude`).
 - **Multi-Tier Resolution Architecture**:
-  - *Tier 1 (Live Geocoders)*: Online query to OpenStreetMap Nominatim and Photon geocoding APIs.
-  - *Tier 2 (Locality Tokenizer)*: 20+ comprehensive Bengaluru locality dictionaries (HSR Layout, Koramangala, Indiranagar, Whitefield, Electronic City, Bellandur, BTM Layout, Jayanagar, JP Nagar, Marathahalli, Hebbal, Yelahanka, MG Road, Rajajinagar, Malleshwaram, Banashankari, Sarjapur Road, Manyata, Domlur, Richmond Town).
-  - *Tier 3 (Deterministic Micro-Offset)*: High-precision cryptographic hash offset ensures unique residential buildings within a layout get realistic, distinct pin coordinates.
-- **Instant Admin Preview**: Dispatch modal features instant geocoding status badges and coordinate previews on input blur.
+  - *Tier 1 (High-Precision Building Registry)*: Matches verified residential apartments (e.g., `Asritha Lotus Residency` mapped to `12.9080, 77.6475`) directly to their physical gate coordinates, eliminating generic centroid fallbacks.
+  - *Tier 2 (Live Geocoders)*: Online query to OpenStreetMap Nominatim and Photon geocoding APIs.
+  - *Tier 3 (Locality Tokenizer)*: 20+ comprehensive Bengaluru locality dictionaries (HSR Layout, Koramangala, Indiranagar, Whitefield, Electronic City, Bellandur, etc.).
+  - *Tier 4 (Deterministic Micro-Offset)*: High-precision cryptographic hash offset ensuring distinct residences within an unindexed lane receive unique, realistic coordinates.
+- **Instant Admin Preview & Validation**: Auto-resolves on field blur and provides immediate visual feedback on the map before dispatching orders.
 
 ### 📡 Live Driver GPS Telemetry Streaming
 - **Real-Time Mobile-to-Dispatch Radar**: Mobile driver application streams live GPS coordinates, heading, and speed directly to the Admin Portal.

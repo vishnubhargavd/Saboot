@@ -273,37 +273,102 @@
           <button class="btn-close-modal" id="btnCloseCreateModal">✕</button>
         </div>
         <div class="modal-body">
-          <div class="form-group">
-            <label>CUSTOMER NAME</label>
-            <input type="text" id="inputCustName" value="Vishnu Bhargav" placeholder="Customer Name" />
-          </div>
-          <div class="form-group">
-            <label>CUSTOMER PHONE</label>
-            <input type="text" id="inputCustPhone" value="+91 90191 44983" placeholder="+91 90191 44983" />
-          </div>
-          <div class="form-group">
-            <label>STREET ADDRESS</label>
-            <input type="text" id="inputStreet" value="asritha lotus residency HSR Layout" placeholder="Street Address (e.g. asritha lotus residency HSR Layout)" />
-            <div id="geocodeFeedback" style="display:flex; align-items:center; gap:6px; margin-top:6px; font-size:11px; font-weight:700; color:#059669; background:#ECFDF5; padding:4px 8px; border-radius:4px; border:1px solid #A7F3D0;">
-              <span>📍 Overture / OSM Geocoder:</span>
-              <span id="geocodeStatusText">Auto-locates accurate Bengaluru coordinates</span>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="form-group">
+              <label>CUSTOMER NAME</label>
+              <input type="text" id="inputCustName" value="Abhinav Kamutala" placeholder="Customer Name" />
+            </div>
+            <div class="form-group">
+              <label>CUSTOMER PHONE</label>
+              <input type="text" id="inputCustPhone" value="+91 90191 44983" placeholder="+91 90191 44983" />
             </div>
           </div>
-          <div class="form-group">
-            <label>RESIDENCE CATEGORY</label>
-            <select id="inputCategory" class="input-select">
-              <option value="gated_society">Gated Society (150s Required Dwell)</option>
-              <option value="apartment">Apartment Building (120s Required Dwell)</option>
-              <option value="individual_house">Individual House (90s Required Dwell)</option>
-            </select>
+
+          <div style="border-top: 1px solid #E2E8F0; margin: 8px 0 12px; padding-top: 8px;">
+            <span style="font-size: 10px; font-weight: 800; color: #64748B; letter-spacing: 0.8px;">DOORSTEP ADDRESS DETAILS</span>
           </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1.5fr; gap: 10px;">
+            <div class="form-group">
+              <label>FLAT / DOOR / UNIT NO.</label>
+              <input type="text" id="inputFlat" value="Flat 101, Block A" placeholder="e.g. Flat 101" />
+            </div>
+            <div class="form-group">
+              <label>BUILDING / SOCIETY NAME</label>
+              <input type="text" id="inputBuilding" value="Asritha Lotus Residency" placeholder="e.g. Asritha Lotus Residency" />
+            </div>
+          </div>
+
           <div class="form-group">
-            <label>ASSIGN DRIVER</label>
-            <select id="inputDriver" class="input-select">
-              <option value="DRV-BLR-09">Ramesh Kumar (Unit 24 - DRV-BLR-09)</option>
-              <option value="DRV-BLR-12">Sunil Rao (Unit 12 - DRV-BLR-12)</option>
-              <option value="DRV-BLR-15">Praveen Gowda (Unit 15 - DRV-BLR-15)</option>
-            </select>
+            <label>STREET / CROSS ROAD</label>
+            <input type="text" id="inputStreet" value="44, 23rd Cross Rd, Parangi Palaya" placeholder="e.g. 44, 23rd Cross Rd, Parangi Palaya" />
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1.5fr 1fr; gap: 10px;">
+            <div class="form-group">
+              <label>LOCALITY / SECTOR</label>
+              <input type="text" id="inputLocality" value="Sector 2, HSR Layout" placeholder="e.g. Sector 2, HSR Layout" />
+            </div>
+            <div class="form-group">
+              <label>PINCODE</label>
+              <input type="text" id="inputPincode" value="560102" placeholder="560102" />
+            </div>
+          </div>
+
+          <!-- Interactive Doorstep Pinpoint Map -->
+          <div style="margin: 10px 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <label style="font-size: 9px; font-weight: 800; letter-spacing: 1px; color: #0F172A; margin: 0;">
+                🎯 DOORSTEP PINPOINT (DRAG PIN TO EXACT ENTRANCE)
+              </label>
+              <button type="button" id="btnGeocodeLocate" style="background:#0F172A; color:#FFF; border:none; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">
+                🔍 Locate on Map
+              </button>
+            </div>
+            <div style="font-size: 10px; color: #64748B; margin-bottom: 6px;">
+              Drag the red pin or click anywhere on the map to set the exact delivery gate/doorstep. Zero-trust 50m geofence locks to this point.
+            </div>
+            <div id="modalPinMap" style="height: 170px; border-radius: 6px; border: 1px solid #CBD5E1; overflow: hidden; position: relative;"></div>
+            
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px;">
+              <div class="form-group" style="margin:0;">
+                <label style="font-size: 8px;">LATITUDE</label>
+                <input type="number" id="inputLat" step="0.000001" value="12.908000" style="font-size: 11px; padding: 6px 8px; font-family: monospace;" />
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label style="font-size: 8px;">LONGITUDE</label>
+                <input type="number" id="inputLng" step="0.000001" value="77.647500" style="font-size: 11px; padding: 6px 8px; font-family: monospace;" />
+              </div>
+            </div>
+
+            <div id="geocodeFeedback" style="display:flex; align-items:center; gap:6px; margin-top:6px; font-size:11px; font-weight:700; color:#059669; background:#ECFDF5; padding:4px 8px; border-radius:4px; border:1px solid #A7F3D0;">
+              <span>📍 Pinpoint:</span>
+              <span id="geocodeStatusText">Asritha Lotus Residency doorstep (12.9080, 77.6475)</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>PACKAGE DESCRIPTION</label>
+            <input type="text" id="inputPackageDesc" value="Electronics — Apple iPad Pro 11-inch M4 with Magic Keyboard" placeholder="Package Description" />
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="form-group">
+              <label>RESIDENCE CATEGORY</label>
+              <select id="inputCategory" class="input-select">
+                <option value="apartment" selected>Apartment Building (120s Dwell)</option>
+                <option value="gated_society">Gated Society (150s Dwell)</option>
+                <option value="individual_house">Individual House (90s Dwell)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>ASSIGN DRIVER</label>
+              <select id="inputDriver" class="input-select">
+                <option value="DRV-BLR-09">Ramesh Kumar (Unit 24 - DRV-BLR-09)</option>
+                <option value="DRV-BLR-12">Sunil Rao (Unit 12 - DRV-BLR-12)</option>
+                <option value="DRV-BLR-15">Praveen Gowda (Unit 15 - DRV-BLR-15)</option>
+              </select>
+            </div>
           </div>
           <button class="btn-submit-order" id="btnSubmitNewOrder">DISPATCH & SAVE ORDER</button>
         </div>
