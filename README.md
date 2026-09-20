@@ -360,8 +360,34 @@ cd Saboot
 npm install
 ```
 
+### One-Command Start (Admin + Mobile App + QR Code)
+
+To start both the Admin Operations Console and the Expo Metro Bundler with the QR code and LAN URLs displayed simultaneously:
+
+```bash
+make start
+# or
+make dev
+```
+
+This will:
+1. Detect your machine's active LAN IP address automatically.
+2. Launch the Saboot Admin Sync Server on port 3000 (`http://localhost:3000` and `http://<YOUR_LAN_IP>:3000`).
+3. Start the Expo Metro Bundler on port 8081 with an interactive terminal QR code for scanning with Expo Go.
+4. Cleanly stop both processes when you press `Ctrl+C`.
+
+Other helpful `make` commands:
+```bash
+make admin    # Run only the Admin Operations Console (port 3000)
+make expo     # Run only Expo Metro Bundler with QR code (port 8081)
+make test     # Run all verification test suites
+make stop     # Kill any processes occupying ports 3000 and 8081
+```
+
+---
+
 ### Running the Admin Operations Console
-Start the sync server and operations dashboard:
+Start the sync server and operations dashboard individually:
 
 ```bash
 npm run admin

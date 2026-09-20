@@ -698,10 +698,10 @@ const server = http.createServer((req, res) => {
     let targetFile = path.join(UPLOADS_DIR, filename);
 
     if (!fs.existsSync(targetFile)) {
-      const fallbackFile = path.join(UPLOADS_DIR, 'sample_doorstep_proof.mp4');
-      if (fs.existsSync(fallbackFile)) {
-        targetFile = fallbackFile;
-      }
+      // No fallback to sample/demo videos — return 404 if actual upload not found
+      res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Video file not found' }));
+      return;
     }
 
     if (fs.existsSync(targetFile)) {

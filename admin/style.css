@@ -413,12 +413,16 @@ body {
 
 .admin-map {
   flex: 1;
+  min-height: 320px;
+  height: 100%;
+  width: 100%;
+  position: relative;
   background: #EDF1EF;
 }
 
-/* Overture Maps Silver/Modern Tile Pane Filter */
+/* Crisp, vibrant telemetry map tiles */
 .admin-map .leaflet-tile-pane {
-  filter: saturate(0.38) brightness(1.04) contrast(0.96);
+  filter: contrast(1.02);
 }
 
 .telemetry-bar {

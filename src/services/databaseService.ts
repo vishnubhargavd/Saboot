@@ -3,9 +3,14 @@
  * 
  * Local persistence using expo-sqlite (Expo SDK 57) with universal Web/In-Memory fallback.
  * Persists deliveries, completed handoffs, verification facts, and video proof records.
+ * 
+ * NOTE: expo-sqlite native modules are NOT available in Expo Go on Android/iOS.
+ * This service detects Expo Go and uses the in-memory store directly, avoiding
+ * NullPointerException crashes from NativeDatabase.execAsync.
  */
 
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { Delivery, DeliveryStatus, ShiftMetrics } from '../types/delivery';
 import { INITIAL_DELIVERIES } from '../constants/demoData';
 
@@ -15,9 +20,52 @@ const LOCAL_STORAGE_KEY = 'saboot_sqlite_deliveries_v1';
 let inMemoryDeliveriesCache: Delivery[] = [...INITIAL_DELIVERIES];
 
 /**
+ * Permanent flag: once SQLite init fails, never retry.
+ * Prevents the infinite NullPointerException spam loop.
+ */
+let dbInitFailed = false;
+let dbInitAttempted = false;
+
+/**
+ * Detect if running inside Expo Go (where native SQLite modules are unavailable)
+ */
+function isExpoGo(): boolean {
+  try {
+    if (Constants.expoVersion) return true;
+    const execEnv = (Constants as any).executionEnvironment;
+    // 'storeClient' = Expo Go, 'standalone' = production build, 'bare' = dev client
+    if (execEnv === 'storeClient') return true;
+    // Fallback: check appOwnership
+    const ownership = (Constants as any).appOwnership;
+    if (ownership === 'expo') return true;
+  } catch {}
+  return false;
+}
+
+/**
  * Initialize SQLite database tables safely
  */
 export async function initDatabase(): Promise<void> {
+  // If we already attempted and failed, go straight to memory store — no retry
+  if (dbInitFailed || dbInitAttempted) {
+    if (!sqliteDbInstance) {
+      initWebStorage();
+    }
+    return;
+  }
+
+  dbInitAttempted = true;
+
+  // Skip SQLite entirely in Expo Go — native modules throw NullPointerException
+  if (isExpoGo()) {
+    dbInitFailed = true;
+    if (__DEV__) {
+      console.log('[SQLite] Expo Go detected — using in-memory store (native SQLite unavailable)');
+    }
+    initWebStorage();
+    return;
+  }
+
   if (Platform.OS !== 'web') {
     try {
       const SQLite = await import('expo-sqlite');
@@ -83,10 +131,11 @@ export async function initDatabase(): Promise<void> {
       sqliteDbInstance = db;
       return;
     } catch (err: any) {
-      // Invalidate broken handle immediately to prevent prepareAsync NullPointerExceptions
+      // Permanently mark as failed — never retry to avoid NullPointerException spam
       sqliteDbInstance = null;
+      dbInitFailed = true;
       if (__DEV__) {
-        console.log('[SQLite] Native DB init error, using universal memory store:', err?.message || err);
+        console.log('[SQLite] Native DB init failed, using in-memory store permanently:', err?.message || err);
       }
     }
   }

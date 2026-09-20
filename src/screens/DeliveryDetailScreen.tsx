@@ -584,6 +584,16 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
       return;
     }
 
+    // HARD GEOFENCE ENFORCEMENT: Block completion if driver is outside geofence
+    if (!isInsideGeofence) {
+      Alert.alert(
+        'Geofence Violation',
+        `You are ${distanceMeters !== null ? distanceMeters + 'm' : 'too far'} from the delivery address. You must be within 50m of the destination to confirm delivery.`,
+        [{ text: 'OK', style: 'default' }]
+      );
+      return;
+    }
+
     setIsCompleting(true);
     let finalVideoUri = deliveryVideoUri || `file:///evidence/doorstep_handoff_${delivery.id}.mp4`;
 
@@ -594,9 +604,24 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
         if (uploaded) {
           finalVideoUri = uploaded;
           setDeliveryVideoUri(uploaded);
+        } else {
+          // Upload returned null — server is unreachable or failed
+          setIsCompleting(false);
+          Alert.alert(
+            'Video Upload Failed',
+            'Could not upload video proof to the admin server. Please ensure the admin server is running and try again.',
+            [{ text: 'OK', style: 'default' }]
+          );
+          return;
         }
       } catch (e) {
-        console.warn('Video upload before delivery completion error:', e);
+        setIsCompleting(false);
+        Alert.alert(
+          'Video Upload Error',
+          'Failed to transmit video evidence to the server. Check your network connection and ensure the admin server is running.',
+          [{ text: 'OK', style: 'default' }]
+        );
+        return;
       }
     }
 
@@ -812,20 +837,30 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             </View>
           </TouchableOpacity>
 
-          {/* Primary Action: Complete Delivery Button */}
+          {/* Primary Action: Complete Delivery Button — BLOCKED when outside geofence */}
           <TouchableOpacity
-            style={styles.completeDeliveryBtn}
-            onPress={() => setIsCompleteModalVisible(true)}
+            style={[styles.completeDeliveryBtn, !isInsideGeofence && { opacity: 0.45 }]}
+            onPress={() => {
+              if (!isInsideGeofence) {
+                Alert.alert(
+                  'Geofence Required',
+                  `You must be within 50m of the delivery address to complete delivery. Current distance: ${distanceMeters !== null ? distanceMeters + 'm' : 'unknown'}.`,
+                  [{ text: 'OK', style: 'default' }]
+                );
+                return;
+              }
+              setIsCompleteModalVisible(true);
+            }}
             activeOpacity={0.85}
           >
             <View style={styles.completeIconBubble}>
-              <Ionicons name="checkmark" size={20} color="#FFFFFF" />
+              <Ionicons name={isInsideGeofence ? 'checkmark' : 'lock-closed'} size={20} color="#FFFFFF" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.completeDeliveryBtnText}>COMPLETE DELIVERY</Text>
-              <Text style={styles.completeDeliveryBtnSub}>Mark stop fulfilled & verify customer handoff</Text>
+              <Text style={styles.completeDeliveryBtnText}>{isInsideGeofence ? 'COMPLETE DELIVERY' : 'GEOFENCE REQUIRED'}</Text>
+              <Text style={styles.completeDeliveryBtnSub}>{isInsideGeofence ? 'Mark stop fulfilled & verify customer handoff' : `Move within 50m of destination (${distanceMeters !== null ? distanceMeters + 'm away' : 'calculating...'})`}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color="#FFFFFF" />
+            <Ionicons name={isInsideGeofence ? 'chevron-forward' : 'navigate-circle-outline'} size={18} color="#FFFFFF" />
           </TouchableOpacity>
 
           {/* Secondary Action: Issue / Failed Attempt Button */}
@@ -1195,16 +1230,16 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             </View>
 
             {/* Geofence verification banner */}
-            <View style={styles.deliveryVerifyBanner}>
+            <View style={[styles.deliveryVerifyBanner, !isInsideGeofence && { backgroundColor: '#FEE2E2', borderColor: '#F87171' }]}>
               <Ionicons
-                name={isInsideGeofence ? 'shield-checkmark' : 'navigate-circle'}
+                name={isInsideGeofence ? 'shield-checkmark' : 'alert-circle'}
                 size={18}
-                color={isInsideGeofence ? THEME.colors.green : THEME.colors.signal}
+                color={isInsideGeofence ? THEME.colors.green : '#DC2626'}
               />
-              <Text style={styles.deliveryVerifyText}>
+              <Text style={[styles.deliveryVerifyText, !isInsideGeofence && { color: '#991B1B', fontWeight: '700' }]}>
                 {isInsideGeofence
                   ? `Location Verified: Inside 50m Geofence (${distanceMeters !== null ? distanceMeters : 12}m)`
-                  : `Driver Location: ${distanceMeters !== null ? `${distanceMeters}m from door` : 'At location'}`}
+                  : `GEOFENCE VIOLATION: ${distanceMeters !== null ? distanceMeters + 'm from door' : 'Outside area'} (Must be ≤50m)`}
               </Text>
             </View>
 
@@ -1430,17 +1465,20 @@ export const DeliveryDetailScreen: React.FC<DeliveryDetailScreenProps> = ({
             <TouchableOpacity
               style={[
                 styles.confirmCompleteBtn,
-                deliveryVideoStatus !== 'VERIFIED' && styles.confirmCompleteBtnDisabled,
+                (deliveryVideoStatus !== 'VERIFIED' || !isInsideGeofence) && styles.confirmCompleteBtnDisabled,
+                !isInsideGeofence && { backgroundColor: '#EF4444' },
               ]}
               onPress={handleConfirmCompleteDelivery}
-              disabled={isCompleting || deliveryVideoStatus !== 'VERIFIED'}
+              disabled={isCompleting || deliveryVideoStatus !== 'VERIFIED' || !isInsideGeofence}
               activeOpacity={0.85}
             >
               {isCompleting ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={styles.confirmCompleteText}>
-                  {deliveryVideoStatus === 'VERIFIED'
+                  {!isInsideGeofence
+                    ? 'BLOCKED: OUTSIDE 50M GEOFENCE'
+                    : deliveryVideoStatus === 'VERIFIED'
                     ? 'CONFIRM DELIVERY COMPLETED'
                     : 'ATTACH VALID VIDEO PROOF FIRST'}
                 </Text>

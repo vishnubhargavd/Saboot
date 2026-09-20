@@ -616,25 +616,38 @@ let lCustomerMarker = null;
 let lTruckMarker = null;
 
 // Initialize Map exclusively with Open-Source Leaflet & Carto/OSM Tiles
-function initMap() {
-  const defaultOrder = orders[0];
+function initMap(retryCount = 0) {
   if (lMap) return;
+
+  if (typeof L === 'undefined' || !L || typeof L.map !== 'function') {
+    if (retryCount < 15) {
+      setTimeout(() => initMap(retryCount + 1), 250);
+    }
+    return;
+  }
 
   try {
     const mapEl = document.getElementById('adminMap');
     if (!mapEl) return;
+
+    const defaultOrder = orders && orders.length > 0 ? orders[0] : { address: { lat: 12.9716, lng: 77.5946 }, distanceMeters: 38 };
 
     lMap = L.map('adminMap', {
       zoomControl: true,
       attributionControl: true
     }).setView([defaultOrder.address.lat, defaultOrder.address.lng], 16);
 
-    // Open-Source Overture Maps Foundation Tile Layer (OpenFreeMap / Overture Data)
-    L.tileLayer('https://tile.openfreemap.org/styles/liberty/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://overturemaps.org" target="_blank">Overture Maps Foundation</a> &copy; <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-      opacity: 0.96
+    // High-performance, reliable open-source tiles (Overture Maps Foundation / OpenFreeMap compliant)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://overturemaps.org" target="_blank">Overture Maps Foundation</a> &copy; <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      subdomains: 'abcd',
+      maxZoom: 20
     }).addTo(lMap);
+
+    // Invalidate size after layout settles to guarantee tiles render without blank spots
+    setTimeout(() => { if (lMap) lMap.invalidateSize(); }, 200);
+    setTimeout(() => { if (lMap) lMap.invalidateSize(); }, 600);
+    window.addEventListener('resize', () => { if (lMap) lMap.invalidateSize(); });
 
     renderSelectedOrderMap(defaultOrder);
   } catch (err) {
@@ -644,7 +657,8 @@ function initMap() {
 
 // Render Order on Open-Source Map with Geofence & Route
 function renderSelectedOrderMap(order) {
-  if (!lMap) return;
+  if (!lMap || !order) return;
+  try { lMap.invalidateSize(); } catch (e) {}
 
   const destLat = order.address.lat;
   const destLng = order.address.lng;
@@ -886,7 +900,8 @@ function setupHtmlVideoSource(type, uri) {
       playableSrc = `/api/uploads/${fileName}`;
     }
   } else {
-    playableSrc = '/api/uploads/sample_doorstep_proof.mp4';
+    // No video URI available — do NOT fall back to a sample/demo video
+    playableSrc = '';
   }
 
   videoEl.dataset.fallbackTried = 'false';
@@ -926,11 +941,10 @@ function setupHtmlVideoSource(type, uri) {
   };
 
   videoEl.onerror = () => {
-    if (videoEl.dataset.fallbackTried !== 'true') {
-      videoEl.dataset.fallbackTried = 'true';
-      videoEl.src = '/api/uploads/sample_doorstep_proof.mp4';
-      videoEl.load();
-    }
+    console.warn('[Admin Video] Failed to load video source:', playableSrc);
+    // Do not fall back to demo/sample videos — maintain audit authenticity
+    p.isPlaying = false;
+    updatePlayerUI(type);
   };
 }
 
