@@ -33,7 +33,10 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "admin": "node admin/server.js"
+    "admin": "node admin/server.js",
+    "test": "node tests/runTests.js",
+    "test:all": "node tests/testGeocodingAndTelemetry.js && node tests/testOvertureAndDispatchSync.js && node tests/runTests.js && node tests/testVideoAndSqlite.js && node tests/testCustomerPortal.js && node tests/testAiExplanationService.js && node tests/testResendEmailNotification.js",
+    "typecheck": "tsc --noEmit"
   },
   "private": true,
   "devDependencies": {

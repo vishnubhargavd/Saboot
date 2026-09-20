@@ -1,14 +1,28 @@
 const assert = require('assert');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const { server } = require('../admin/server');
+
+let localServerStarted = false;
 
 async function testSuite() {
   console.log('======================================================');
   console.log('🧪 TESTING REAL-WORLD GEOCODING & LIVE DRIVER TELEMETRY');
   console.log('======================================================\n');
 
+  const PORT = process.env.PORT || 3001;
+  const isRunning = await new Promise((res) => {
+    http.get(`http://127.0.0.1:${PORT}/health`, () => res(true)).on('error', () => res(false));
+  });
+  if (!isRunning && !server.listening) {
+    await new Promise((resolve) => server.listen(PORT, '0.0.0.0', resolve));
+    localServerStarted = true;
+  }
+
+  try {
   // 1. Test Forward Geocoding: "asritha lotus residency HSR Layout"
   console.log('1. Testing Forward Geocoding for "asritha lotus residency HSR Layout"...');
-  const PORT = process.env.PORT || 3001;
   const geocodeRes1 = await fetch(`http://localhost:${PORT}/api/geocode?q=asritha+lotus+residency+HSR+Layout`);
   assert.strictEqual(geocodeRes1.status, 200, 'Geocode endpoint should return 200');
   const geocodeData1 = await geocodeRes1.json();
@@ -83,6 +97,11 @@ async function testSuite() {
   console.log('\n======================================================');
   console.log('🎉 ALL GEOCODING & LIVE TELEMETRY VERIFICATIONS PASSED');
   console.log('======================================================\n');
+  } finally {
+    if (localServerStarted && server.listening) {
+      server.close();
+    }
+  }
 }
 
 testSuite().catch((err) => {

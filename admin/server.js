@@ -1265,8 +1265,10 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const parsedUrl = url.parse(req.url, true);
+  const host = req.headers.host || 'localhost';
+  const parsedUrl = new URL(req.url, `http://${host}`);
   const pathname = parsedUrl.pathname;
+  parsedUrl.query = Object.fromEntries(parsedUrl.searchParams);
 
   // 1. SSE Real-Time Stream
   if (pathname === '/api/events' && req.method === 'GET') {

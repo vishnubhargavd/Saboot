@@ -1,710 +1,481 @@
-# Saboot — Zero-Trust Delivery Attempt Verification & Anti-Fraud Platform
+# Saboot (सबूत) — Zero-Trust Delivery Attempt Verification & Anti-Fraud Platform
 
-> **Cryptographic, telemetry-driven proof of delivery attempt for last-mile logistics.** Eliminates fake customer-unavailable claims, protects driver compensation, and provides indisputable delivery audits with authentic video proof.
+> **Cryptographic, telemetry-driven proof of delivery attempt for last-mile logistics.**  
+> Eliminates fake "Customer Unavailable" ghost claims, protects driver payouts, and provides indisputable, multi-modal delivery attestation with native video proof and real-time customer QR verification.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Expo: SDK 57](https://img.shields.io/badge/Expo-SDK%2057-000020.svg?logo=expo)](https://docs.expo.dev/versions/v57.0.0/)
+[![Expo: SDK 57](https://img.shields.io/badge/Expo-SDK%2057.0-000020.svg?logo=expo)](https://docs.expo.dev/versions/v57.0.0/)
 [![React Native: 0.86](https://img.shields.io/badge/React%20Native-0.86.3-61DAFB.svg?logo=react)](https://reactnative.dev/)
-[![TypeScript: 7.0](https://img.shields.io/badge/TypeScript-7.0.2-3178C6.svg?logo=typescript)](https://www.typescriptlang.org/)
-[![Maps: Overture / OpenFreeMap](https://img.shields.io/badge/Maps-Overture%20%2F%20OpenFreeMap-10B981.svg)](https://overturemaps.org/)
-[![Tests: Passing](https://img.shields.io/badge/Tests-All%20Passing-brightgreen.svg)](#10-testing--verification)
+[![Node.js: 20 LTS](https://img.shields.io/badge/Node.js-20%20LTS-339933.svg?logo=node.js)](https://nodejs.org/)
+[![Database: SQLite WAL](https://img.shields.io/badge/Database-SQLite%20WAL%20Mode-003B57.svg?logo=sqlite)](https://nodejs.org/api/sqlite.html)
+[![Maps: Overture / OpenFreeMap](https://img.shields.io/badge/Maps-Overture%20Maps%20Foundation-10B981.svg)](https://overturemaps.org/)
+[![Tests: 73+ Passing](https://img.shields.io/badge/Tests-73%2B%20Passing%20(100%25)-brightgreen.svg)](#-testing--verification)
 
 ---
 
-## Table of Contents
-- [1. Executive Summary](#1-executive-summary)
-  - [The Last-Mile "Ghost Attempt" Problem](#the-last-mile-ghost-attempt-problem)
-  - [The Saboot Solution](#the-saboot-solution)
-- [2. System Architecture & Flow Mind Map](#2-system-architecture--flow-mind-map)
-  - [End-to-End System Mind Map](#end-to-end-system-mind-map)
-  - [Delivery Lifecycle State Machine](#delivery-lifecycle-state-machine)
-  - [Zero-Trust Policy Evaluation Matrix](#zero-trust-policy-evaluation-matrix)
-- [3. Key Features](#3-key-features)
-- [4. Implementation Status](#4-implementation-status)
-- [5. Technology Stack](#5-technology-stack)
-- [6. Directory Structure](#6-directory-structure)
-- [7. Quickstart & Local Setup](#7-quickstart--local-setup)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Running the Admin Operations Console](#running-the-admin-operations-console)
-  - [Running the Mobile Driver App](#running-the-mobile-driver-app)
-- [8. Real-Time Sync & REST API Reference](#8-real-time-sync--rest-api-reference)
-- [9. Anti-Tampering & Telemetry Math](#9-anti-tampering--telemetry-math)
-  - [Haversine Proximity Verification](#haversine-proximity-verification)
-  - [Residence-Aware Dwell Thresholds](#residence-aware-dwell-thresholds)
-  - [Native Telephony Duration Auditing](#native-telephony-duration-auditing)
-  - [Video Anti-Spoofing & Luminance Engine](#video-anti-spoofing--luminance-engine)
-- [10. Testing & Verification](#10-testing--verification)
-- [11. Permissions & Native Manifests](#11-permissions--native-manifests)
-- [12. Roadmap](#12-roadmap)
-- [13. Contributing & License](#13-contributing--license)
+## 📑 Table of Contents
+- [1. Executive Summary & The Problem](#-executive-summary--the-problem)
+- [2. System Architecture](#-system-architecture)
+- [3. Key Features](#-key-features)
+- [4. Implementation Status](#-implementation-status)
+- [5. Deterministic Verification Engine](#-deterministic-verification-engine)
+- [6. Customer QR Verification Flow](#-customer-qr-verification-flow)
+- [7. Technology Stack](#-technology-stack)
+- [8. Repository Structure](#-repository-structure)
+- [9. Quickstart & Local Setup](#-quickstart--local-setup)
+- [10. Real-Time Sync & REST API Reference](#-real-time-sync--rest-api-reference)
+- [11. Testing & Verification](#-testing--verification)
+- [12. Cloud & Container Deployment](#-cloud--container-deployment)
+- [13. Security Architecture](#-security-architecture)
+- [14. License](#-license)
 
 ---
 
-## 1. Executive Summary
+## 🎯 Executive Summary & The Problem
 
-### The Last-Mile "Ghost Attempt" Problem
-In high-density urban logistics (e.g., Bengaluru, Mumbai, Delhi), 15% to 28% of parcel delivery exceptions are logged as **"Customer Unavailable"**, **"Door Locked"**, or **"Address Incomplete"**. 
+### The Last-Mile "Ghost Attempt" Crisis
+In high-density urban logistics (e.g., Bengaluru, Mumbai, Delhi), **15% to 28% of delivery exceptions** are marked as **"Customer Unavailable"**, **"Door Locked"**, or **"Address Incomplete"**. 
 
-Historically, dispatch operations have relied on **blind trust** in mobile client checkboxes. This creates massive operational leaks:
-1. **Ghost Attempts**: Drivers stranded in traffic or running behind schedule mark packages as "attempted" while miles away from the recipient address.
-2. **Fly-By Scans**: Drivers park at a highway or complex entrance, mark 5 orders unavailable within 30 seconds without ever entering the premises or ringing doorbells.
-3. **Ghost Calls**: Drivers click "Call Customer" in an app, immediately hang up (< 2 seconds), and claim the customer did not answer.
-4. **Covered Lens / Blank Video Tampering**: Drivers cover their smartphone camera with a thumb or record dark pockets to fake video evidence requirements.
-5. **Customer Friction & Return-to-Origin (RTO) Costs**: Retailers absorb millions in return freight, restocking fees, and angry customer escalations.
+Traditional logistics workflows rely on **blind trust** in mobile client checkboxes. This creates massive operational fraud:
+1. **Ghost Attempts**: Drivers stranded in traffic mark parcels "attempted" while miles away from the delivery doorstep.
+2. **Fly-By Scans**: Drivers park at complex gates, marking multiple deliveries unavailable in under 30 seconds without stepping foot on the premises.
+3. **Ghost Calls**: Drivers click "Call Customer", immediately hang up within 1–2 seconds, and claim the customer failed to answer.
+4. **Camera Tampering**: Drivers cover smartphone cameras with thumbs or film dark pockets to fake video evidence requirements.
+5. **Return-to-Origin (RTO) Penalties**: Merchants and logistics carriers absorb tens of millions in return freight, wasted labor, restocking expenses, and brand erosion.
 
 ### The Saboot Solution
-**Saboot** (*Hindi for "Proof / Irrefutable Evidence"*) replaces subjective driver claims with a **deterministic zero-trust evaluation engine**. The mobile client never decides if an attempt is valid; it submits raw sensory telemetry (GPS breadcrumbs, horizontal dilution of precision, OS call timestamps, pixel luminance arrays, and authentic video clips) to an immutable policy engine.
+**Saboot** (*Hindi for "Proof / Irrefutable Evidence"*) replaces subjective claims with an **immutable, multi-modal zero-trust attestation engine**. 
 
-Every delivery attempt resolves deterministically into one of four states:
-- `VERIFIED`: Mandatory proximity (≤ 50m), residence-specific dwell time (90s–150s), and verified telephony contact criteria met.
+The mobile client never decides whether an attempt is valid. Instead, it uploads raw sensory telemetry (GPS breadcrumb arrays, horizontal dilution of precision, OS call duration lifecycles, pixel luminance statistics, and MP4 video proof) to an authoritative policy engine. Every delivery attempt deterministically resolves into one of four verified states:
+- `VERIFIED`: Mandatory 50m geofence, residence-specific dwell (90s–150s), and telephony criteria satisfied.
 - `REJECTED`: Falsified attempts (e.g., driver > 500m away, zero call made, covered camera lens).
-- `REVIEW`: Ambiguous edge cases (e.g., degraded GPS accuracy ±68m, borderline dwell time) flagged for supervisor inspection.
-- `DELIVERED`: Authentic customer doorstep handoff verified by anti-spoof video recording and persisted to local SQLite / backend storage.
+- `REVIEW`: Telemetry ambiguity (e.g., degraded GPS ±68m, borderline dwell) requiring supervisor inspection or customer confirmation.
+- `DELIVERED`: Authentic customer doorstep handoff verified by anti-spoof video recording and persisted to ACID storage.
 
 ---
 
-## 2. System Architecture & Flow Mind Map
-
-### End-to-End System Mind Map
+## 🏗️ System Architecture
 
 ```mermaid
 flowchart TD
-    %% Styling classes
     classDef mobile fill:#0F172A,stroke:#38BDF8,stroke-width:2px,color:#F8FAFC;
     classDef backend fill:#0F172A,stroke:#22C55E,stroke-width:2px,color:#F8FAFC;
-    classDef admin fill:#0F172A,stroke:#F59E0B,stroke-width:2px,color:#F8FAFC;
+    classDef customer fill:#0F172A,stroke:#F59E0B,stroke-width:2px,color:#F8FAFC;
     classDef storage fill:#1E293B,stroke:#94A3B8,stroke-width:1.5px,color:#E2E8F0;
-    classDef decision fill:#1E1B4B,stroke:#818CF8,stroke-width:2px,color:#EEF2FF;
 
-    subgraph MobileDriverApp["📱 Mobile Driver App (Expo SDK 57 / React Native)"]
-        Sensors["📡 Hardware Sensors\n(GPS, Gyro, AppState)"]:::mobile --> LocEngine["📍 Location Engine\n(Haversine Distance Math)"]:::mobile
-        Dialer["📞 OS Dialer Integration\n(Native Call-Duration Timer)"]:::mobile --> CallAudit["⏱️ Telephony Auditor\n(Minimum 8s Ring Check)"]:::mobile
-        Camera["🎥 Camera & File Picker\n(expo-camera / System File Picker)"]:::mobile --> VidVerify["🔍 BT.601 Anti-Spoof Analyzer\n(Luminance, Variance, Min 2.0s)"]:::mobile
-        
-        LocEngine --> Workflows["📋 Delivery & Absence Workflows\n(useDelivery / useAttestation)"]:::mobile
-        CallAudit --> Workflows
-        VidVerify --> Workflows
-        
-        Workflows --> NativeUpload["📤 Native File Streamer\n(expo-file-system/legacy uploadAsync)"]:::mobile
-        Workflows --> LocalDB["💾 Local SQLite WAL Database\n(expo-sqlite / Web localStorage)"]:::storage
-        Workflows --> RealtimeClient["⚡ Real-Time Sync Client\n(REST API + SSE Listener)"]:::mobile
+    subgraph Mobile["📱 Mobile Driver App (Expo SDK 57 / React Native)"]
+        Sensors["GPS Sensor & Telephony Tracker"]
+        Camera["Native expo-video & Camera Engine"]
+        DriverUI["Dwell Gauge & Live Overture Radar"]
+        QRGen["QR Token Requester & Live Countdown"]
     end
 
-    subgraph BackendSyncEngine["⚙️ Saboot Sync & Storage Backend (Node.js :3000)"]
-        UploadAPI["📥 Multipart Upload Endpoint\n(POST /api/upload)"]:::backend --> RawFileDisk["🗄️ Raw Video Storage\n(admin/data/uploads/<hash>.mp4)"]:::storage
-        RawFileDisk --> RangeStreamer["📼 HTTP 206 Partial Content Streamer\n(GET /api/uploads/<hash>.mp4)"]:::backend
-        
-        RESTGateway["🚪 REST API Gateway\n(/api/deliveries, /api/events)"]:::backend --> PolicyEngine["🛡️ Zero-Trust Policy Engine\n(Deterministic Rules Matrix)"]:::decision
-        RESTGateway --> JSONLedger["📑 Immutable Delivery Ledger\n(admin/data/deliveries.json)"]:::storage
-        RESTGateway --> SSEBroadcaster["📡 Server-Sent Events Hub\n(/api/events Broadcast)"]:::backend
-        RESTGateway --> PollingHub["⏱️ Polling Fallback Hub\n(/api/events/poll)"]:::backend
+    subgraph Server["⚡ Saboot Authoritative Backend (Node.js Port 3001)"]
+        PolicyEngine["Deterministic Zero-Trust Policy Engine"]
+        URLResolver["Authoritative LAN IP & URL Resolver"]
+        SSEHub["Server-Sent Events (SSE) Real-Time Hub"]
+        AIEngine["Zero-Trust AI Explanation Service (Groq/Llama)"]
+        ResendService["Transactional Email Engine (Resend SDK)"]
     end
 
-    subgraph AdminOperationsConsole["🖥️ Admin Operations & Dispatch Console (Web)"]
-        LiveMap["🗺️ Overture / Leaflet Map HUD\n(50m Geofences, Breadcrumb Trails)"]:::admin
-        TaskQueue["📊 20-Stop Dispatch Queue\n(Live Status Chips, KPI Counters)"]:::admin
-        NativePlayer["🎬 Native HTML5 Video Inspector\n(No Canvas / No AI Door Graphic)"]:::admin
-        SupervisorAudit["⚖️ Supervisor Audit Actions\n(✓ Verify Delivery | ✕ Flag / Reject)"]:::admin
-        
-        TaskQueue <--> LiveMap
-        TaskQueue --> NativePlayer
-        NativePlayer --> SupervisorAudit
+    subgraph Portal["🌐 Customer Verification Portal (Mobile Browser)"]
+        CustomerScan["Native iOS/Android Camera Scan"]
+        CustomerUI["Customer Web Portal (/v/:token)"]
+        CustomerAction["'I Received' / 'I Did Not Receive'"]
     end
 
-    %% Cross-Component Connections
-    NativeUpload -->|Multipart Stream\n(Binary MP4 Payload)| UploadAPI
-    RealtimeClient <-->|REST Updates & 10s Heartbeat| RESTGateway
-    SSEBroadcaster -->|SSE Stream\n(Instant Push)| RealtimeClient
-    SSEBroadcaster -->|SSE Stream\n(Live Push)| TaskQueue
-    RangeStreamer -->|HTTP 206 Byte Ranges\n(Fluid Seeking & Buffer)| NativePlayer
-    SupervisorAudit -->|PUT /api/deliveries/:id\n(Decision Update)| RESTGateway
+    subgraph DB["💾 Persistence Layer (Node.js SQLite WAL)"]
+        Deliveries["deliveries (Orders & States)"]
+        Attempts["delivery_attempts (Attempt History)"]
+        QRSessions["customer_verification_sessions (Hashed Tokens)"]
+        AuditLog["audit_events (Append-Only Immutable Log)"]
+    end
+
+    subgraph Admin["🖥️ Admin Operations Console (Web)"]
+        AdminMap["Live Overture Telemetry Map"]
+        AdminVideo["Native HTML5 MP4 Range Player"]
+        AdminActions["Supervisor Approve / Reject Controls"]
+    end
+
+    Sensors -->|POST /api/telemetry| Server
+    Camera -->|POST /api/upload| Server
+    DriverUI -->|POST /api/verify| PolicyEngine
+    QRGen -->|POST /customer-verification/qr| URLResolver
+    URLResolver -->|256-bit Token Hash| QRSessions
+    CustomerScan -->|GET /v/:token| CustomerUI
+    CustomerAction -->|POST /confirm| PolicyEngine
+    PolicyEngine -->|ACID Transaction| DB
+    PolicyEngine -->|Audit Summary| AIEngine
+    PolicyEngine -->|Transactional Notice| ResendService
+    SSEHub -->|Push Updates| DriverUI
+    SSEHub -->|Push Updates| Admin
+    AdminActions -->|Supervisor Override| PolicyEngine
 ```
 
 ---
 
-### Delivery Lifecycle State Machine
+## 🌟 Key Features
 
-```mermaid
-stateDiagram-v2
-    [*] --> ASSIGNED: Order Dispatched to Route
+### 🛡️ 1. Deterministic Zero-Trust Policy Engine
+- **Server Authority**: Client-asserted metrics (`distance`, `dwell`, `decision`) are completely discarded; server re-computes truth from raw GPS coordinates and timestamps.
+- **50-Meter Geofence Lock**: Evaluates spherical distance to destination doorstep using the Haversine formula.
+- **Residence-Aware Dwell Thresholds**: Dwell requirements scale based on architectural reality:
+  - *Individual Houses*: **90 seconds**
+  - *Apartment Buildings*: **120 seconds**
+  - *Gated Societies & Tech Parks*: **150 seconds** (accounts for security check-in and elevator transit).
+- **Native Telephony Duration Auditing**: Integrates with OS app focus lifecycles (`AppState` / window blur-focus) to measure real time spent in the native phone dialer. Prevents instant-hangup spoofing by requiring ring durations ≥ 8 seconds.
 
-    state ASSIGNED {
-        [*] --> NavigateToStop
-        NavigateToStop: Driver en route to customer destination
-    }
+### 📱 2. React Native Mobile Driver Application (Expo SDK 57)
+- **Live Delivery Radar** (`LiveDeliveryMap.tsx`): Interactive Overture Maps Foundation / OpenFreeMap dark tile view with animated driver truck icon and 50m geofence perimeter.
+- **Circular Dwell Gauge** (`DwellGauge.tsx`): Dynamic SVG gauge displaying real-time countdown progress against the active residence requirement.
+- **Hardware-Accelerated Video Proof** (`VideoProofThumbnail.tsx`): Native `expo-video` player integration (`VideoView`) ensuring smooth hardware playback without blank WebView glitches.
+- **Simulation Scenario Selector** (`ScenarioModal.tsx`): Instantly switch between Hackathon Scenarios A (Genuine Attempt), B (Remote Attempt), and C (Ambiguous Telemetry).
 
-    ASSIGNED --> IN_TRANSIT: Driver Starts Leg
+### 🔐 3. Real-Time Customer QR Verification Portal
+- **256-Bit Cryptographic Entropy**: Driver app generates single-use URL tokens (`crypto.randomBytes(32).toString('base64url')`).
+- **Zero Raw Token Storage**: The raw token is **never** saved to the database. Only its SHA-256 hash is persisted in SQLite.
+- **Strict 5-Minute TTL**: Tokens automatically expire after 300 seconds.
+- **Atomic Single-Use Replay Protection**: Consumption occurs within an immediate ACID SQLite transaction (`BEGIN IMMEDIATE`). First valid customer response consumes the session; subsequent attempts return HTTP 409 `ALREADY_CONSUMED`.
+- **Physical Device LAN Mode**: Automatically resolves the host machine's authoritative non-virtual IPv4 LAN address (`192.168.x.x`), rejecting unroutable loopback addresses (`localhost`/`127.0.0.1`) so physical customer phones can seamlessly connect.
 
-    state IN_TRANSIT {
-        [*] --> GeofenceMonitoring
-        GeofenceMonitoring: Periodic GPS polling & Haversine distance calculation
-    }
-
-    IN_TRANSIT --> ARRIVED: Driver Enters ≤50m Geofence
-
-    state ARRIVED {
-        [*] --> DwellTracking
-        DwellTracking: Accumulates residence-specific dwell time (90s / 120s / 150s)
-    }
-
-    ARRIVED --> CUSTOMER_UNAVAILABLE_CLAIM: Customer Does Not Answer Door
-    ARRIVED --> DIRECT_HANDOFF: Customer Receives Parcel
-
-    state CUSTOMER_UNAVAILABLE_CLAIM {
-        CheckCall: Verify OS Dialer Duration (≥ 8s)
-        RecordAbsenceProof: Record Doorstep Video Footage (≥ 2s)
-        EvaluateAntiSpoof: Run BT.601 Luminance & Variance Analysis
-        CheckCall --> RecordAbsenceProof
-        RecordAbsenceProof --> EvaluateAntiSpoof
-    }
-
-    state DIRECT_HANDOFF {
-        RecordHandoffVideo: Record Parcel Handover Evidence
-        AnalyzeHandoff: Verify Anti-Spoofing & Luminance
-        RecordHandoffVideo --> AnalyzeHandoff
-    }
-
-    CUSTOMER_UNAVAILABLE_CLAIM --> REJECTED: Covered Lens / Fake Call / Outside 50m
-    CUSTOMER_UNAVAILABLE_CLAIM --> REVIEW: Telemetry & Video Proof Verified
-    DIRECT_HANDOFF --> DELIVERED: Video Verified & Synced to Server
-
-    state REVIEW {
-        SupervisorAudit: Admin reviews genuine video on Operations Console
-        SupervisorAudit --> APPROVED_ABSENCE: Confirm Legitimate Attempt
-        SupervisorAudit --> REJECTED_CLAIM: Flag Driver Misconduct
-    }
-
-    APPROVED_ABSENCE --> VERIFIED: Reattempt Scheduled Without Driver Penalty
-    REJECTED_CLAIM --> REJECTED: Exception Flagged & Driver Not Paid
-    DELIVERED --> [*]
-    VERIFIED --> [*]
-    REJECTED --> [*]
-```
-
----
-
-### Zero-Trust Policy Evaluation Matrix
-
-```mermaid
-flowchart LR
-    Start([Raw Attempt Payload]) --> ProxCheck{Driver within 50m?}
-    ProxCheck -- No (> 500m) --> FailReject[REJECTED: Remote Attempt]
-    ProxCheck -- Yes / Borderline --> DwellCheck{Dwell Time Satisfied?\n(90s House / 120s Apt / 150s Gated)}
-    
-    DwellCheck -- No & No Call --> FailReject2[REJECTED: No Dwell & No Call]
-    DwellCheck -- Insufficient Dwell --> ReviewDwell[REVIEW: Borderline Dwell]
-    
-    DwellCheck -- Yes --> CallCheck{Call Attempt Verified?\n(Ring Time ≥ 8s)}
-    CallCheck -- No --> ReviewCall[REVIEW: Unverified Telephony]
-    
-    CallCheck -- Yes --> GPSCheck{GPS Accuracy ≤ 30m?}
-    GPSCheck -- No (±68m) --> ReviewGPS[REVIEW: Degraded Telemetry]
-    GPSCheck -- Yes --> VideoCheck{Video Proof Required?}
-    
-    VideoCheck -- Yes (Customer Absent) --> VidEval{Video Anti-Spoof Pass?\n(Luminance > 18, Var > 8)}
-    VidEval -- Fail (Covered Lens) --> FailRejectVid[REJECTED: Black / Fake Video]
-    VidEval -- Pass --> SupervisorQueue[REVIEW: Pending Admin Approval]
-    
-    VideoCheck -- No (Direct Handoff) --> PassVerified[VERIFIED / DELIVERED]
-```
-
----
-
-## 3. Key Features
-
-### 🛡️ Zero-Trust Attempt Verification
-- **Automated Geofence Lock**: Evaluates spherical distance to delivery coordinates using Haversine calculation. Flagged if attempt occurs outside the 50m perimeter.
-- **Categorical Dwell Times**: Dwell duration is not one-size-fits-all:
-  - *Individual Houses*: 90 seconds.
-  - *Apartment Buildings*: 120 seconds.
-  - *Gated Societies & Tech Parks*: 150 seconds (accounts for security gate clearance and elevator transit).
-- **Native Telephony Duration Auditing**: Integrates with OS app focus lifecycles (`AppState` / window focus) to measure actual time spent in the system dialer. Prevents instant-hangup spoofing by requiring ring durations ≥ 8s.
-
-### 🎥 Authentic Video Evidence & Anti-Spoofing Engine
-- **Native `expo-video` Mobile Player**: Integrated with `expo-video` (`VideoView` + `useVideoPlayer`) ensuring seamless hardware-accelerated playback on Android and iOS without blank WebView preview bugs.
-- **Pure Native HTML5 Video in Admin Console**: Browser plays the authentic recorded MP4 video stream directly with HTTP 206 Range seeking. No artificial cartoon door simulations, no synthetic peepholes, and no fake cardboard boxes.
-- **Streaming Upload Pipeline**: Powered by `expo-file-system/legacy` (`FileSystem.uploadAsync`) to stream camera recordings from private app sandboxes (`file:///data/user/0/...`) directly to the backend.
+### 🎥 4. Video Anti-Spoofing & Luminance Engine
 - **Pixel Luminance & Variance Analysis (ITU-R BT.601)**:
-  - Detects covered lens / pocket recordings (`meanLuminance < 18`).
-  - Detects overexposed blank ceilings / paper sheets (`meanLuminance > 240` with `stdDev < 12`).
-  - Detects solid-color fake recordings (`variance < 8`).
-  - Rejects video files shorter than 2.0 seconds.
+  - Detects covered lens / dark pockets: `meanLuminance < 18`
+  - Detects overexposed blank ceilings / paper: `meanLuminance > 240` with `stdDev < 12`
+  - Detects solid dummy frames: `variance < 8`
+  - Enforces minimum duration: clips must be ≥ 2.0 seconds.
+- **Native HTML5 Streaming**: Admin Console plays genuine uploaded MP4 clips with HTTP 206 Partial Content Range streaming. Zero synthetic cartoon simulations.
 
-### 📍 High-Precision Doorstep Geocoding & Pinpoint Engine
-- **Accurate Address & Society Pinpointing**: Resolves natural language street addresses, apartment complexes, and gated communities into exact doorstep geographic coordinates `[latitude, longitude]`.
-- **Descriptive Address Input Architecture**:
-  - *Flat / Door / Unit No.*: Specific apartment or office unit identifier (e.g., `Flat 101, Block A`).
-  - *Building / Society Name*: Explicit apartment complex or gated society name (e.g., `Asritha Lotus Residency`).
-  - *Street / Cross Road*: Immediate access street (e.g., `44, 23rd Cross Rd, Parangi Palaya`).
-  - *Locality / Sector & Pincode*: Macro-level geographic boundaries (e.g., `Sector 2, HSR Layout, 560102`).
-- **Interactive Doorstep Pinpoint Map**:
-  - Embedded Leaflet/CARTO map inside the Dispatch New Order modal.
-  - Interactive, draggable red pinpoint marker (`📍 DOORSTEP`) allowing supervisors to pinpoint the exact delivery gate or lobby entrance down to 6 decimal places.
-  - Click-to-pin support and live bi-directional numeric coordinate synchronizers (`Latitude`, `Longitude`).
-- **Multi-Tier Resolution Architecture**:
-  - *Tier 1 (High-Precision Building Registry)*: Matches verified residential apartments (e.g., `Asritha Lotus Residency` mapped to `12.9080, 77.6475`) directly to their physical gate coordinates, eliminating generic centroid fallbacks.
-  - *Tier 2 (Live Geocoders)*: Online query to OpenStreetMap Nominatim and Photon geocoding APIs.
-  - *Tier 3 (Locality Tokenizer)*: 20+ comprehensive Bengaluru locality dictionaries (HSR Layout, Koramangala, Indiranagar, Whitefield, Electronic City, Bellandur, etc.).
-  - *Tier 4 (Deterministic Micro-Offset)*: High-precision cryptographic hash offset ensuring distinct residences within an unindexed lane receive unique, realistic coordinates.
-- **Instant Admin Preview & Validation**: Auto-resolves on field blur and provides immediate visual feedback on the map before dispatching orders.
+### 🗺️ 5. Doorstep Geocoding & Interactive Pinpointing
+- **Forward Geocoding Engine**: Multi-tier resolution (verified residential complex registry -> live geocoders -> Bengaluru locality tokenizers -> deterministic micro-offsets).
+- **Interactive Doorstep Pinpoint Map**: Draggable red doorstep marker (`📍 DOORSTEP`) inside the Dispatch Order modal allowing operations teams to pinpoint entrance gates down to 6 decimal places.
 
-### 📡 Live Driver GPS Telemetry Streaming
-- **Real-Time Mobile-to-Dispatch Radar**: Mobile driver application streams live GPS coordinates, heading, and speed directly to the Admin Portal.
-- **Battery-Optimized Throttling**: Driver telemetry transmissions are throttled to 2.5-second intervals via `sendDriverLocationTelemetry()` to maximize mobile battery life and minimize network overhead while preserving smooth dispatch tracking.
-- **Live Dispatch HUD**:
-  - Real-time animated driver truck marker on the Overture map.
-  - Driver status indicators: Online status, driver identity, current speed (km/h), and heading.
-  - Dynamic Haversine distance calculator measuring real-time physical separation between the moving driver and the active delivery geofence.
-- **Server-Sent Events Broadcast**: Instant push of `DRIVER_LOCATION_UPDATE` events over persistent HTTP streams.
-
-### 🗺️ Open-Source Overture Maps Foundation
-- **Unified Web & Mobile Map Experience**: Both the Admin Operations Console and the Rider mobile app (`LiveDeliveryMap.tsx`) utilize high-contrast Overture Maps Foundation / Carto Voyager raster and vector tiles.
-- **High-Contrast Telemetry Theme**: Sleek dark/silver slate aesthetics designed for operations room monitors and low-light delivery driving.
-- **Live Delivery Radar**: Real-time driver pin markers, customer geofence circles (50m), breadcrumb trails, and dynamic distance calculations.
-
-### ⚡ Real-Time Sync & HTTP 206 Streaming Backend
-- **Zero-Dependency Core Node.js**: The server runs on standard Node.js APIs (`http`, `fs`, `path`) without heavyweight frameworks or external runtime dependencies.
-- **Server-Sent Events (SSE)**: Instant event dispatching between mobile drivers and the dispatch desk.
-- **HTTP 206 Partial Content (Range)**: Supports instant seeking, scrub-ahead, and fluid playback of multi-megabyte video evidence.
+### ⚡ 6. Real-Time Server-Sent Events (SSE)
+- Persistent HTTP event streams (`GET /api/events`) with 15-second heartbeats.
+- Real-time event propagation: GPS telemetry, customer QR generation, customer QR scan, customer confirmation, supervisor approvals, and new order dispatches reflect instantly across all connected screens with zero page refreshes.
 
 ---
 
-## 4. Implementation Status
+## 📊 Implementation Status
 
-| Capability / Component | Status | Verification Detail |
-|---|:---:|---|
-| **Forward Geocoding Engine** | ✅ Implemented | Multi-tier geocoding (Nominatim + Bengaluru locality tokens) in `admin/server.js`. Verified in `testGeocodingAndTelemetry.js`. |
-| **Live Driver Telemetry Stream** | ✅ Implemented | Real-time GPS stream (`POST /api/telemetry` & SSE `DRIVER_LOCATION_UPDATE`) with 2.5s throttle in `useLocationTracking.ts`. |
-| **Overture Maps Integration** | ✅ Implemented | 100% open-source Overture Maps Foundation tiles across `admin/app.js` and mobile `LiveDeliveryMap.tsx`. |
-| **Haversine Distance Engine** | ✅ Implemented | Tested against close (31m) and remote (3168m) coordinates in `tests/runTests.js`. |
-| **Categorical Dwell Calculation** | ✅ Implemented | Validates dwell times from raw breadcrumbs across 90s, 120s, and 150s thresholds. |
-| **Native Call-Log Time Tracker** | ✅ Implemented | Tracks elapsed dialer time via `AppState` and window blur/focus events; flags calls < 8s. |
-| **Video Anti-Spoofing Analysis** | ✅ Implemented | Evaluates luminance, variance, standard deviation, and duration in `videoVerificationService.ts`. |
-| **Native Mobile Video Preview** | ✅ Implemented | Powered by `expo-video` native module; tested on native Android/iOS without WebViews. |
-| **Native File Upload Pipeline** | ✅ Implemented | Powered by `expo-file-system/legacy` `uploadAsync` to stream local camera files to server. |
-| **Authentic Admin Video Player** | ✅ Implemented | Pure HTML5 `<video>` tag with HTTP 206 Range streaming; zero cartoon door graphics. |
-| **Admin Operations Dashboard** | ✅ Implemented | Full dispatch queue, KPI counters, map tracking, driver radar, and video playback in `admin/index.html`. |
-| **Bidirectional Sync Server** | ✅ Implemented | Native Node.js HTTP + SSE server on port 3000 (`admin/server.js`) binding `0.0.0.0`. |
-| **SQLite WAL Persistence** | ✅ Implemented | Relational schema in `expo-sqlite` (Expo SDK 57) with localStorage fallback on Web. |
-| **Pre-Populated Task Dataset** | ✅ Implemented | 20 realistic delivery stops (`DEL-1001` through `DEL-1020`) across Bengaluru. |
+| Feature Component | Status | Implementation Details |
+| :--- | :---: | :--- |
+| **Deterministic Policy Engine** | ✅ Implemented | Server-side Haversine math, residence dwell, telephony validation, and video checks in `admin/server.js`. |
+| **Expo Driver Mobile App** | ✅ Implemented | Full React Native / Expo SDK 57 app (`src/`) with live radar, dwell gauge, camera upload, and QR modal. |
+| **Customer QR Verification** | ✅ Implemented | 256-bit base64url tokens, SHA-256 hash storage, 5-min TTL, atomic replay protection, and loopback rejection. |
+| **Customer Web Portal** | ✅ Implemented | Responsive server-rendered HTML portal (`admin/customerPortal.js`) with receipt cards and security headers. |
+| **Admin Operations Console** | ✅ Implemented | Full operations SPA (`admin/index.html`, `app.js`, `style.css`) with Overture map, KPI metrics, and review controls. |
+| **SQLite ACID Ledger** | ✅ Implemented | Built-in `node:sqlite` in WAL mode with tables for deliveries, attempts, sessions, and audit events. |
+| **Video Anti-Spoofing** | ✅ Implemented | BT.601 pixel luminance, variance, and minimum clip length verification in `videoVerificationService.ts`. |
+| **Real-Time SSE Sync** | ✅ Implemented | Zero-dependency HTTP Server-Sent Events with automated 15-second heartbeat and polling fallback. |
+| **AI Explanation Service** | ✅ Implemented | Groq / Llama-3.1 explanation assistant with strict PII sanitization and instant deterministic offline fallback. |
+| **Transactional Email** | ✅ Implemented | Official Resend SDK integration (`notificationService.js`) with zero-cost demo simulation fallback. |
+| **AWS Deployment** | ✅ Implemented | Production multi-stage `Dockerfile`, `apprunner.yaml`, and CloudFormation `aws/template.yaml`. |
+| **Driver OAuth Login** | 📋 Planned | Currently uses driver fleet identification headers (`X-Driver-Id`) for seamless hackathon simulation. |
 
 ---
 
-## 5. Technology Stack
+## ⚖️ Deterministic Verification Engine
 
-### Mobile Client Application
-- **Runtime**: [React Native 0.86.3](https://reactnative.dev/) with [React 19.2.3](https://react.dev/)
-- **Framework**: [Expo SDK 57](https://docs.expo.dev/versions/v57.0.0/)
-- **Language**: [TypeScript 7.0.2](https://www.typescriptlang.org/)
-- **Persistence**: `expo-sqlite` (WAL Mode) with Web `localStorage` abstraction
-- **Media & Sensors**: `expo-video`, `expo-file-system/legacy`, `expo-location`, `expo-camera`, `expo-image-picker`, `expo-document-picker`, `expo-haptics`
-- **Mapping**: `react-native-maps` (Mobile Native) & HTML5 Canvas / Leaflet (Web)
+### Policy Rules & Precedence Matrix
 
-### Admin Operations Console & Backend Sync
-- **Backend Runtime**: Node.js core HTTP (`admin/server.js`) with zero external runtime dependencies
-- **Video Storage & Streaming**: Multipart/form-data boundary parser with HTTP 206 Partial Content Range streaming
-- **Real-Time Protocol**: Server-Sent Events (SSE `text/event-stream`) + REST HTTP Polling fallback
-- **GIS / Mapping**: Leaflet 1.9.4 with Overture Maps Foundation / OpenFreeMap vector tiles
-- **Frontend Architecture**: Vanilla ES6+ JavaScript, custom CSS3 design tokens, native HTML5 Video player
-
----
-
-## 6. Directory Structure
-
+```text
+Incoming Delivery Attempt
+         │
+         ▼
+[Customer Unavailable Claim?] ── Yes (with Video Proof) ──▶ [REVIEW: Pending Admin Approval & QR Verification]
+         │ No
+         ▼
+[Distance > 500m?] ─────────── Yes ──────────────────────▶ [REJECTED: Severe Geofence Breach]
+         │ No
+         ▼
+[No Call Made AND Dwell Fail?]  Yes ──────────────────────▶ [REJECTED: Insufficient Dwell & Zero Telephony]
+         │ No
+         ▼
+[All Core Criteria Met?] ───── Yes ──────────────────────▶ [VERIFIED: All Criteria Satisfied]
+ (≤50m, Dwell OK, Call OK, GPS OK)
+         │ No
+         ▼
+[Degraded GPS Accuracy (>30m)?] Yes ─────────────────────▶ [REVIEW: Telemetry Ambiguity (±68m)]
+         │ No
+         ▼
+[Borderline Dwell Time?] ────── Yes ─────────────────────▶ [REVIEW: Dwell Duration Incomplete]
 ```
+
+### Residence Dwell Thresholds
+```typescript
+export const DWELL_POLICY = {
+  individual_house: 90,   // 1.5 minutes: Gate to door approach
+  apartment: 120,         // 2.0 minutes: Lobby, stairs, elevator transit
+  gated_society: 150,     // 2.5 minutes: Security clearance and complex navigation
+};
+```
+
+---
+
+## 🔄 Customer QR Verification Flow
+
+When an attempt resolves to `REVIEW` (or when a customer is present for doorstep handoff):
+
+1. **Driver Generates QR**: Tapping **"Customer QR Verification"** calls `POST /api/deliveries/:id/customer-verification/qr`.
+2. **Backend Token Issuance**:
+   - Generates 256-bit cryptographically secure token: `crypto.randomBytes(32).toString('base64url')`.
+   - Computes SHA-256 hash: `db.hashToken(rawToken)`.
+   - Stores hash in SQLite table `customer_verification_sessions` with `expires_at = now + 300s`. Plaintext token is **never stored**.
+   - Resolves authoritative LAN or public URL: `http://192.168.1.2:3001/v/<token>`.
+3. **Driver Displays QR**: Rendered crisply on the driver's phone with an active 5-minute countdown.
+4. **Customer Scans**:
+   - Customer opens camera and navigates to `GET /v/:token`.
+   - Server marks session `OPENED` and emits SSE event `CUSTOMER_QR_SCANNED`.
+   - Driver app updates live to "Customer Opened Portal".
+5. **Customer Submits Response**:
+   - Portal displays: **"Did you receive your package?"**
+   - Option A: **`📦 I RECEIVED THE PACKAGE`**
+     - **CASE 1**: Attempt was `REVIEW` -> Automatically transitions to `VERIFIED`.
+     - `requiresAdminApproval` is cleared (`0`); supervisor sign-off is no longer required.
+     - Emits SSE event `CUSTOMER_VERIFIED`.
+     - Customer browser receives green verified receipt.
+   - Option B: **`📦 I DID NOT RECEIVE THE PACKAGE`**
+     - **CASE 2**: Transitions to `CUSTOMER_CONFIRMED_FAILURE` and status `RETRY_REQUIRED`.
+     - Emits SSE event `CUSTOMER_CONFIRMED_FAILURE`.
+     - Flags delivery in Admin Operations Console and queues driver re-attempt task.
+6. **Zero-Trust Hard Rule**: If the attempt was physically `REJECTED` (e.g., driver was 3km away), a customer claim **cannot** override the physical evidence. The verdict remains `REJECTED`.
+
+---
+
+## 💻 Technology Stack
+
+### Mobile Frontend (Driver App)
+- **Framework**: Expo SDK 57.0.23 / React Native 0.86.3
+- **Language**: TypeScript 7.0.2
+- **Mapping**: React Native Maps 1.27.2 / React Native WebView 13.16.1 (Overture Maps / Leaflet)
+- **Video Player**: Expo Video 57.0.4 (`VideoView`, hardware accelerated)
+- **Local Storage**: Expo SQLite 57.0.3 / Expo FileSystem 57.0.7
+- **QR Engine**: React Native QRCode SVG 6.3.24 / React Native SVG 15.15.4
+
+### Backend Server & Operations Console
+- **Runtime**: Node.js 20 LTS (Zero external HTTP framework dependencies; uses built-in `node:http`, `node:fs`, `node:crypto`)
+- **Database**: Node.js built-in `node:sqlite` (`DatabaseSync`) in Write-Ahead Logging (WAL) mode
+- **Real-Time**: Server-Sent Events (SSE) with automated 15-second heartbeat
+- **Mapping / Tiles**: Leaflet 1.9.4 / Overture Maps Foundation / OpenFreeMap
+- **AI Explanation**: Groq Cloud SDK / OpenAI-compatible endpoint (`llama-3.1-8b-instant`)
+- **Email Notifications**: Official Resend SDK (`resend` 6.28.1)
+
+---
+
+## 📁 Repository Structure
+
+```text
 Saboot/
-├── admin/                           # Admin Operations Console & Sync Server
+├── admin/                         # Backend server, APIs, SQLite, & Admin Console
+│   ├── app.js                     # Admin Console UI logic & Leaflet Overture map
+│   ├── customerPortal.js          # Customer Verification Portal HTML generator
+│   ├── index.html                 # Admin Console interface
+│   ├── server.js                  # Authoritative HTTP/SSE server (Port 3001)
+│   ├── style.css                  # Dark high-contrast operations room stylesheet
 │   ├── data/
-│   │   ├── deliveries.json          # Persisted backend delivery records
-│   │   └── uploads/                 # Stored authentic MP4 video evidence files
-│   ├── app.js                       # Admin UI logic, Leaflet map, native video player
-│   ├── index.html                   # Operations console markup & KPI cards
-│   ├── server.js                    # Node.js HTTP + SSE + Video Range server (Port 3000)
-│   └── style.css                    # High-contrast silver/slate operations theme
-├── assets/                          # Application icons, splash screens, logos
-├── src/
-│   ├── App.tsx                      # Root screen orchestrator & navigation state
-│   ├── components/                  # Reusable UI components
-│   │   ├── DeliveryCard.tsx         # Delivery queue card with status chips
-│   │   ├── DwellGauge.tsx           # Circular dwell time countdown timer
-│   │   ├── EvidenceChecklist.tsx    # Step-by-step physical verification checklist
-│   │   ├── Header.tsx               # Top header with driver profile
-│   │   ├── LiveDeliveryMap.tsx      # Interactive map with geofence & driver radar
-│   │   ├── MetricCard.tsx           # Shift KPI summary cards
-│   │   ├── ResultCard.tsx           # Post-verification audit certificate card
-│   │   ├── SabootLogo.tsx           # Vector shield branding
-│   │   ├── ScenarioModal.tsx        # Hackathon demo scenario switcher
-│   │   └── VideoProofThumbnail.tsx  # Native expo-video mobile proof player
-│   ├── constants/
-│   │   ├── demoData.ts              # 20 complete Bengaluru deliveries (DEL-1001..DEL-1020)
-│   │   ├── dwellPolicy.ts           # Residence-specific dwell & proximity limits
-│   │   └── theme.ts                 # Color tokens, typography, shadows
-│   ├── hooks/
-│   │   ├── useAttestation.ts        # Attempt verification workflow hook
-│   │   ├── useDelivery.ts           # SQLite sync, 10s ping, and shift metrics hook
-│   │   └── useLocationTracking.ts   # GPS breadcrumb recording & Haversine calculator
-│   ├── screens/
-│   │   ├── DeliveryDetailScreen.tsx # Handoff workflow, camera, call log, file picker
-│   │   ├── HomeScreen.tsx           # Route stops list, KPI counters, sync button
-│   │   └── ResultScreen.tsx         # Detailed verification audit report
-│   ├── services/
-│   │   ├── apiService.ts            # Zero-trust deterministic policy evaluation engine
-│   │   ├── databaseService.ts       # expo-sqlite WAL database & Web storage adapter
-│   │   ├── locationService.ts       # GPS watchPosition & Haversine distance math
-│   │   ├── realtimeSync.ts          # REST + SSE client, native FileSystem uploader
-│   │   └── videoVerificationService.ts # Video frame analysis & anti-tamper checker
-│   └── types/
-│       ├── delivery.ts              # Delivery, Address, Customer, ShiftMetrics types
-│       ├── evidence.ts              # GPS breadcrumb, CallEvidence, VideoEvidence types
-│       └── policy.ts                # VerificationResult, VerificationFacts types
-├── tests/                           # Verification & test suites
-│   ├── runTests.js                  # Zero-trust policy & spoofing test suite (21 tests)
-│   ├── testAdminAndFileManager.js   # Admin controls & file upload tests (4 tests)
-│   ├── testCompleteFlow.js          # Comprehensive end-to-end integration test
-│   ├── testGeocodingAndTelemetry.js # Forward geocoding & live telemetry test suite (5 tests)
-│   ├── testOvertureAndDispatchSync.js # Overture maps & dispatch sync tests (7 tests)
-│   ├── testVideoAndSqlite.js        # Video anti-spoof & SQLite tests (9 tests)
-│   ├── verifyAdminReviewWorkflow.js # Admin approval and rejection workflow tests
-│   └── verifyPhoneToDbToAdmin.js    # Direct Phone -> Backend -> Admin stream verification
-├── app.json                         # Expo configuration, plugins & OS permissions
-├── package.json                     # Scripts and dependencies
-└── tsconfig.json                    # TypeScript compiler configuration
+│   │   ├── seedData.js            # Initial seed delivery fixtures
+│   │   ├── saboot.db              # SQLite ACID database (WAL mode, ignored in git)
+│   │   └── uploads/               # MP4 video proofs storage (ignored in git)
+│   └── services/
+│       ├── aiExplanationService.js # LLM explanation service with fallback
+│       ├── database.js            # Authoritative SQLite persistence service
+│       ├── emailTemplate.js       # Transactional HTML/text email templates
+│       └── notificationService.js # Resend email notification service
+├── assets/                        # App icons, splash screens, and logos
+├── aws/                           # Cloud deployment resources
+│   ├── DEPLOYMENT_GUIDE.md        # Complete AWS App Runner & ECS guide
+│   └── template.yaml              # AWS CloudFormation App Runner template
+├── scripts/
+│   └── runQrVerification.js       # Terminal CLI interactive QR verification runner
+├── src/                           # Expo / React Native Mobile Driver App
+│   ├── App.tsx                    # Root application entry & navigation router
+│   ├── components/                # Modular UI components (DwellGauge, Maps, Modals)
+│   ├── constants/                 # Dwell policies, demo data, themes
+│   ├── hooks/                     # Custom hooks (useDelivery, useAttestation, etc.)
+│   ├── screens/                   # HomeScreen, DeliveryDetailScreen, ResultScreen
+│   ├── services/                  # Offline SQLite, API client, telemetry sync
+│   └── types/                     # Core TypeScript data contracts
+├── tests/                         # 16 automated test suites (73+ tests)
+├── .env.example                   # Environment variable template
+├── app.json                       # Expo SDK 57 project configuration
+├── apprunner.yaml                 # AWS App Runner deployment configuration
+├── Dockerfile                     # Multi-stage production container build
+├── Makefile                       # Developer task runner
+└── package.json                   # Project manifest & test scripts
 ```
 
 ---
 
-## 7. Quickstart & Local Setup
+## 🚀 Quickstart & Local Setup
 
 ### Prerequisites
-- **Node.js**: `v18.x` or higher (tested on Node v20/v22/v24)
-- **npm** or **yarn**
-- **Expo Go** (if running on a physical Android or iOS device)
+- **Node.js**: `v20.x` or higher (Required for built-in `node:sqlite`)
+- **npm**: `v10.x` or higher
+- **Expo Go App**: Installed on your iOS or Android smartphone (App Store / Google Play)
+- **Local Network**: Smartphone and computer must be connected to the same Wi-Fi network
 
 ### Installation
-Clone the repository and install dependencies:
-
 ```bash
+# Clone the repository
 git clone https://github.com/vishnubhargavd/Saboot.git
 cd Saboot
+
+# Install dependencies
 npm install
+
+# Configure environment variables
+cp .env.example .env
 ```
 
-### One-Command Start (Admin + Mobile App + QR Code)
-
-To start both the Admin Operations Console and the Expo Metro Bundler with the QR code and LAN URLs displayed simultaneously:
+### Starting the Platform
+You can run the full platform using `make` or npm scripts:
 
 ```bash
-make start
-# or
+# Option A: Start both Backend Server and Expo Metro Bundler simultaneously
 make dev
-```
-
-This will:
-1. Detect your machine's active LAN IP address automatically.
-2. Launch the Saboot Admin Sync Server on port 3000 (`http://localhost:3000` and `http://<YOUR_LAN_IP>:3000`).
-3. Start the Expo Metro Bundler on port 8081 with an interactive terminal QR code for scanning with Expo Go.
-4. Cleanly stop both processes when you press `Ctrl+C`.
-
-Other helpful `make` commands:
-```bash
-make admin    # Run only the Admin Operations Console (port 3000)
-make expo     # Run only Expo Metro Bundler with QR code (port 8081)
-make test     # Run all verification test suites
-make stop     # Kill any processes occupying ports 3000 and 8081
-```
-
----
-
-### Running the Admin Operations Console
-Start the sync server and operations dashboard individually:
-
-```bash
-npm run admin
-```
-
-The console will bind to all network interfaces (`0.0.0.0:3000`):
-- **Local Web Console**: [http://localhost:3000](http://localhost:3000)
-- **REST API Deliveries**: [http://localhost:3000/api/deliveries](http://localhost:3000/api/deliveries)
-- **Real-Time SSE Stream**: [http://localhost:3000/api/events](http://localhost:3000/api/events)
-- **Video Upload Endpoint**: `POST http://localhost:3000/api/upload`
-
-### Running the Mobile Driver App
-In a separate terminal window, start the Expo development server:
-
-```bash
-# Start Expo interactive CLI
+# or
 npm start
 
-# Or run directly in your desktop browser:
-npm run web
+# Option B: Run only the Backend & Admin Operations Console (Port 3001)
+npm run admin
+# or
+make admin
 
-# Or target a connected Android device / emulator:
-npm run android
-
-# Or target an iOS simulator (macOS required):
-npm run ios
+# Option C: Run only the Expo Metro Bundler (Port 8081)
+npm run start
 ```
 
-> **LAN Mobile Device Note**: When running on a physical mobile device via Expo Go, ensure your phone and computer are on the same Wi-Fi network. The app automatically detects your computer's LAN IP via Expo's `scriptURL` and connects to `http://<YOUR-IP>:3000`.
+### Accessing the Interfaces
+- **Admin Operations Console**: Navigate to `http://localhost:3001` or `http://<YOUR_LAN_IP>:3001` in your browser.
+- **Mobile Driver Application**: Scan the Metro QR code displayed in your terminal using the **Expo Go** app on your phone.
+- **Customer Verification Portal**: Automatically rendered when scanning a driver-generated QR code or accessing `http://<YOUR_LAN_IP>:3001/v/<token>`.
 
 ---
 
-## 8. Real-Time Sync & REST API Reference
+## 📡 Real-Time Sync & REST API Reference
 
-The Saboot sync engine provides standard REST endpoints, raw file upload endpoints, HTTP 206 streaming, and a Server-Sent Events (SSE) broadcast stream.
+### Core REST Endpoints
 
-### Endpoints
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/health` | Service healthcheck returning uptime and timestamp. |
+| `GET` | `/api/deliveries` | Retrieve all delivery orders with active statuses and telemetry facts. |
+| `POST` | `/api/verify` | Submit raw sensory telemetry for authoritative zero-trust evaluation. |
+| `POST` | `/api/upload` | Upload authentic MP4 doorstep video proof. |
+| `POST` | `/api/telemetry` | Uplink real-time driver GPS telemetry (lat, lng, speed, heading). |
+| `GET` | `/api/geocode?q=<addr>` | Forward geocode street addresses to high-precision doorstep coordinates. |
+| `POST` | `/api/deliveries/:id/customer-verification/qr` | Generate a 256-bit secure customer verification QR token. |
+| `GET` | `/v/:token` | Serve the responsive Customer Verification Web Portal. |
+| `POST` | `/api/customer-verification/token/:token` | Record customer response (`PACKAGE_RECEIVED` or `PACKAGE_NOT_RECEIVED`). |
 
-#### `POST /api/upload`
-Uploads raw authentic MP4 video proof from mobile client. Supports both standard multipart/form-data and JSON base64 payloads.
-```http
-POST /api/upload HTTP/1.1
-Host: localhost:3000
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary...
+### Server-Sent Events (SSE) — `GET /api/events`
 
-------WebKitFormBoundary...
-Content-Disposition: form-data; name="file"; filename="proof_1003.mp4"
-Content-Type: video/mp4
-
-<BINARY MP4 DATA>
-------WebKitFormBoundary...--
-```
-**Response (200 OK)**:
+Connect with header `Accept: text/event-stream` to receive real-time JSON events:
 ```json
+// Example: Live Driver Telemetry
 {
-  "success": true,
-  "url": "/api/uploads/proof_1003.mp4",
-  "fileName": "proof_1003.mp4"
+  "type": "DRIVER_LOCATION_UPDATE",
+  "driverId": "DRV-BLR-09",
+  "latitude": 12.912450,
+  "longitude": 77.639120,
+  "speed": 5.5,
+  "heading": 145,
+  "timestamp": "2026-09-20T22:00:00.000Z"
+}
+
+// Example: Customer QR Scanned
+{
+  "type": "CUSTOMER_QR_SCANNED",
+  "deliveryId": "DEL-1003",
+  "scannedAt": "2026-09-20T22:01:15.000Z"
+}
+
+// Example: Customer Verification Resolved
+{
+  "type": "CUSTOMER_VERIFIED",
+  "deliveryId": "DEL-1003",
+  "status": "VERIFIED",
+  "decision": "VERIFIED",
+  "customerResponse": "PACKAGE_RECEIVED"
 }
 ```
-
-#### `GET /api/uploads/:filename`
-Streams uploaded video files with **HTTP 206 Partial Content (Range)** support, enabling smooth seeking and buffer scrubbing in native HTML5 video players.
-```http
-GET /api/uploads/proof_1003.mp4 HTTP/1.1
-Host: localhost:3000
-Range: bytes=0-1048575
-```
-**Response (206 Partial Content)**:
-```http
-HTTP/1.1 206 Partial Content
-Content-Range: bytes 0-1048575/788493
-Accept-Ranges: bytes
-Content-Type: video/mp4
-Content-Length: 788493
-```
-
-#### `GET /api/deliveries`
-Returns the complete list of delivery tasks in the active dispatch route.
-```http
-GET /api/deliveries HTTP/1.1
-Host: localhost:3000
-```
-
-#### `POST /api/deliveries`
-Dispatches a new delivery task to the route. Broadcasts an `ORDER_DISPATCHED` event to all driver apps.
-
-#### `PUT /api/deliveries/:id`
-Updates an existing delivery record (e.g. driver reassignment, handoff completion, or supervisor review).
-
-#### `GET /api/geocode?q=<ADDRESS>`
-Dynamically forward geocodes a delivery address to precise latitude/longitude coordinates using online geocoding with multi-tier Bengaluru locality fallback.
-```http
-GET /api/geocode?q=asritha%20lotus%20residency%20HSR%20Layout HTTP/1.1
-Host: localhost:3000
-```
-**Response (200 OK)**:
-```json
-{
-  "query": "asritha lotus residency HSR Layout",
-  "coordinates": [12.9118, 77.6378],
-  "latitude": 12.9118,
-  "longitude": 77.6378,
-  "locality": "HSR Layout",
-  "source": "locality_database_offset"
-}
-```
-
-#### `POST /api/telemetry`
-Receives live GPS breadcrumbs, heading, and speed streamed from the mobile driver client. Broadcasts real-time position updates to all connected admin consoles via SSE.
-```http
-POST /api/telemetry HTTP/1.1
-Host: localhost:3000
-Content-Type: application/json
-
-{
-  "driverId": "DRV-8821",
-  "driverName": "Rajesh Kumar",
-  "latitude": 12.9352,
-  "longitude": 77.6245,
-  "accuracy": 4.2,
-  "speed": 24.5,
-  "heading": 85.0
-}
-```
-**Response (200 OK)**:
-```json
-{
-  "success": true,
-  "timestamp": 1774152500000
-}
-```
-
-#### `GET /api/telemetry`
-Retrieves the latest active driver telemetry records cached in memory.
-```http
-GET /api/telemetry HTTP/1.1
-Host: localhost:3000
-```
-
-#### `GET /api/events` (SSE Stream)
-Opens a persistent Server-Sent Events connection. Emits real-time JSON events:
-- `ORDER_DISPATCHED`: New order created in admin console.
-- `TASK_ASSIGNED`: Driver reassigned.
-- `DELIVERY_COMPLETED`: Driver completed handoff with video proof.
-- `ADMIN_DECISION_UPDATED`: Supervisor approved or rejected claim.
-- `DRIVER_LOCATION_UPDATE`: Live GPS position, speed, and heading emitted by active drivers.
-
-#### `GET /api/events/poll?since=<TIMESTAMP>`
-Lightweight polling fallback for network environments where long-lived HTTP SSE connections are interrupted.
 
 ---
 
-## 9. Anti-Tampering & Telemetry Math
+## 🧪 Testing & Verification
 
-### Haversine Proximity Verification
-To determine distance between the driver's current coordinates $(\phi_1, \lambda_1)$ and the delivery address $(\phi_2, \lambda_2)$, Saboot uses the great-circle Haversine formula on a spherical Earth radius $R = 6,371,000\text{ m}$:
-
-$$\Delta\phi = \frac{(\phi_2 - \phi_1) \cdot \pi}{180}, \quad \Delta\lambda = \frac{(\lambda_2 - \lambda_1) \cdot \pi}{180}$$
-
-$$a = \sin^2\left(\frac{\Delta\phi}{2}\right) + \cos\left(\frac{\phi_1 \cdot \pi}{180}\right) \cdot \cos\left(\frac{\phi_2 \cdot \pi}{180}\right) \cdot \sin^2\left(\frac{\Delta\lambda}{2}\right)$$
-
-$$c = 2 \cdot \text{atan2}\left(\sqrt{a}, \sqrt{1 - a}\right), \quad d = R \cdot c$$
-
-Attempts with $d > 50\text{m}$ (plus GPS jitter tolerance) are blocked from claiming proximity verification.
-
-### Residence-Aware Dwell Thresholds
-Dwell time is derived from the timestamps of consecutive breadcrumbs recorded within the $50\text{m}$ geofence:
-
-$$T_{\text{dwell}} = t_{\text{last\_inside}} - t_{\text{first\_inside}}$$
-
-| Residence Category | Minimum Dwell ($T_{\text{dwell}}$) | Operational Rationale |
-|---|:---:|---|
-| **Individual House** | 90 seconds | Front-gate entry, doorbell ring, waiting at doorstep |
-| **Apartment Complex** | 120 seconds | Parking, building intercom, elevator transit |
-| **Gated Society / Tech Park** | 150 seconds | Visitor gate register, security guard check, tower navigation |
-
-### Native Telephony Duration Auditing
-When the driver taps "Call Customer", the app launches the OS dialer via `tel:` and captures the exact timestamp $T_{\text{dial}}$. When the driver returns to the app (monitored by React Native `AppState` and Web window focus), the return timestamp $T_{\text{return}}$ is recorded:
-
-$$\Delta T_{\text{call}} = T_{\text{return}} - T_{\text{dial}}$$
-
-- $\Delta T_{\text{call}} < 3\text{s}$: Classified as **Canceled / Misclick** (driver never dialed).
-- $3\text{s} \le \Delta T_{\text{call}} < 8\text{s}$: Classified as **Premature Hangup** (insufficient ring count, rejected).
-- $\Delta T_{\text{call}} \ge 8\text{s}$: Accepted as **Valid Attempt** (`no_answer`, `busy`, or `completed`).
-
-### Video Anti-Spoofing & Luminance Engine
-To verify that video evidence contains genuine visual data rather than a covered lens or blank screen, frames are analyzed using the **ITU-R BT.601** perceived luminance formula across sampled pixels:
-
-$$Y_i = 0.299 \cdot R_i + 0.587 \cdot G_i + 0.114 \cdot B_i$$
-
-$$\bar{Y} = \frac{1}{N} \sum_{i=1}^N Y_i, \quad \sigma^2 = \frac{1}{N} \sum_{i=1}^N (Y_i - \bar{Y})^2, \quad \sigma = \sqrt{\sigma^2}$$
-
-- **Covered Lens / Dark Pocket**: $\bar{Y} < 18 \implies \text{REJECTED\_BLACK}$
-- **Washed Out / Blank Light**: $\bar{Y} > 240 \text{ and } \sigma < 12 \implies \text{REJECTED\_WHITE}$
-- **Static Monochromatic Dummy**: $\sigma < 8 \implies \text{REJECTED\_BLANK}$
-- **Duration Check**: $T_{\text{video}} < 2.0\text{s} \implies \text{REJECTED\_TOO\_SHORT}$
-
----
-
-## 10. Testing & Verification
-
-Saboot includes automated test suites covering telemetry math, zero-trust policy rules, anti-tampering guards, video spoof detection, SQLite persistence, multipart upload, Range streaming, and dispatch synchronization.
-
-### Run All Test Suites
+The repository contains **16 test files** providing 100% automated coverage over all zero-trust policies, video anti-spoofing algorithms, QR workflows, and database transitions.
 
 ```bash
-# 1. Complete Phone -> Database -> Admin Video Streaming Pipeline (End-to-End)
-node tests/verifyPhoneToDbToAdmin.js
+# Run the core Zero-Trust Verification Test Suite (21 tests)
+npm test
 
-# 2. Comprehensive System Integration Test
-node tests/testCompleteFlow.js
+# Run the complete test suite (73+ tests across 7 comprehensive test suites)
+npm run test:all
 
-# 3. Real-World Address Geocoding & Live Driver Telemetry Suite (5 tests)
-node tests/testGeocodingAndTelemetry.js
-
-# 4. Supervisor Audit Verification & Rejection Workflow (3 tests)
-node tests/verifyAdminReviewWorkflow.js
-
-# 5. Zero-Trust Policy & Hackathon Scenarios Suite (21 tests)
-node tests/runTests.js
-
-# 6. Video Proof Anti-Spoofing & SQLite Metrics Suite (9 tests)
-node tests/testVideoAndSqlite.js
-
-# 7. File Manager & Admin Controls Suite (4 tests)
-node tests/testAdminAndFileManager.js
-
-# 8. Overture Maps & Dispatch Real-Time Sync Suite (7 tests)
-node tests/testOvertureAndDispatchSync.js
+# Verify TypeScript compilation
+npm run typecheck
 ```
 
-### TypeScript & Syntax Verification
+### Test Suite Summary
+```text
+======================================================
+✔ 1. Geocoding & Live Driver Telemetry:    PASSED
+✔ 2. Overture Maps & Admin Dispatch Sync:  PASSED (7/7 tests)
+✔ 3. Zero-Trust Verification Engine:       PASSED (21/21 tests)
+✔ 4. Video Verification & SQLite Metrics:  PASSED (9/9 tests)
+✔ 5. Customer Confirmation Portal:         PASSED (11/11 tests)
+✔ 6. Open-Source AI Explanation Service:   PASSED (9/9 tests)
+✔ 7. Resend Customer Email Notifications:  PASSED (11/11 tests)
+======================================================
+TOTAL: 73+ / 73+ Tests Passed (100% Success Rate)
+```
+
+---
+
+## ☁️ Cloud & Container Deployment
+
+### 🐳 1. Docker Production Build
+A multi-stage, lightweight production container definition is provided in `Dockerfile`:
 ```bash
-# Type check the mobile application (0 errors)
-npx tsc --noEmit
+# Build production container
+docker build -t saboot-engine .
 
-# Syntax check backend servers
-node -c admin/server.js && node -c admin/app.js
+# Run container on port 3001
+docker run -p 3001:3001 \
+  -e PORT=3001 \
+  -e PUBLIC_BASE_URL="https://saboot.yourdomain.com" \
+  saboot-engine
 ```
 
----
-
-## 11. Permissions & Native Manifests
-
-Saboot requests zero unnecessary permissions. All native permissions declared in `app.json` are strictly tied to delivery attempt evidence:
-
-```json
-{
-  "android": {
-    "permissions": [
-      "ACCESS_COARSE_LOCATION",
-      "ACCESS_FINE_LOCATION",
-      "CAMERA",
-      "RECORD_AUDIO"
-    ]
-  },
-  "ios": {
-    "infoPlist": {
-      "NSLocationWhenInUseUsageDescription": "Saboot requires your location to verify delivery proximity and dwell time.",
-      "NSCameraUsageDescription": "Saboot uses the camera for customer-consented delivery proof video.",
-      "NSMicrophoneUsageDescription": "Saboot uses the microphone for video evidence recording."
-    }
-  }
-}
-```
+### 🚀 2. AWS App Runner 1-Click Deployment (Recommended)
+Saboot includes native configuration for **AWS App Runner** (`apprunner.yaml` and `aws/template.yaml`):
+1. Navigate to **AWS App Runner Console** and select **Create service**.
+2. Connect your GitHub repository (`feature/saboot-ai-zero-trust` branch).
+3. Select **Use configuration file** (`apprunner.yaml` in root).
+4. Set environment variables:
+   - `PORT`: `3001`
+   - `EMAIL_PROVIDER`: `resend` (optional)
+   - `RESEND_API_KEY`: `<your-key>` (optional)
+   - `PUBLIC_BASE_URL`: `https://<your-service>.awsapprunner.com`
+5. Deploy. App Runner automatically provisions SSL/TLS certificates and provides a persistent public HTTPS endpoint for SSE and customer verification.
 
 ---
 
-## 12. Roadmap
+## 🔒 Security Architecture
 
-- [x] **Phase 1: Core Zero-Trust Telemetry Engine**: Haversine distance, categorical dwell thresholds, and native telephony audit.
-- [x] **Phase 2: Video Anti-Spoofing & Handoff Proof**: ITU-R BT.601 pixel analysis, covered lens detection, and native `expo-video` player.
-- [x] **Phase 3: Open-Source Maps Migration**: Migration from Google Maps to Leaflet and Overture Maps Foundation tiles across Web and Mobile.
-- [x] **Phase 4: Real-Time Sync & 10s Auto-Ping**: Bi-directional HTTP REST + Server-Sent Events with automated 10-second heartbeat.
-- [x] **Phase 5: Authentic Video Streaming Pipeline**: Multipart file uploader, Range 206 streaming, and pure HTML5 admin video player.
-- [x] **Phase 6: 20-Stop Bengaluru Route Catalog**: Rich demo dataset with realistic addresses, geofences, and package types.
-- [x] **Phase 7: Real-World Forward Geocoding Engine**: Multi-tier dynamic address geocoding with 20+ Bengaluru locality dictionaries and deterministic micro-offsets.
-- [x] **Phase 8: Live Driver GPS Telemetry Streaming**: Real-time mobile GPS tracking, SSE position broadcasts, and animated dispatch radar.
-- [ ] **Phase 9: Cryptographic BLE Beacon Lock**: Secure handshake with apartment locker gates and building access beacons.
-- [ ] **Phase 10: Hardware-Attested KeyStore (Keystore/SecureEnclave)**: Cryptographically sign GPS breadcrumbs with device-bound private keys.
+- **Entropy & Cryptography**: Verification tokens are generated using cryptographically secure pseudorandom numbers (`crypto.randomBytes(32)`).
+- **Hashed Token Storage**: The persistent database stores only the SHA-256 hash of tokens. Plaintext tokens are never stored, preventing token harvesting from database backups.
+- **Strict Short-Lived TTL**: All customer tokens expire after 300 seconds (5 minutes).
+- **ACID Replay Protection**: Single-use token consumption is protected by immediate SQLite transactions (`BEGIN IMMEDIATE`), neutralizing race conditions and double-submission attacks.
+- **Physical Device Loopback Protection**: Prevents leaking `localhost` URLs to physical mobile devices scanning QR codes.
+- **Security Headers**: Customer portal enforces `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Zero-Trust AI Boundary**: AI is strictly limited to explanatory prose. AI never decides or alters verification outcomes, and all PII is sanitized prior to LLM inference.
+- **Server Authority**: The backend recalculates Haversine distance and dwell times from raw breadcrumbs; client-asserted decisions are ignored.
 
 ---
 
-## 13. Contributing & License
+## 📄 License
 
-Contributions are welcome! Please ensure all modifications pass TypeScript checks (`npx tsc --noEmit`) and the full test suite (`node tests/verifyPhoneToDbToAdmin.js && node tests/testCompleteFlow.js`) before opening a pull request.
-
-### License
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
